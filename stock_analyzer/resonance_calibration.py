@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from stock_analyzer import data_fetcher
+from stock_analyzer.backtest import ENTRY_MODEL_EVENT_CLOSE, ENTRY_MODEL_NEXT_OPEN, ENTRY_MODELS
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.normalizer import normalize_price_frame
 from stock_analyzer.scan_buckets import RESONANCE_CALIBRATION_BUCKETS
@@ -75,25 +76,45 @@ def _event_index(frame, event_date):
     return matches[0]
 
 
-def _forward_return(frame, event_date, horizon):
+def _validated_entry_model(entry_model):
+    if entry_model not in ENTRY_MODELS:
+        choices = ", ".join(sorted(ENTRY_MODELS))
+        raise ValueError(f"entry_model must be one of: {choices}")
+    return entry_model
+
+
+def _forward_return(frame, event_date, horizon, entry_model=ENTRY_MODEL_EVENT_CLOSE):
+    entry_model = _validated_entry_model(entry_model)
     idx = _event_index(frame, event_date)
     if idx is None:
         return None
-    target_idx = idx + int(horizon)
+    if entry_model == ENTRY_MODEL_NEXT_OPEN:
+        if "open" not in frame.columns:
+            return None
+        entry_idx = idx + 1
+        target_idx = entry_idx + int(horizon)
+        if target_idx >= len(frame):
+            return None
+        base_price = _as_float(frame.iloc[entry_idx].get("open"), None)
+        window = frame.iloc[entry_idx:target_idx + 1]
+    else:
+        target_idx = idx + int(horizon)
+        if target_idx >= len(frame):
+            return None
+        base_price = _as_float(frame.iloc[idx].get("close"), None)
+        window = frame.iloc[idx + 1:target_idx + 1]
     if target_idx >= len(frame):
         return None
 
-    base_close = _as_float(frame.iloc[idx].get("close"), None)
     target_close = _as_float(frame.iloc[target_idx].get("close"), None)
-    if not base_close or target_close is None:
+    if not base_price or target_close is None:
         return None
 
-    window = frame.iloc[idx + 1:target_idx + 1]
     if window.empty:
         return None
-    close_ret = (target_close / base_close - 1) * 100
+    close_ret = (target_close / base_price - 1) * 100
     worst_close = float(window["close"].min())
-    worst_ret = (worst_close / base_close - 1) * 100
+    worst_ret = (worst_close / base_price - 1) * 100
     return {
         "ret": round(close_ret, 2),
         "worst_ret": round(worst_ret, 2),
@@ -143,8 +164,16 @@ def _candidate_results(pools):
             yield result
 
 
-def build_replay_calibration(pools, start_date=None, horizons=DEFAULT_REPLAY_HORIZONS, cache_dir=None, max_candidates=800):
+def build_replay_calibration(
+    pools,
+    start_date=None,
+    horizons=DEFAULT_REPLAY_HORIZONS,
+    cache_dir=None,
+    max_candidates=800,
+    entry_model=ENTRY_MODEL_EVENT_CLOSE,
+):
     """Build forward-return calibration buckets from local history cache only."""
+    entry_model = _validated_entry_model(entry_model)
     buckets = {bucket["key"]: _empty_bucket(bucket) for bucket in REPLAY_BUCKETS}
     histories = {}
     candidates_seen = 0
@@ -167,7 +196,12 @@ def build_replay_calibration(pools, start_date=None, horizons=DEFAULT_REPLAY_HOR
         bucket = buckets[_bucket_key(result.get("sector_score"))]
         bucket_touched = False
         for horizon in horizons:
-            replay = _forward_return(history, result.get("event_date") or result.get("date"), horizon)
+            replay = _forward_return(
+                history,
+                result.get("event_date") or result.get("date"),
+                horizon,
+                entry_model=entry_model,
+            )
             if replay is None:
                 continue
             horizon_key = str(horizon)
@@ -202,6 +236,7 @@ def build_replay_calibration(pools, start_date=None, horizons=DEFAULT_REPLAY_HOR
     return {
         "method": "historical_snapshot_replay",
         "note": "使用本地日线缓存追踪事件日后的真实交易日收益",
+        "entry_model": entry_model,
         "horizons": list(horizons),
         "candidate_count": complete_candidates,
         "requested_count": candidates_seen,

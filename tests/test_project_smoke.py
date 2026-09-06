@@ -1056,6 +1056,7 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertFalse(kwargs["include_replay"])
         self.assertFalse(kwargs["include_market_universe"])
         self.assertFalse(kwargs["include_market_breadth"])
+        self.assertEqual(kwargs["replay_entry_model"], "event_close")
         self.assertTrue(kwargs["latest_only"])
 
     @patch("app.collect_scan_workspace")
@@ -1074,14 +1075,16 @@ class ProjectSmokeTest(unittest.TestCase):
         }
 
         response = app.app.test_client().get(
-            "/api/scan_workspace/candidates?scan_type=opportunity&limit=20&lite=0&include_replay=1&profile=1"
+            "/api/scan_workspace/candidates?scan_type=opportunity&limit=20&lite=0&include_replay=1&profile=1&entry_model=next_open"
         )
 
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["performance"]["mode"], "full")
+        self.assertEqual(payload["performance"]["entry_model"], "next_open")
         _, kwargs = mock_workspace.call_args
         self.assertTrue(kwargs["include_replay"])
+        self.assertEqual(kwargs["replay_entry_model"], "next_open")
         self.assertTrue(kwargs["include_market_universe"])
         self.assertTrue(kwargs["include_market_breadth"])
         self.assertFalse(kwargs["latest_only"])
@@ -1581,11 +1584,43 @@ class ProjectSmokeTest(unittest.TestCase):
         stats = evaluate_signal_events(frame, events, horizon=5)
         payload = analysis_frame_to_chart_payload(frame)
 
+        self.assertEqual(stats["entry_model"], "event_close")
         self.assertEqual(stats["by_signal"]["composite_pullback"]["evaluated_count"], 1)
+        self.assertEqual(stats["by_signal"]["composite_pullback"]["entry_model"], "event_close")
         self.assertEqual(stats["by_signal"]["composite_pullback"]["win_rate"], 100.0)
         self.assertGreater(stats["by_signal"]["composite_pullback"]["avg_ret"], 0)
         self.assertIn("MACD多头", stats["by_reason"])
         self.assertEqual(payload["event_stats"]["composite"]["by_reason"]["底背离"]["evaluated_count"], 1)
+
+    def test_event_backtest_supports_next_open_entry_model(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame["open"] = [10.0] * 12
+        frame.loc[4, "composite_entry"] = True
+        frame.loc[4, "composite_entry_type"] = "pullback"
+        frame.loc[4, "composite_entry_reason"] = "底背离 / MACD多头"
+
+        events = build_composite_signal_events(frame)
+        stats = evaluate_signal_events(frame, events, horizon=5, entry_model="next_open")
+
+        pullback = stats["by_signal"]["composite_pullback"]
+        self.assertEqual(stats["entry_model"], "next_open")
+        self.assertEqual(pullback["entry_model"], "next_open")
+        self.assertEqual(pullback["evaluated_count"], 1)
+        self.assertAlmostEqual(pullback["avg_ret"], 10.0)
+        self.assertEqual(pullback["win_rate"], 100.0)
+
+    def test_event_backtest_next_open_skips_when_horizon_is_missing(self):
+        frame = self._minimal_signal_frame(rows=10)
+        frame.loc[4, "composite_entry"] = True
+        frame.loc[4, "composite_entry_type"] = "pullback"
+
+        events = build_composite_signal_events(frame)
+        event_close = evaluate_signal_events(frame, events, horizon=5)
+        next_open = evaluate_signal_events(frame, events, horizon=5, entry_model="next_open")
+
+        self.assertEqual(event_close["by_signal"]["composite_pullback"]["evaluated_count"], 1)
+        self.assertEqual(next_open["by_signal"]["composite_pullback"]["evaluated_count"], 0)
+        self.assertIsNone(next_open["by_signal"]["composite_pullback"]["avg_ret"])
 
     def test_composite_strategy_uses_pullback_gate_and_position_stop_loss(self):
         frame = self._strategy_frame()

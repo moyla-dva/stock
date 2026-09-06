@@ -210,3 +210,20 @@
 2. P1-2A：修复历史回看里的策略版本显示，避免旧策略历史日显示当前代码版本。
 3. P1-1B：对 C突做单独分桶回测，重点看高开追涨、突破幅度、量比、偏离 MA20。
 4. T2-1：开始实现 `trade_plan.py` 的仓位公式与收益风险比门槛。
+- [2026-09-06 23:52] Codex：**认领 P1-1A 回测入场模型参数化**。计划修改 `stock_analyzer/backtest.py`、受影响的调用测试与文档；保持默认 `event_close` 兼容旧行为，新增 `next_open`，不改策略阈值。
+- [2026-09-06 23:55] Codex：**认领 P1-1C replay calibration 入场口径对齐**。计划修改 `stock_analyzer/resonance_calibration.py` 与测试，新增 `entry_model` 支持并默认兼容旧口径；不改变现有共振分算法权重。
+
+## Codex 执行记录（2026-09-07 00:05 CST）
+
+### P1-1A / P1-1C 已完成
+
+- `stock_analyzer/backtest.py`：`evaluate_signal_events` 新增 `entry_model`，支持 `event_close` 与 `next_open`；默认仍为 `event_close`，兼容旧排名与图表统计。
+- `stock_analyzer/resonance_calibration.py`：replay calibration 使用同一 `entry_model` 语义，并在输出中声明口径。
+- `stock_analyzer/scan_workspace.py`、`stock_analyzer/scan_workspace_structure.py`、`stock_analyzer/web/scan_api.py`：工作台和 API 支持下传 `replay_entry_model` / `entry_model`，缓存 key 已区分不同口径。
+- `docs/backtest-entry-model-audit.md`：P1-1A 与 P1-1C 状态更新为已实现，P1-1B C突专项仍待执行。
+
+### 验证
+
+- `venv/bin/python -m unittest discover -s tests`：132 tests OK。
+- `venv/bin/python -m compileall stock_analyzer/backtest.py stock_analyzer/resonance_calibration.py stock_analyzer/scan_workspace.py stock_analyzer/scan_workspace_structure.py stock_analyzer/web/scan_api.py`：通过。
+- `git diff --check`：通过。

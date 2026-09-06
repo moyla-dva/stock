@@ -1,6 +1,7 @@
 """Build structure, resonance, and calibration data for the scan workspace."""
 
 from stock_analyzer import catalog
+from stock_analyzer.backtest import ENTRY_MODEL_EVENT_CLOSE
 from stock_analyzer.concept_graph import concept_graph_status
 from stock_analyzer.market_breadth import apply_market_breadth_to_overview
 from stock_analyzer.market_structure import (
@@ -25,11 +26,12 @@ from stock_analyzer.scan_resonance import (
 )
 
 
-def _deferred_replay_calibration(horizons=DEFAULT_REPLAY_HORIZONS):
+def _deferred_replay_calibration(horizons=DEFAULT_REPLAY_HORIZONS, entry_model=ENTRY_MODEL_EVENT_CLOSE):
     """Return the replay-calibration shape without reading historical price caches."""
     return {
         "method": "deferred",
         "note": "首屏轻量载入暂不读取本地日线缓存；需要时可刷新完整回放校准",
+        "entry_model": entry_model,
         "horizons": list(horizons),
         "candidate_count": 0,
         "requested_count": 0,
@@ -63,6 +65,7 @@ def build_workspace_structure(
     board_market_reader=None,
     include_replay=True,
     replay_max_candidates=800,
+    replay_entry_model=ENTRY_MODEL_EVENT_CLOSE,
     include_market_universe=True,
     include_market_breadth=True,
 ):
@@ -117,9 +120,10 @@ def build_workspace_structure(
             pools,
             start_date=start_date,
             max_candidates=replay_max_candidates,
+            entry_model=replay_entry_model,
         )
         if include_replay
-        else _deferred_replay_calibration()
+        else _deferred_replay_calibration(entry_model=replay_entry_model)
     )
     apply_score_confidence(pools, replay_calibration=replay_calibration)
 

@@ -757,13 +757,23 @@ class ScanWorkspaceTest(unittest.TestCase):
                         with patch("stock_analyzer.scan_snapshot.beijing_now", return_value=pd.Timestamp("2026-01-07")):
                             write_scan_snapshot(snapshot, start_date="2025-04-29", snapshot_day="2026-01-02")
                             workspace = collect_scan_workspace(start_date="2025-04-29")
+                            next_open_workspace = collect_scan_workspace(
+                                start_date="2025-04-29",
+                                replay_entry_model="next_open",
+                            )
 
         replay = workspace["replay_calibration"]
+        next_open_replay = next_open_workspace["replay_calibration"]
         result = workspace["pools"]["opportunity"]["results"][0]
         watch_bucket = next(bucket for bucket in replay["buckets"] if bucket["key"] == "watch")
+        next_open_watch_bucket = next(bucket for bucket in next_open_replay["buckets"] if bucket["key"] == "watch")
         self.assertEqual(replay["method"], "historical_snapshot_replay")
+        self.assertEqual(replay["entry_model"], "event_close")
         self.assertEqual(watch_bucket["horizons"]["5"]["sample_count"], 1)
         self.assertEqual(watch_bucket["horizons"]["5"]["avg_ret"], 50.0)
+        self.assertEqual(next_open_replay["entry_model"], "next_open")
+        self.assertEqual(next_open_watch_bucket["horizons"]["5"]["sample_count"], 1)
+        self.assertEqual(next_open_watch_bucket["horizons"]["5"]["avg_ret"], 45.45)
         self.assertEqual(result["score_confidence"]["replay_5d_sample_count"], 1)
         self.assertEqual(result["score_confidence"]["replay_5d_avg_ret"], 50.0)
         self.assertEqual(result["score_confidence"]["replay_5d_win_rate"], 100.0)
@@ -823,6 +833,7 @@ class ScanWorkspaceTest(unittest.TestCase):
         self.assertEqual(lite_response.status_code, 200)
         self.assertEqual(full_response.status_code, 200)
         self.assertEqual(lite_payload["replay_calibration"]["method"], "deferred")
+        self.assertEqual(lite_payload["replay_calibration"]["entry_model"], "event_close")
         self.assertEqual(lite_payload["replay_calibration"]["horizons"], [3, 5, 10])
         self.assertEqual(lite_payload["market_structure_meta"]["mode"], "candidate_validated")
         self.assertEqual(full_payload["replay_calibration"]["method"], "historical_snapshot_replay")

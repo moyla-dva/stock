@@ -5,6 +5,7 @@ import time
 from flask import request
 
 from stock_analyzer import catalog, scan_snapshot
+from stock_analyzer.backtest import ENTRY_MODEL_EVENT_CLOSE, ENTRY_MODELS
 from stock_analyzer.scan_workspace_candidates import filter_workspace_candidates
 from stock_analyzer.scan_workspace_cache import clear_scan_workspace_cache, get_cached_scan_workspace
 
@@ -43,6 +44,13 @@ def _lite_load(default=False):
     return _truthy(raw_value)
 
 
+def _entry_model():
+    value = request.args.get("entry_model") or ENTRY_MODEL_EVENT_CLOSE
+    if value in ENTRY_MODELS:
+        return value
+    return ENTRY_MODEL_EVENT_CLOSE
+
+
 def scan_workspace_response(jsonify, collect_scan_workspace_func, start_date, logger):
     try:
         snapshot_day = request.args.get("snapshot_day") or None
@@ -50,6 +58,7 @@ def scan_workspace_response(jsonify, collect_scan_workspace_func, start_date, lo
         max_items = _workspace_limit(request.args.get("limit"))
         lite_load = _lite_load(default=False)
         include_replay = _include_replay(default=True)
+        replay_entry_model = _entry_model()
         overview_limit = _workspace_limit(request.args.get("overview_limit"), default=80, maximum=1000) if lite_load else None
         pool_stats_limit = _workspace_limit(request.args.get("pool_stats_limit"), default=80, maximum=1000) if lite_load else None
         key = (
@@ -57,6 +66,7 @@ def scan_workspace_response(jsonify, collect_scan_workspace_func, start_date, lo
             snapshot_day or "",
             max_items,
             include_replay,
+            replay_entry_model,
             not lite_load,
             not lite_load,
             overview_limit or "",
@@ -73,6 +83,7 @@ def scan_workspace_response(jsonify, collect_scan_workspace_func, start_date, lo
                 logger=logger,
                 snapshot_day=snapshot_day,
                 include_replay=include_replay,
+                replay_entry_model=replay_entry_model,
                 include_market_universe=not lite_load,
                 include_market_breadth=not lite_load,
                 overview_limit=overview_limit,
@@ -97,6 +108,7 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
         query = request.args.get("query") or ""
         lite_load = _lite_load(default=True)
         include_replay = _include_replay(default=True)
+        replay_entry_model = _entry_model()
         if lite_load and request.args.get("include_replay") is None:
             include_replay = False
         pool_stats_limit = 1 if lite_load else None
@@ -110,6 +122,7 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
             snapshot_day or "",
             6000,
             include_replay,
+            replay_entry_model,
             not lite_load,
             not lite_load,
             pool_stats_limit or "",
@@ -126,6 +139,7 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
                 logger=logger,
                 snapshot_day=snapshot_day,
                 include_replay=include_replay,
+                replay_entry_model=replay_entry_model,
                 include_market_universe=not lite_load,
                 include_market_breadth=not lite_load,
                 pool_stats_limit=pool_stats_limit,
@@ -148,6 +162,7 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
         if _truthy(request.args.get("profile")):
             payload["performance"] = {
                 "mode": "lite" if lite_load else "full",
+                "entry_model": replay_entry_model,
                 "workspace_seconds": round(workspace_elapsed, 4),
                 "filter_seconds": round(filter_elapsed, 4),
                 "total_seconds": round(time.perf_counter() - started_at, 4),

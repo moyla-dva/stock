@@ -21,6 +21,7 @@ def collect_scan_workspace(
     snapshot_day=None,
     include_replay=True,
     replay_max_candidates=800,
+    replay_entry_model="event_close",
     include_market_universe=True,
     include_market_breadth=True,
     overview_limit=None,
@@ -41,6 +42,7 @@ def collect_scan_workspace(
         board_market_reader=board_market_reader,
         include_replay=include_replay,
         replay_max_candidates=replay_max_candidates,
+        replay_entry_model=replay_entry_model,
         include_market_universe=include_market_universe,
         include_market_breadth=include_market_breadth,
     )

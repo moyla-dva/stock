@@ -5,6 +5,9 @@ from collections import defaultdict
 
 UP_CATEGORIES = {"entry", "bottom", "observe"}
 DOWN_CATEGORIES = {"risk", "exit", "top"}
+ENTRY_MODEL_EVENT_CLOSE = "event_close"
+ENTRY_MODEL_NEXT_OPEN = "next_open"
+ENTRY_MODELS = {ENTRY_MODEL_EVENT_CLOSE, ENTRY_MODEL_NEXT_OPEN}
 
 
 def event_direction(event):
@@ -18,13 +21,14 @@ def _date_positions(df_display):
     return {date: idx for idx, date in enumerate(dates)}
 
 
-def _empty_stats(label=None, name=None, category=None, direction=None, horizon=5):
+def _empty_stats(label=None, name=None, category=None, direction=None, horizon=5, entry_model=ENTRY_MODEL_EVENT_CLOSE):
     result = {
         "count": 0,
         "evaluated_count": 0,
         "win_rate": None,
         "avg_ret": None,
         "horizon": horizon,
+        "entry_model": entry_model,
     }
     if label is not None:
         result["label"] = label
@@ -37,13 +41,22 @@ def _empty_stats(label=None, name=None, category=None, direction=None, horizon=5
     return result
 
 
-def _stats_from_returns(returns, direction, horizon=5, label=None, name=None, category=None):
+def _stats_from_returns(
+    returns,
+    direction,
+    horizon=5,
+    entry_model=ENTRY_MODEL_EVENT_CLOSE,
+    label=None,
+    name=None,
+    category=None,
+):
     stats = _empty_stats(
         label=label,
         name=name,
         category=category,
         direction=direction,
         horizon=horizon,
+        entry_model=entry_model,
     )
     stats["count"] = len(returns)
     evaluated = [value for value in returns if value is not None]
@@ -64,10 +77,40 @@ def _reason_parts(reason):
     return [part.strip() for part in str(reason or "").split("/") if part.strip()]
 
 
-def evaluate_signal_events(df_display, events, horizon=5):
-    """Evaluate SignalEvent objects and reason attribution over a fixed horizon."""
-    date_positions = _date_positions(df_display)
+def _validated_entry_model(entry_model):
+    if entry_model not in ENTRY_MODELS:
+        choices = ", ".join(sorted(ENTRY_MODELS))
+        raise ValueError(f"entry_model must be one of: {choices}")
+    return entry_model
+
+
+def _future_return(df_display, idx, horizon, entry_model):
     closes = df_display["close"].tolist()
+    if entry_model == ENTRY_MODEL_NEXT_OPEN:
+        if "open" not in df_display.columns:
+            return None
+        opens = df_display["open"].tolist()
+        entry_idx = idx + 1
+        exit_idx = entry_idx + horizon
+        if exit_idx >= len(closes):
+            return None
+        base = opens[entry_idx]
+    else:
+        exit_idx = idx + horizon
+        if exit_idx >= len(closes):
+            return None
+        base = closes[idx]
+
+    target = closes[exit_idx]
+    if not base:
+        return None
+    return (target - base) / base * 100
+
+
+def evaluate_signal_events(df_display, events, horizon=5, entry_model=ENTRY_MODEL_EVENT_CLOSE):
+    """Evaluate SignalEvent objects and reason attribution over a fixed horizon."""
+    entry_model = _validated_entry_model(entry_model)
+    date_positions = _date_positions(df_display)
     by_signal = defaultdict(list)
     signal_info = {}
     by_reason = defaultdict(list)
@@ -83,9 +126,7 @@ def evaluate_signal_events(df_display, events, horizon=5):
         }
 
         idx = date_positions.get(event.date)
-        future_ret = None
-        if idx is not None and idx + horizon < len(closes):
-            future_ret = (closes[idx + horizon] - closes[idx]) / closes[idx] * 100
+        future_ret = None if idx is None else _future_return(df_display, idx, horizon, entry_model)
 
         by_signal[event.key].append(future_ret)
         for reason in _reason_parts(event.reason):
@@ -99,6 +140,7 @@ def evaluate_signal_events(df_display, events, horizon=5):
             returns,
             info["direction"],
             horizon=horizon,
+            entry_model=entry_model,
             label=info["label"],
             name=info["name"],
             category=info["category"],
@@ -110,12 +152,14 @@ def evaluate_signal_events(df_display, events, horizon=5):
             returns,
             reason_direction.get(reason, "up"),
             horizon=horizon,
+            entry_model=entry_model,
             label=reason,
             name=reason,
         )
 
     return {
         "horizon": horizon,
+        "entry_model": entry_model,
         "by_signal": signal_stats,
         "by_reason": reason_stats,
     }

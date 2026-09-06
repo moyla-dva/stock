@@ -55,6 +55,8 @@
 
 ### P1-1A 回测口径参数化
 
+状态：已实现。
+
 在 `stock_analyzer/backtest.py` 中把入场模型显式参数化，至少支持：
 
 | 参数 | 说明 |
@@ -70,6 +72,8 @@
 
 ### P1-1B C突单独回测与门槛再校准
 
+状态：待执行。
+
 针对 `composite_breakout` 做更细分的归因：
 
 - 按 `prior_breakout` 强弱分桶。
@@ -83,6 +87,8 @@
 - 若改策略，必须同步 bump `SCAN_STRATEGY_VERSION`。
 
 ### P1-1C replay calibration 口径对齐
+
+状态：已实现。
 
 `stock_analyzer/resonance_calibration.py` 目前 `_forward_return` 也是事件收盘到未来收盘口径。若正式回测改为 `next_open`，板块共振 replay 的收益统计也要同步改造。
 
