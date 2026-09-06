@@ -18,9 +18,12 @@ function renderCandidateDeskBrief(pool, visibleCount, meta) {
     var label = document.getElementById('candidate-desk-brief-label');
     var title = document.getElementById('candidate-desk-brief-title');
     var detail = document.getElementById('candidate-desk-brief-detail');
+    var statusMeta = document.getElementById('candidate-desk-brief-meta');
     if (!node || !label || !title || !detail) return;
 
     var config = getScanConfig(scanWorkspaceState.activeType);
+    var snapshotMeta = scanWorkspaceState.snapshotMeta || {};
+    var strategyMeta = scanWorkspaceState.strategyMeta || {};
     var snapshotDay = scanWorkspaceState.historyMode
         ? (scanWorkspaceState.historySnapshotDay || scanWorkspaceState.latest_snapshot_day || '-')
         : (scanWorkspaceState.latest_snapshot_day || '-');
@@ -33,11 +36,16 @@ function renderCandidateDeskBrief(pool, visibleCount, meta) {
         : {title: '读取结构', detail: '系统按当前语境整理名单。'};
 
     node.className = 'candidate-desk-brief candidate-desk-brief--' + config.variant;
-    label.textContent = modeLabel + ' ' + snapshotDay;
+    label.textContent = modeLabel + ' ' + snapshotDay + ' · ' + (snapshotMeta.health_label || snapshotMeta.health_summary || '读取中');
     title.textContent = config.title + ' · 当前可见 ' + (visibleCount || 0) + ' 只';
     detail.textContent = recommendation.title
         + ' · 已载入 ' + loaded + '/' + total
         + (hasMore ? ' · 可继续扩展名单' : ' · 已覆盖当前名单');
+    if (statusMeta) {
+        statusMeta.textContent = '策略 ' + (snapshotMeta.strategy_version || strategyMeta.strategy_version || '-')
+            + ' · 当前快照 ' + (snapshotMeta.current_strategy_snapshot_count || scanWorkspaceState.current_strategy_snapshot_count || 0)
+            + ' · 旧策略 ' + (snapshotMeta.legacy_snapshot_count || scanWorkspaceState.legacy_snapshot_count || 0);
+    }
 }
 
 function getActiveWorkspaceView() {

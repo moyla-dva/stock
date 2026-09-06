@@ -118,6 +118,36 @@ def classify_score_confidence(confidence):
     return {"label": "待验证", "tone": "muted", "hint": confidence.get("basis") or "暂无回放样本"}
 
 
+def _format_plain_number(value, digits=2):
+    number = _number(value)
+    if number is None:
+        return "-"
+    return f"{number:.{digits}f}"
+
+
+def _breakout_diagnostic(result):
+    if result.get("prior_high_10") is None and result.get("prior_breakout") is None:
+        return None
+    status = "已突破前高" if result.get("prior_breakout") is True else "未确认前高突破"
+    return {
+        "label": "突破诊断",
+        "value": f"{status} · 近10日前高 {_format_plain_number(result.get('prior_high_10'))}",
+        "tone": "positive" if result.get("prior_breakout") is True else "warning",
+    }
+
+
+def _risk_split_diagnostic(result):
+    if result.get("risk_break_score") is None and result.get("risk_heat_score") is None:
+        return None
+    break_score = _text(result.get("risk_break_score"))
+    heat_score = _text(result.get("risk_heat_score"))
+    return {
+        "label": "风险拆分",
+        "value": f"破位 {break_score} / 过热 {heat_score}",
+        "tone": classify_risk_score(result.get("risk_score"))["tone"],
+    }
+
+
 def build_score_badges(result):
     risk = classify_risk_score(result.get("risk_score"))
     sector = classify_sector_score(result.get("sector_score"))
@@ -196,6 +226,15 @@ def build_scan_explanation(result):
             "tone": confidence["tone"],
         },
     ]
+    diagnostic_drivers = [
+        item for item in (
+            _breakout_diagnostic(result),
+            _risk_split_diagnostic(result),
+        )
+        if item is not None
+    ]
+    if diagnostic_drivers:
+        drivers[2:2] = diagnostic_drivers
     if result.get("pool_stage_label"):
         drivers.insert(0, {
             "label": "池子定位",

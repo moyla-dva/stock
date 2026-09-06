@@ -1052,6 +1052,39 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["code"], "600001")
+        _, kwargs = mock_workspace.call_args
+        self.assertFalse(kwargs["include_replay"])
+        self.assertFalse(kwargs["include_market_universe"])
+        self.assertFalse(kwargs["include_market_breadth"])
+        self.assertTrue(kwargs["latest_only"])
+
+    @patch("app.collect_scan_workspace")
+    def test_scan_workspace_candidates_api_can_request_full_workspace_profile(self, mock_workspace):
+        mock_workspace.return_value = {
+            "pools": {
+                "opportunity": {
+                    "count": 1,
+                    "results": [
+                        {"code": "600001", "name": "样本A", "sector": "半导体", "concepts": ["存储芯片"]},
+                    ],
+                }
+            },
+            "latest_snapshot_day": "2026-05-11",
+            "latest_data_date": "2026-05-11",
+        }
+
+        response = app.app.test_client().get(
+            "/api/scan_workspace/candidates?scan_type=opportunity&limit=20&lite=0&include_replay=1&profile=1"
+        )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["performance"]["mode"], "full")
+        _, kwargs = mock_workspace.call_args
+        self.assertTrue(kwargs["include_replay"])
+        self.assertTrue(kwargs["include_market_universe"])
+        self.assertTrue(kwargs["include_market_breadth"])
+        self.assertFalse(kwargs["latest_only"])
 
     def test_sector_overview_tracks_active_days_for_structure_width(self):
         pools = {
@@ -1797,10 +1830,19 @@ class ProjectSmokeTest(unittest.TestCase):
         frame["composite_setup_score"] = [1] * 12
         frame["composite_confirm_score"] = [2] * 12
         frame["composite_risk_score"] = [0] * 12
+        frame["composite_risk_break_score"] = [0] * 12
+        frame["composite_risk_heat_score"] = [1] * 12
+        frame["composite_prior_high_10"] = [10.51] * 12
+        frame["composite_prior_breakout"] = [False] * 12
+        frame["momentum_efficiency"] = [0.35] * 12
+        frame["custom_z"] = [1.25] * 12
+        frame["volume_ratio"] = [1.8] * 12
+        frame["return_pct"] = [2.34] * 12
         frame["composite_watch"] = [False] * 12
         frame.loc[11, "composite_entry"] = True
         frame.loc[11, "composite_entry_type"] = "breakout"
         frame.loc[11, "composite_entry_reason"] = "突破MA20 / MACD多头"
+        frame.loc[11, "composite_prior_breakout"] = True
 
         result = scan_stock_frame("600063", "示例股票", frame, "opportunity")
 
@@ -1811,6 +1853,17 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(result["confirm_score"], 2)
         self.assertEqual(result["risk_score"], 0)
         self.assertGreater(result["rank_score"], 0)
+        self.assertEqual(result["risk_break_score"], 0)
+        self.assertEqual(result["risk_heat_score"], 1)
+        self.assertEqual(result["prior_high_10"], 10.51)
+        self.assertTrue(result["prior_breakout"])
+        self.assertEqual(result["momentum_efficiency"], 0.35)
+        self.assertEqual(result["custom_z"], 1.25)
+        self.assertEqual(result["volume_ratio"], 1.8)
+        self.assertEqual(result["return_pct"], 2.34)
+        driver_labels = [driver["label"] for driver in result["explanation"]["drivers"]]
+        self.assertIn("突破诊断", driver_labels)
+        self.assertIn("风险拆分", driver_labels)
 
     def test_risk_pool_marks_confirmed_risk_stage(self):
         frame = self._minimal_signal_frame(rows=12)

@@ -1,5 +1,7 @@
 """Scan workspace, cache, and job API handlers."""
 
+import time
+
 from flask import request
 
 from stock_analyzer import catalog, scan_snapshot
@@ -9,6 +11,10 @@ from stock_analyzer.scan_workspace_cache import clear_scan_workspace_cache, get_
 
 def _truthy(value):
     return str(value or "").lower() in {"1", "true", "yes", "y"}
+
+
+def _falsy(value):
+    return str(value or "").lower() in {"0", "false", "no", "n"}
 
 
 def _workspace_limit(value, default=120, maximum=6000):
@@ -28,12 +34,21 @@ def _include_replay(default=True):
     return _truthy(raw_value)
 
 
+def _lite_load(default=False):
+    raw_value = request.args.get("lite")
+    if raw_value is None:
+        return default
+    if _falsy(raw_value):
+        return False
+    return _truthy(raw_value)
+
+
 def scan_workspace_response(jsonify, collect_scan_workspace_func, start_date, logger):
     try:
         snapshot_day = request.args.get("snapshot_day") or None
         force_refresh = _truthy(request.args.get("refresh"))
         max_items = _workspace_limit(request.args.get("limit"))
-        lite_load = _truthy(request.args.get("lite"))
+        lite_load = _lite_load(default=False)
         include_replay = _include_replay(default=True)
         overview_limit = _workspace_limit(request.args.get("overview_limit"), default=80, maximum=1000) if lite_load else None
         pool_stats_limit = _workspace_limit(request.args.get("pool_stats_limit"), default=80, maximum=1000) if lite_load else None
@@ -80,8 +95,10 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
         sector = request.args.get("sector") or ""
         concept = request.args.get("concept") or ""
         query = request.args.get("query") or ""
-        lite_load = _truthy(request.args.get("lite"))
+        lite_load = _lite_load(default=True)
         include_replay = _include_replay(default=True)
+        if lite_load and request.args.get("include_replay") is None:
+            include_replay = False
         pool_stats_limit = 1 if lite_load else None
         limit = _workspace_limit(request.args.get("limit"))
         try:
@@ -100,6 +117,7 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
             str(scan_snapshot.SNAPSHOT_DIR),
             str(catalog.CATALOG_CACHE_DIR),
         )
+        started_at = time.perf_counter()
         workspace = get_cached_scan_workspace(
             key,
             lambda: collect_scan_workspace_func(
@@ -115,7 +133,9 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
             ),
             force_refresh=force_refresh,
         )
-        return jsonify(filter_workspace_candidates(
+        workspace_elapsed = time.perf_counter() - started_at
+        filter_started_at = time.perf_counter()
+        payload = filter_workspace_candidates(
             workspace,
             scan_type=scan_type,
             sector=sector,
@@ -123,7 +143,16 @@ def scan_workspace_candidates_response(jsonify, collect_scan_workspace_func, sta
             query=query,
             limit=limit,
             offset=offset,
-        ))
+        )
+        filter_elapsed = time.perf_counter() - filter_started_at
+        if _truthy(request.args.get("profile")):
+            payload["performance"] = {
+                "mode": "lite" if lite_load else "full",
+                "workspace_seconds": round(workspace_elapsed, 4),
+                "filter_seconds": round(filter_elapsed, 4),
+                "total_seconds": round(time.perf_counter() - started_at, 4),
+            }
+        return jsonify(payload)
     except Exception as exc:
         print(f"[扫描候选] 异常: {exc}")
         return jsonify({"error": str(exc)}), 500

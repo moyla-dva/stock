@@ -112,6 +112,12 @@
     white-space: nowrap;
 }
 
+#candidate-desk-brief-meta {
+    color: #4b625f;
+    font-size: 9px;
+    font-weight: 800;
+}
+
 .candidate-desk-brief__copy span {
     color: var(--buy);
 }

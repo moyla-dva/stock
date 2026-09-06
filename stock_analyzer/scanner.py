@@ -283,6 +283,71 @@ def _none_or_round(value, digits):
     return round(number, digits)
 
 
+def _none_or_int(value):
+    number = _as_float(value, None)
+    if number is None:
+        return None
+    return int(number)
+
+
+def _none_or_bool(value):
+    if value is None:
+        return None
+    try:
+        if math.isnan(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "1", "yes", "y"}:
+            return True
+        if text in {"false", "0", "no", "n"}:
+            return False
+    return bool(value)
+
+
+def _latest_value(df_display, column):
+    if df_display is None or df_display.empty or column not in df_display.columns:
+        return None
+    return df_display.iloc[-1].get(column)
+
+
+def latest_diagnostic_summary(df_display):
+    """Return latest-row diagnostics already computed by the strategy layer."""
+    return {
+        "risk_break_score": _none_or_int(
+            _latest_value(df_display, "composite_risk_break_score"),
+        ),
+        "risk_heat_score": _none_or_int(
+            _latest_value(df_display, "composite_risk_heat_score"),
+        ),
+        "prior_high_10": _none_or_round(
+            _latest_value(df_display, "composite_prior_high_10"),
+            2,
+        ),
+        "prior_breakout": _none_or_bool(
+            _latest_value(df_display, "composite_prior_breakout"),
+        ),
+        "momentum_efficiency": _none_or_round(
+            _latest_value(df_display, "momentum_efficiency"),
+            3,
+        ),
+        "custom_z": _none_or_round(
+            _latest_value(df_display, "custom_z"),
+            3,
+        ),
+        "volume_ratio": _none_or_round(
+            _latest_value(df_display, "volume_ratio"),
+            2,
+        ),
+        "return_pct": _none_or_round(
+            _latest_value(df_display, "return_pct"),
+            2,
+        ),
+    }
+
+
 def rank_scan_event(event, scores, signal_stats, scan_type):
     setup = scores["setup"]
     confirm = scores["confirm"]
@@ -337,6 +402,7 @@ def build_scan_result(code, name, df_display, event, scan_type, signal_stats):
         "win_rate": _none_or_round(signal_stats.get("win_rate"), 1),
         "avg_ret": _none_or_round(signal_stats.get("avg_ret"), 2),
     }
+    result.update(latest_diagnostic_summary(df_display))
     result.update(_pool_stage_fields(scan_type, event, scores, df_display))
     return attach_scan_explanation(result)
 
