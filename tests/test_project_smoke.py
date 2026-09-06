@@ -10,6 +10,7 @@ import app
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.backtest import evaluate_signal_events
 from stock_analyzer.board_market_refresh import refresh_board_market_cache
+from stock_analyzer.c_signal_v2 import c_signal_v2_fields
 from stock_analyzer.catalog import (
     FALLBACK_STOCK_CODES,
     get_cached_stock_profile,
@@ -1563,11 +1564,38 @@ class ProjectSmokeTest(unittest.TestCase):
         exit_point = next(point for point in payload["mark_points_composite"] if point["name"] == "综合离场")
         self.assertEqual(entry["signalKey"], "composite_pullback")
         self.assertEqual(entry["signalCategory"], "entry")
+        self.assertEqual(entry["v2Signal"], "C回")
+        self.assertEqual(entry["v2RoleLabel"], "可交易")
+        self.assertEqual(entry["tradeIntent"], "pullback_entry")
+        self.assertTrue(entry["requiresTradePlan"])
+        self.assertTrue(entry["requiresStopLoss"])
         self.assertEqual(exit_point["signalCategory"], "exit")
+        self.assertEqual(exit_point["v2Signal"], "C风")
+        self.assertEqual(exit_point["v2RoleLabel"], "风控")
+        self.assertFalse(exit_point["requiresStopLoss"])
         self.assertIn("date", entry)
         self.assertIn("price", entry)
         self.assertEqual(payload["stats_composite"]["b"]["count"], 1)
         self.assertEqual(payload["stats_composite"]["s"]["count"], 1)
+
+    def test_c_signal_v2_contract_separates_observation_from_entry(self):
+        repair_watch = c_signal_v2_fields("composite_confirm")
+        bottom_watch = c_signal_v2_fields("composite_bottom_divergence")
+        pullback_entry = c_signal_v2_fields("composite_pullback")
+        legacy_entry = c_signal_v2_fields("new_gold")
+
+        self.assertEqual(repair_watch["v2_signal"], "C修")
+        self.assertEqual(repair_watch["v2_role_label"], "观察")
+        self.assertEqual(repair_watch["trade_intent"], "watch_only")
+        self.assertFalse(repair_watch["requires_trade_plan"])
+        self.assertFalse(repair_watch["requires_stop_loss"])
+        self.assertEqual(bottom_watch["v2_signal"], "C研")
+        self.assertFalse(bottom_watch["requires_stop_loss"])
+        self.assertEqual(pullback_entry["v2_role_label"], "可交易")
+        self.assertTrue(pullback_entry["requires_trade_plan"])
+        self.assertTrue(pullback_entry["requires_stop_loss"])
+        self.assertEqual(legacy_entry["v2_signal"], "C候")
+        self.assertEqual(legacy_entry["v2_role_label"], "候选")
 
     def test_serializer_outputs_composite_divergence_observation_marks(self):
         frame = self._minimal_signal_frame()
@@ -1585,8 +1613,12 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(bottom["signalCategory"], "bottom")
         self.assertEqual(bottom["signalLabel"], "C底")
         self.assertEqual(bottom["signalOrder"], 80)
+        self.assertEqual(bottom["v2Signal"], "C研")
+        self.assertEqual(bottom["v2RoleLabel"], "观察")
+        self.assertFalse(bottom["requiresStopLoss"])
         self.assertEqual(top["signalKey"], "composite_top_divergence")
         self.assertEqual(top["signalCategory"], "top")
+        self.assertEqual(top["v2Signal"], "C风")
 
     def test_serializer_eventizes_legacy_opt_marks(self):
         frame = self._minimal_signal_frame()
@@ -1923,6 +1955,12 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["scan_type"], "opportunity")
         self.assertEqual(result["signal_key"], "composite_breakout")
+        self.assertEqual(result["v2_signal"], "C突")
+        self.assertEqual(result["v2_state"], "entry_breakout")
+        self.assertEqual(result["v2_role_label"], "可交易")
+        self.assertEqual(result["trade_intent"], "breakout_entry")
+        self.assertTrue(result["requires_trade_plan"])
+        self.assertTrue(result["requires_stop_loss"])
         self.assertEqual(result["setup_score"], 1)
         self.assertEqual(result["confirm_score"], 2)
         self.assertEqual(result["risk_score"], 0)
@@ -1942,9 +1980,37 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(result["williams_r"], 35.0)
         self.assertEqual(result["williams_r_center_side"], "bull")
         driver_labels = [driver["label"] for driver in result["explanation"]["drivers"]]
+        badge_labels = [badge["label"] for badge in result["explanation"]["score_badges"]]
+        self.assertIn("V2定位", driver_labels)
         self.assertIn("突破诊断", driver_labels)
         self.assertIn("风险拆分", driver_labels)
         self.assertIn("方向诊断", driver_labels)
+        self.assertIn("定位", badge_labels)
+        self.assertEqual(result["view_model"]["signal_text"], "C突 突破入场")
+        self.assertEqual(result["view_model"]["decision_label"], "可交易")
+
+    def test_scan_stock_frame_demotes_composite_confirm_to_repair_watch(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame["composite_setup_score"] = [2] * 12
+        frame["composite_confirm_score"] = [3] * 12
+        frame["composite_risk_score"] = [1] * 12
+        frame["composite_watch"] = [True] * 12
+        frame.loc[11, "composite_entry"] = True
+        frame.loc[11, "composite_entry_type"] = "repair-confirm"
+        frame.loc[11, "composite_entry_reason"] = "底背离修复 / MACD多头"
+
+        result = scan_stock_frame("600063", "示例股票", frame, "opportunity")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["signal"], "C观")
+        self.assertEqual(result["signal_key"], "composite_confirm")
+        self.assertEqual(result["v2_signal"], "C修")
+        self.assertEqual(result["v2_role_label"], "观察")
+        self.assertEqual(result["trade_intent"], "watch_only")
+        self.assertFalse(result["requires_trade_plan"])
+        self.assertFalse(result["requires_stop_loss"])
+        self.assertEqual(result["view_model"]["signal_text"], "C修 修复观察")
+        self.assertEqual(result["view_model"]["decision_label"], "观察")
 
     def test_risk_pool_marks_confirmed_risk_stage(self):
         frame = self._minimal_signal_frame(rows=12)
@@ -2011,7 +2077,12 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(cached["sector"], "半导体")
         self.assertEqual(opportunity["sector"], "半导体")
         self.assertEqual(opportunity["signal_key"], "composite_pullback")
+        self.assertEqual(opportunity["v2_signal"], "C回")
+        self.assertTrue(opportunity["requires_trade_plan"])
+        self.assertTrue(opportunity["requires_stop_loss"])
         self.assertEqual(risk["signal_key"], "composite_warning")
+        self.assertEqual(risk["v2_signal"], "C风")
+        self.assertFalse(risk["requires_stop_loss"])
         self.assertEqual(cached["trade_plan"]["status"], "risk_control")
         self.assertEqual(opportunity["trade_plan"]["status"], "risk_control")
         self.assertEqual(risk["trade_plan"]["permission"]["mode"], "risk_control")

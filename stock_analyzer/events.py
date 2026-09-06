@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from stock_analyzer.c_signal_v2 import c_signal_v2_mark_fields
+
 
 SIGNAL_DEFINITIONS = {
     "composite_pullback": {
@@ -354,7 +356,7 @@ def build_composite_signal_events(df_display):
 def event_to_mark_point(event):
     definition = event.definition
     label = definition["label"]
-    return {
+    payload = {
         "name": definition["name"],
         "coord": [event.date, event.coord_price],
         "value": event.value,
@@ -372,3 +374,5 @@ def event_to_mark_point(event):
         "price": event.price,
         "reason": event.reason,
     }
+    payload.update(c_signal_v2_mark_fields(event.key))
+    return payload

@@ -281,6 +281,8 @@
 
 - [2026-09-07 01:12] Codex：**认领 C 信号 V2 设计文档**。已完整读取 `/Users/vainve/obsidian/奇衡-dk/以短线交易秘诀为生/` 26 份原文，计划新增 `docs/c-signal-v2-design.md`，明确观察/候选/交易/风控信号边界；本轮只做设计契约，不改代码。
 
+- [2026-09-07 05:54] Codex：**认领 C_SIGNAL_V2_PHASE_1 兼容字段落地**。计划新增 V2 信号语义映射，并接入 `stock_analyzer/events.py`、`stock_analyzer/scanner.py`、`stock_analyzer/scan_explainer.py`、必要测试与文档；只并行输出 `v2_state / v2_signal / trade_intent` 等字段，不删除旧 C 字段，不改旧触发阈值，不 bump 策略版本。
+
 ## Codex 执行记录（2026-09-07 01:00 CST）
 
 ### P2-1 方向指标样本校准已完成
@@ -305,3 +307,19 @@
 ### 验证
 
 - 文档变更，无代码执行。
+
+## Codex 执行记录（2026-09-07 06:00 CST）
+
+### C_SIGNAL_V2_PHASE_1 已完成第一版
+
+- 新增 `stock_analyzer/c_signal_v2.py`，把旧事件映射为 V2 语义字段：`v2_signal / v2_state / v2_role / trade_intent / requires_trade_plan / requires_stop_loss`。
+- `scanner.py`：扫描结果并行输出 V2 字段；旧 `signal / signal_key / signal_label` 保持兼容。
+- `events.py`：图表 mark point 并行输出 camelCase V2 字段，前端可在不改旧标记的情况下读取新语义。
+- `scan_explainer.py`：候选详情新增 `V2定位` driver 和 `定位` badge；`C观` 的展示语义降为 `C修 / 修复观察 / watch_only`。
+- `docs/c-signal-v2-design.md`：补充 Phase 1 已落地范围和未做事项；本轮不改 `strategy.py` 阈值，不 bump `SCAN_STRATEGY_VERSION`。
+
+### 验证
+
+- `venv/bin/python -m unittest discover -s tests`：139 tests OK。
+- `venv/bin/python -m compileall stock_analyzer/c_signal_v2.py stock_analyzer/events.py stock_analyzer/scanner.py stock_analyzer/scan_explainer.py`：通过。
+- `git diff --check`：通过。

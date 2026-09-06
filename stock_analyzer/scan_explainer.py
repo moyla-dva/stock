@@ -185,6 +185,22 @@ def _direction_diagnostic(result):
     }
 
 
+def _v2_signal_driver(result):
+    if not result.get("v2_signal"):
+        return None
+    intent = _text(result.get("trade_intent_label"), "候选观察")
+    plan_text = "需交易计划" if result.get("requires_trade_plan") else "不生成入场计划"
+    stop_text = "需入场止损价" if result.get("requires_stop_loss") else "不要求入场止损价"
+    return {
+        "label": "V2定位",
+        "value": (
+            f"{_text(result.get('v2_signal'))} {_text(result.get('v2_signal_name'))}"
+            f" · {_text(result.get('v2_role_label'))} · {intent} · {plan_text} / {stop_text}"
+        ),
+        "tone": _text(result.get("v2_tone"), "muted"),
+    }
+
+
 def build_score_badges(result):
     risk = classify_risk_score(result.get("risk_score"))
     sector = classify_sector_score(result.get("sector_score"))
@@ -197,6 +213,13 @@ def build_score_badges(result):
         {"label": "风险", "value": _text(result.get("risk_score")), "tone": risk["tone"], "hint": risk["hint"]},
         {"label": "共振", "value": _text(result.get("sector_score")), "tone": sector["tone"], "hint": sector["hint"]},
     ]
+    if result.get("v2_role_label"):
+        badges.append({
+            "label": "定位",
+            "value": _text(result.get("v2_role_label")),
+            "tone": _text(result.get("v2_tone"), "muted"),
+            "hint": _text(result.get("v2_detail"), _text(result.get("v2_state_label"), "V2 信号定位")),
+        })
     if result.get("pool_stage_label"):
         badges.insert(0, {
             "label": "阶段",
@@ -234,7 +257,10 @@ def build_scan_explanation(result):
     risk = classify_risk_score(result.get("risk_score"))
     history = classify_history_stats(result.get("win_rate"), result.get("avg_ret"))
     confidence = classify_score_confidence(result.get("score_confidence"))
-    signal_name = _text(result.get("signal_name") or result.get("signal_label") or result.get("signal"), "扫描信号")
+    signal_name = _text(
+        result.get("v2_signal_name") or result.get("signal_name") or result.get("signal_label") or result.get("signal"),
+        "扫描信号",
+    )
     sector_name = _text(result.get("sector"), UNKNOWN_SECTOR_LABEL)
     concept_text = _concept_text(result)
     sector_context = f"{sector_name} · {concept_text}" if concept_text else sector_name
@@ -263,6 +289,9 @@ def build_scan_explanation(result):
             "tone": confidence["tone"],
         },
     ]
+    v2_driver = _v2_signal_driver(result)
+    if v2_driver:
+        drivers.insert(0, v2_driver)
     diagnostic_drivers = [
         item for item in (
             _breakout_diagnostic(result),
@@ -350,16 +379,25 @@ def build_scan_view_model(result, explanation=None):
     rank = classify_rank_score(result.get("final_score") if result.get("final_score") is not None else result.get("rank_score"))
     risk = classify_risk_score(result.get("risk_score"))
     confidence = classify_score_confidence(result.get("score_confidence"))
-    signal_text = (
-        _text(result.get("signal_label") or result.get("signal"), "信号")
-        + " "
-        + _text(result.get("signal_name"), "")
-    ).strip()
+    if result.get("v2_signal"):
+        signal_text = (
+            _text(result.get("v2_signal"), "信号")
+            + " "
+            + _text(result.get("v2_signal_name"), "")
+        ).strip()
+    else:
+        signal_text = (
+            _text(result.get("signal_label") or result.get("signal"), "信号")
+            + " "
+            + _text(result.get("signal_name"), "")
+        ).strip()
     concept_text = _concept_text(result)
     sector = _text(result.get("sector"), UNKNOWN_SECTOR_LABEL)
     context = f"{sector} · {concept_text}" if concept_text else sector
     score = result.get("final_score") if result.get("final_score") is not None else result.get("rank_score")
     decision = _text(result.get("pool_stage_label"), "")
+    if not decision or decision == "-":
+        decision = _text(result.get("v2_role_label"), "")
     if not decision or decision == "-":
         decision = confidence["label"] if confidence["label"] != "可信度待定" else rank["label"]
     return {
