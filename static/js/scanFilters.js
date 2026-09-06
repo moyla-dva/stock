@@ -39,6 +39,10 @@ function scanPoolTypeFromItem(item) {
 }
 
 function scanCandidateRole(item) {
+    if (typeof isScanV2StrategyView === 'function' && isScanV2StrategyView()) {
+        var v2Role = scanV2CandidateRole(item);
+        if (v2Role) return v2Role;
+    }
     var scanType = scanPoolTypeFromItem(item);
     var risk = scanNumericValue(item, 'risk_score', 0);
     var confirm = scanNumericValue(item, 'confirm_score', 0);

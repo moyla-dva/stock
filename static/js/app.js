@@ -44,14 +44,17 @@ function setActiveScanChartFocus(item) {
     }
     var queue = typeof scanCandidateQueue === 'function' ? scanCandidateQueue(item) : null;
     var role = typeof scanCandidateRole === 'function' ? scanCandidateRole(item) : null;
+    var signalText = typeof scanDisplaySignalText === 'function'
+        ? scanDisplaySignalText(item)
+        : ((item.signal_label || item.signal || '扫描') + ' ' + (item.signal_name || '')).trim();
     activeScanChartFocus = {
         code: normalizeChartStockCode(item.code),
         name: item.name || item.code || '',
         date: item.event_date || item.date || '',
         dataDate: item.data_date || item.date || '',
         price: item.price == null ? null : Number(item.price),
-        signalLabel: item.signal_label || item.signal || '扫描',
-        signalName: item.signal_name || '',
+        signalLabel: signalText || item.signal_label || item.signal || '扫描',
+        signalName: '',
         reason: item.reason || '',
         scanType: item._scan_type || item.scan_type || '',
         poolTitle: item._pool_title || '',

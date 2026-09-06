@@ -5,6 +5,7 @@ var SCAN_RESULT_MAX_LIMIT = 6000;
 
 var scanWorkspaceState = {
     activeType: 'opportunity',
+    strategyView: 'v2',
     refreshPolicy: 'auto',
     sideView: 'detail',
     resultLimit: SCAN_RESULT_PAGE_SIZE,

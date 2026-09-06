@@ -91,6 +91,51 @@
     font-weight: 900;
 }
 
+.scan-strategy-toggle {
+    height: 38px;
+    min-width: 178px;
+    display: grid;
+    grid-template-columns: minmax(54px, auto) repeat(2, minmax(48px, 1fr));
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid rgba(23, 29, 26, 0.12);
+    border-radius: 8px;
+    background: #edf2eb;
+}
+
+.scan-strategy-toggle span {
+    padding: 0 7px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.scan-strategy-toggle button {
+    height: 30px;
+    min-width: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #68746c;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-strategy-toggle button.active {
+    background: #171d1a;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(18, 26, 22, 0.12);
+}
+
+.scan-strategy-toggle button:focus-visible {
+    outline: 2px solid rgba(0, 137, 123, 0.25);
+    outline-offset: 1px;
+}
+
 .scan-reset-btn {
     height: 38px;
     border: 1px solid rgba(23, 29, 26, 0.12);
@@ -261,6 +306,10 @@
     .scan-recommendation small {
         grid-column: 1 / -1;
         white-space: normal;
+    }
+
+    .scan-strategy-toggle {
+        width: 100%;
     }
 
     .scan-candidate-context {

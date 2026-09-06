@@ -151,8 +151,8 @@ function createStockCard(item, variant, index) {
     var signal = document.createElement('div');
     signal.className = 'stock-card__signal';
     var signalText = document.createElement('span');
-    signalText.textContent = item.view_model && item.view_model.signal_text
-        ? item.view_model.signal_text
+    signalText.textContent = typeof scanDisplaySignalText === 'function'
+        ? scanDisplaySignalText(item)
         : ((item.signal_label || item.signal || '-') + ' ' + (item.signal_name || ''));
     signal.appendChild(signalText);
     var stage = typeof inferScanPoolStage === 'function' ? inferScanPoolStage(item) : null;

@@ -283,6 +283,8 @@
 
 - [2026-09-07 05:54] Codex：**认领 C_SIGNAL_V2_PHASE_1 兼容字段落地**。计划新增 V2 信号语义映射，并接入 `stock_analyzer/events.py`、`stock_analyzer/scanner.py`、`stock_analyzer/scan_explainer.py`、必要测试与文档；只并行输出 `v2_state / v2_signal / trade_intent` 等字段，不删除旧 C 字段，不改旧触发阈值，不 bump 策略版本。
 
+- [2026-09-07 06:08] Codex：**认领候选工作台旧C/V2临时对比切换**。计划修改候选页前端渲染和样式，新增只影响展示层的 `legacy/v2` 视角切换；不触发重扫，不改后端策略阈值，不新增第二套策略计算。
+
 ## Codex 执行记录（2026-09-07 01:00 CST）
 
 ### P2-1 方向指标样本校准已完成
@@ -322,4 +324,22 @@
 
 - `venv/bin/python -m unittest discover -s tests`：139 tests OK。
 - `venv/bin/python -m compileall stock_analyzer/c_signal_v2.py stock_analyzer/events.py stock_analyzer/scanner.py stock_analyzer/scan_explainer.py`：通过。
+- `git diff --check`：通过。
+
+## Codex 执行记录（2026-09-07 06:25 CST）
+
+### 候选工作台旧C/V2临时对比切换已完成
+
+- `templates/index.html`、`static/css/scan-filters.css`：候选工具栏新增 `旧C / V2` 视角切换按钮，默认 `V2`；只切换展示文案、定位、决策说明，不触发重扫。
+- 新增 `static/js/scanStrategyCompare.js`：集中管理视角状态、旧字段展示、V2 语义展示、候选角色和决策结论，避免把对比逻辑散落到各渲染模块。
+- `scanResultCard.js`、`scanSelectionRender.js`、`scanSelectionDetail.js`、`scanExplain.js`、`scanFilters.js`、`scanView.js`、`app.js`：接入统一展示函数，使卡片、详情、解释、上下文标题和主图焦点同步切换。
+- `stock_analyzer/scan_snapshot.py`：对旧本地扫描快照按 `signal_key` 回填 V2 兼容字段，保证用户无需重扫即可对比旧C与V2视角。
+- `tests/test_project_smoke.py`：补充旧缓存回填 V2 字段的回归测试。
+
+### 验证
+
+- 浏览器实测 `http://127.0.0.1:5009/`：`V2` 显示 `C突 突破入场 / 可交易 / 可按突破计划执行`；切到 `旧C` 显示 `C突 综合突破 / 参与候选 / 突破确认`，无控制台错误。
+- `node --check static/js/app.js static/js/scanState.js static/js/scanStrategyCompare.js static/js/scanExplain.js static/js/scanFilters.js static/js/scanResultCard.js static/js/scanSelectionRender.js static/js/scanSelectionDetail.js static/js/scanView.js`：通过。
+- `venv/bin/python -m unittest discover -s tests`：140 tests OK。
+- `venv/bin/python -m compileall stock_analyzer/scan_snapshot.py`：通过。
 - `git diff --check`：通过。

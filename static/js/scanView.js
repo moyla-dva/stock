@@ -258,9 +258,11 @@ function renderScanCandidateContext() {
     var queueLabel = scanWorkspaceState.activeType === 'risk'
         ? '风险验证'
         : (scanWorkspaceState.activeType === 'bottom_div' ? '修复观察' : '参与名单');
+    var strategyView = typeof getScanStrategyView === 'function' ? getScanStrategyView() : 'v2';
 
-    label.textContent = '系统语境';
-    title.textContent = hasManualRange ? '局部筛选' : ('全池' + queueLabel);
+    label.textContent = strategyView === 'v2' ? 'V2语义视角' : '旧C字段视角';
+    title.textContent = (hasManualRange ? '局部筛选' : ('全池' + queueLabel))
+        + ' · ' + (strategyView === 'v2' ? '按观察/候选/可交易/风控对比' : '按旧信号名称和旧评分对比');
     detail.textContent = manualView.active
         ? '手动条件生效中，系统排序仍保留。'
         : recommendation.title + ' · ' + recommendation.detail;
@@ -391,6 +393,9 @@ function renderScanWorkspace(workspace) {
     renderScanCacheStrip();
     renderScanSnapshotMeta();
     renderScanPoolTabs();
+    if (typeof renderScanStrategyViewToggle === 'function') {
+        renderScanStrategyViewToggle();
+    }
     renderScanRefreshPolicy();
     renderActiveScanPool();
     renderScanDataWorkspace();

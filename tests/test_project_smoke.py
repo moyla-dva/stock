@@ -2087,6 +2087,28 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(opportunity["trade_plan"]["status"], "risk_control")
         self.assertEqual(risk["trade_plan"]["permission"]["mode"], "risk_control")
 
+    def test_scan_result_from_snapshot_backfills_v2_fields_for_legacy_cache(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame["composite_setup_score"] = [2] * 12
+        frame["composite_confirm_score"] = [3] * 12
+        frame["composite_risk_score"] = [1] * 12
+        frame["composite_watch"] = [True] * 12
+        frame.loc[11, "composite_entry"] = True
+        frame.loc[11, "composite_entry_type"] = "repair-confirm"
+        frame.loc[11, "composite_entry_reason"] = "底背离修复"
+        snapshot = build_scan_snapshot("600063", "示例股票", frame, snapshot_day="2026-05-10")
+        for result in snapshot["results"].values():
+            for key in list(result.keys()):
+                if key.startswith("v2_") or key in {"trade_intent", "trade_intent_label", "requires_trade_plan", "requires_stop_loss"}:
+                    result.pop(key)
+
+        result = scan_result_from_snapshot(snapshot, "opportunity")
+
+        self.assertEqual(result["signal_key"], "composite_confirm")
+        self.assertEqual(result["v2_signal"], "C修")
+        self.assertEqual(result["trade_intent"], "watch_only")
+        self.assertFalse(result["requires_stop_loss"])
+
     def test_check_stock_signal_reuses_snapshot_for_other_scan_types(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")

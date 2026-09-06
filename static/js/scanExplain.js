@@ -137,6 +137,9 @@ function buildLegacyScanExplanation(item) {
 }
 
 function buildScanExplanation(item) {
+    if (typeof isScanLegacyStrategyView === 'function' && isScanLegacyStrategyView()) {
+        return scanLegacyViewExplanation(item);
+    }
     if (hasBackendScanExplanation(item)) {
         return normalizeBackendScanExplanation(item);
     }

@@ -28,6 +28,10 @@ function createScanChecklistItem(label, title, detail, tone) {
 }
 
 function scanDecisionVerdict(item, explanation) {
+    if (typeof isScanV2StrategyView === 'function' && isScanV2StrategyView()) {
+        var v2Verdict = scanV2DecisionVerdict(item, explanation);
+        if (v2Verdict) return v2Verdict;
+    }
     var plan = item.trade_plan || null;
     if (plan) {
         var planTone = plan.status === 'ready'
@@ -278,7 +282,9 @@ function renderScanDecisionChecklist(item, explanation, conceptText) {
     var checklistItems = [
         createScanChecklistItem(
             signalLabel,
-            (item.signal_label || item.signal || '-') + ' ' + (item.signal_name || ''),
+            typeof scanDisplaySignalText === 'function'
+                ? scanDisplaySignalText(item)
+                : ((item.signal_label || item.signal || '-') + ' ' + (item.signal_name || '')),
             item.reason || explanation.summary || '-',
             signalTone
         )
@@ -368,7 +374,9 @@ function renderScanBasisSection(item, explanation, conceptText) {
     basisItems.push(
         createScanChecklistItem(
             scanType === 'risk' ? '风险' : (scanType === 'bottom_div' ? '观察' : '信号'),
-            (item.signal_label || item.signal || '-') + ' ' + (item.signal_name || ''),
+            typeof scanDisplaySignalText === 'function'
+                ? scanDisplaySignalText(item)
+                : ((item.signal_label || item.signal || '-') + ' ' + (item.signal_name || '')),
             item.reason || (stage ? stage.detail : explanation.summary) || '-',
             signalTone
         )

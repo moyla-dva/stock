@@ -342,6 +342,11 @@
                                 <strong id="scan-recommendation-title">读取结构</strong>
                                 <small id="scan-recommendation-detail">按结构、确认和风险自动排序</small>
                             </div>
+                            <div class="scan-strategy-toggle" id="scan-strategy-view-toggle" role="group" aria-label="候选策略视角">
+                                <span id="scan-strategy-view-current">V2语义</span>
+                                <button type="button" data-scan-strategy-view="legacy" aria-pressed="false" onclick="setScanStrategyView('legacy')">旧C</button>
+                                <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
+                            </div>
                         </div>
                         <div class="scan-candidate-context" id="scan-candidate-context" aria-label="当前名单上下文">
                             <div class="scan-candidate-context__copy">
@@ -490,6 +495,7 @@
     <script src="{{ url_for('static', filename='js/scanControls.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanExplain.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanBoardMarket.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanStrategyCompare.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanFilters.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanSelectionDetail.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanSelectionRender.js') }}"></script>

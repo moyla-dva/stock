@@ -52,8 +52,8 @@ function renderScanSelection() {
     var signal = document.createElement('div');
     signal.className = 'scan-selected-signal';
     var selectedSignalText = document.createElement('span');
-    selectedSignalText.textContent = item.view_model && item.view_model.signal_text
-        ? item.view_model.signal_text
+    selectedSignalText.textContent = typeof scanDisplaySignalText === 'function'
+        ? scanDisplaySignalText(item)
         : ((item.signal_label || item.signal || '-') + ' ' + (item.signal_name || ''));
     signal.appendChild(selectedSignalText);
     var selectedStage = typeof inferScanPoolStage === 'function' ? inferScanPoolStage(item) : null;
