@@ -227,3 +227,14 @@
 - `venv/bin/python -m unittest discover -s tests`：132 tests OK。
 - `venv/bin/python -m compileall stock_analyzer/backtest.py stock_analyzer/resonance_calibration.py stock_analyzer/scan_workspace.py stock_analyzer/scan_workspace_structure.py stock_analyzer/web/scan_api.py`：通过。
 - `git diff --check`：通过。
+
+- [2026-09-07 00:03] Codex：**认领 P1-1B C突专项分桶回测报告**。计划新增报告文档并运行本地只读分析脚本，按次日缺口、突破幅度、量比、MA20 偏离、风险拆分等维度分析 C突；本轮不改 `strategy.py` 阈值。
+
+## Codex 执行记录（2026-09-07 00:12 CST）
+
+### P1-1B 已完成
+
+- 新增 `docs/breakout-calibration-audit.md`，使用 2400 个本地前复权历史文件重新生成当前策略 C突事件。
+- 样本：C突信号 3764 条，可评估 3695 条，失败文件 0。
+- 结论：C突整体在次日开盘口径下接近盈亏平衡；高开 >= 1%、当日涨幅 >= 6%、距 MA20 >= 10%、过热分 3 是主要拖累维度。
+- 本轮未修改 `strategy.py` 阈值，后续建议先做“追高风险解释”和“降权实验”。
