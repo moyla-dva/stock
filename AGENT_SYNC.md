@@ -228,6 +228,8 @@
 - `venv/bin/python -m compileall stock_analyzer/backtest.py stock_analyzer/resonance_calibration.py stock_analyzer/scan_workspace.py stock_analyzer/scan_workspace_structure.py stock_analyzer/web/scan_api.py`：通过。
 - `git diff --check`：通过。
 
+- [2026-09-07 00:34] Codex：**认领 P2 多空力度 + Williams %R 50 中轴方向诊断**。计划修改 `stock_analyzer/indicators.py`、`stock_analyzer/analysis.py`、候选诊断/解释层与测试；先新增指标列和解释，不改 `strategy.py` 触发阈值，不 bump 策略版本。
+
 - [2026-09-07 00:03] Codex：**认领 P1-1B C突专项分桶回测报告**。计划新增报告文档并运行本地只读分析脚本，按次日缺口、突破幅度、量比、MA20 偏离、风险拆分等维度分析 C突；本轮不改 `strategy.py` 阈值。
 
 ## Codex 执行记录（2026-09-07 00:12 CST）
@@ -258,4 +260,19 @@
 - `venv/bin/python -m unittest discover -s tests`：136 tests OK。
 - `node --check static/js/signalPanel.js && node --check static/js/scanSelectionDetail.js`：通过。
 - `venv/bin/python -m compileall stock_analyzer/trade_plan.py`：通过。
+- `git diff --check`：通过。
+
+## Codex 执行记录（2026-09-07 00:45 CST）
+
+### P2 多空力度 + Williams %R 50 中轴已完成第一版
+
+- `stock_analyzer/indicators.py`：新增 `calculate_bull_bear_power` 与 `calculate_williams_r`，输出多头力、空头力、多空平衡、5 日力度占优、Williams %R、50 中轴穿越方向与中轴侧。
+- `stock_analyzer/analysis.py`：分析流水线统一生成上述方向层指标。
+- `stock_analyzer/scanner.py`、`stock_analyzer/scan_explainer.py`：候选结果补充方向诊断，解释多空力度占优与 %R 50 中轴偏多/偏空。
+- `stock_analyzer/serializers.py`：图表 payload 补充多头力、空头力、Williams %R 数据列，供前端后续可视化使用。
+- `docs/btq-quant-indicators.md`：P2 状态更新为已完成第一版；明确本轮只做事实层/解释层，不接入 `strategy.py` 触发阈值与候选评分，后续需先样本校准。
+
+### 验证
+
+- `venv/bin/python -m unittest tests.test_project_smoke.ProjectSmokeTest.test_analysis_pipeline_prepares_indicators_and_signals tests.test_project_smoke.ProjectSmokeTest.test_williams_direction_indicators_follow_course_formulas tests.test_project_smoke.ProjectSmokeTest.test_serializer_outputs_existing_chart_payload_contract tests.test_project_smoke.ProjectSmokeTest.test_scan_stock_frame_outputs_scored_opportunity_result`：4 tests OK。
 - `git diff --check`：通过。

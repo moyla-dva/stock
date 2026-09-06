@@ -57,6 +57,21 @@ def analysis_frame_to_chart_payload(df_display):
     macd_data = df_display["macd_hist"].fillna(0).tolist()
     ma20_data = df_display["ma20"].fillna(0).tolist()
     vwap_data = df_display["vwap"].bfill().fillna(0).tolist()
+    bull_power_data = (
+        df_display["bull_power"].fillna(0).tolist()
+        if "bull_power" in df_display.columns
+        else []
+    )
+    bear_power_data = (
+        df_display["bear_power"].fillna(0).tolist()
+        if "bear_power" in df_display.columns
+        else []
+    )
+    williams_r_data = (
+        df_display["williams_r"].fillna(50).tolist()
+        if "williams_r" in df_display.columns
+        else []
+    )
 
     old_events = build_old_signal_events(df_display)
     new_events = build_new_signal_events(df_display)
@@ -101,6 +116,9 @@ def analysis_frame_to_chart_payload(df_display):
         "k_data": k_data,
         "ma20_data": ma20_data,
         "vwap_data": vwap_data,
+        "bull_power_data": bull_power_data,
+        "bear_power_data": bear_power_data,
+        "williams_r_data": williams_r_data,
         "custom_data": custom_data,
         "dif_data": dif_data,
         "dea_data": dea_data,

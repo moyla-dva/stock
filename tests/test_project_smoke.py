@@ -30,7 +30,7 @@ from stock_analyzer.concept_graph import (
 from stock_analyzer.concept_jobs import ConceptRefreshJobManager
 from stock_analyzer.data_fetcher import fetch_stock_history, market_symbol_for_tx
 from stock_analyzer.events import build_composite_signal_events
-from stock_analyzer.indicators import calculate_macd
+from stock_analyzer.indicators import calculate_bull_bear_power, calculate_macd, calculate_williams_r
 from stock_analyzer.intraday_fetcher import fetch_stock_minute_history
 from stock_analyzer.market_boards import (
     build_board_market_payload,
@@ -1428,6 +1428,12 @@ class ProjectSmokeTest(unittest.TestCase):
             "ma5",
             "ma20",
             "vwap",
+            "bull_power",
+            "bear_power",
+            "bull_bear_balance",
+            "williams_r",
+            "williams_r_cross_bull",
+            "williams_r_cross_bear",
             "is_b_point",
             "new_is_b_point",
             "opt_is_b_point",
@@ -1441,6 +1447,25 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertFalse(result.empty)
         self.assertEqual(len(result), rows)
         self.assertFalse(result["ma20"].isna().any())
+
+    def test_williams_direction_indicators_follow_course_formulas(self):
+        frame = pd.DataFrame({
+            "open": [10.0, 10.0, 10.0],
+            "high": [12.0, 14.0, 15.0],
+            "low": [8.0, 9.0, 10.0],
+            "close": [11.0, 10.0, 14.0],
+            "volume": [1000, 1000, 1000],
+        })
+
+        result = calculate_williams_r(calculate_bull_bear_power(frame.copy()), period=3)
+
+        self.assertEqual(result.loc[0, "bull_power"], 3.0)
+        self.assertEqual(result.loc[0, "bear_power"], 1.0)
+        self.assertAlmostEqual(result.loc[0, "bull_bear_balance"], 0.5)
+        self.assertAlmostEqual(result.loc[1, "williams_r"], 66.666666, places=5)
+        self.assertEqual(result.loc[1, "williams_r_center_side"], "bear")
+        self.assertTrue(result.loc[2, "williams_r_cross_bull"])
+        self.assertEqual(result.loc[2, "williams_r_center_side"], "bull")
 
     def test_serializer_outputs_existing_chart_payload_contract(self):
         rows = 30
@@ -1461,6 +1486,9 @@ class ProjectSmokeTest(unittest.TestCase):
             "k_data",
             "ma20_data",
             "vwap_data",
+            "bull_power_data",
+            "bear_power_data",
+            "williams_r_data",
             "custom_data",
             "dif_data",
             "dea_data",
@@ -1482,6 +1510,8 @@ class ProjectSmokeTest(unittest.TestCase):
 
         self.assertEqual(len(payload["dates"]), rows)
         self.assertEqual(len(payload["k_data"]), rows)
+        self.assertEqual(len(payload["bull_power_data"]), rows)
+        self.assertEqual(len(payload["williams_r_data"]), rows)
         self.assertEqual(payload["mark_points"], payload["mark_points_old"])
         self.assertEqual(payload["stats_old"]["b"]["horizon"], 5)
         self.assertIn("setup", payload["score_summary"])
@@ -1873,6 +1903,15 @@ class ProjectSmokeTest(unittest.TestCase):
         frame["custom_z"] = [1.25] * 12
         frame["volume_ratio"] = [1.8] * 12
         frame["return_pct"] = [2.34] * 12
+        frame["bull_power"] = [0.7] * 12
+        frame["bear_power"] = [0.2] * 12
+        frame["bull_bear_balance"] = [0.556] * 12
+        frame["bull_power_dominant"] = [True] * 12
+        frame["bear_power_dominant"] = [False] * 12
+        frame["williams_r"] = [35.0] * 12
+        frame["williams_r_cross_bull"] = [False] * 12
+        frame["williams_r_cross_bear"] = [False] * 12
+        frame["williams_r_center_side"] = ["bull"] * 12
         frame["composite_watch"] = [False] * 12
         frame.loc[11, "composite_entry"] = True
         frame.loc[11, "composite_entry_type"] = "breakout"
@@ -1896,9 +1935,16 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(result["custom_z"], 1.25)
         self.assertEqual(result["volume_ratio"], 1.8)
         self.assertEqual(result["return_pct"], 2.34)
+        self.assertEqual(result["bull_power"], 0.7)
+        self.assertEqual(result["bear_power"], 0.2)
+        self.assertEqual(result["bull_bear_balance"], 0.556)
+        self.assertTrue(result["bull_power_dominant"])
+        self.assertEqual(result["williams_r"], 35.0)
+        self.assertEqual(result["williams_r_center_side"], "bull")
         driver_labels = [driver["label"] for driver in result["explanation"]["drivers"]]
         self.assertIn("突破诊断", driver_labels)
         self.assertIn("风险拆分", driver_labels)
+        self.assertIn("方向诊断", driver_labels)
 
     def test_risk_pool_marks_confirmed_risk_stage(self):
         frame = self._minimal_signal_frame(rows=12)

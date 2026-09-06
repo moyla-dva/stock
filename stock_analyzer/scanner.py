@@ -345,6 +345,35 @@ def latest_diagnostic_summary(df_display):
             _latest_value(df_display, "return_pct"),
             2,
         ),
+        "bull_power": _none_or_round(
+            _latest_value(df_display, "bull_power"),
+            3,
+        ),
+        "bear_power": _none_or_round(
+            _latest_value(df_display, "bear_power"),
+            3,
+        ),
+        "bull_bear_balance": _none_or_round(
+            _latest_value(df_display, "bull_bear_balance"),
+            3,
+        ),
+        "bull_power_dominant": _none_or_bool(
+            _latest_value(df_display, "bull_power_dominant"),
+        ),
+        "bear_power_dominant": _none_or_bool(
+            _latest_value(df_display, "bear_power_dominant"),
+        ),
+        "williams_r": _none_or_round(
+            _latest_value(df_display, "williams_r"),
+            2,
+        ),
+        "williams_r_cross_bull": _none_or_bool(
+            _latest_value(df_display, "williams_r_cross_bull"),
+        ),
+        "williams_r_cross_bear": _none_or_bool(
+            _latest_value(df_display, "williams_r_cross_bear"),
+        ),
+        "williams_r_center_side": _latest_value(df_display, "williams_r_center_side"),
     }
 
 

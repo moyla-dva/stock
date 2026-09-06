@@ -8,9 +8,11 @@ from stock_analyzer.indicators import (
     calculate_adx,
     calculate_anchored_vwap,
     calculate_bollinger_bands,
+    calculate_bull_bear_power,
     calculate_cci,
     calculate_kdj,
     calculate_macd,
+    calculate_williams_r,
     detect_divergence,
 )
 from stock_analyzer.normalizer import normalize_price_frame
@@ -38,6 +40,8 @@ def add_indicator_columns(df, fill_initial_ma20=False):
     ).replace([np.inf, -np.inf], np.nan).clip(-5, 5).fillna(0)
 
     df["dif"], df["dea"], df["macd_hist"] = calculate_macd(df)
+    df = calculate_bull_bear_power(df)
+    df = calculate_williams_r(df)
     df["ma5"] = df["close"].rolling(window=5).mean()
     df["ma20"] = df["close"].rolling(window=20).mean()
     if fill_initial_ma20:

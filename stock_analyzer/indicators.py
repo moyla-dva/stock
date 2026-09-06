@@ -14,6 +14,42 @@ def calculate_kdj(df, period=9):
     return df
 
 
+def calculate_bull_bear_power(df):
+    """Calculate Williams-style bull/bear power from each candle."""
+    df["bull_power"] = (df["close"] - df["low"]).clip(lower=0)
+    df["bear_power"] = (df["high"] - df["close"]).clip(lower=0)
+    total_power = (df["bull_power"] + df["bear_power"]).replace(0, np.nan)
+    df["bull_bear_balance"] = (
+        (df["bull_power"] - df["bear_power"]) / total_power
+    ).replace([np.inf, -np.inf], np.nan).fillna(0)
+    df["bull_power_ma5"] = df["bull_power"].rolling(window=5, min_periods=1).mean()
+    df["bear_power_ma5"] = df["bear_power"].rolling(window=5, min_periods=1).mean()
+    df["bull_power_dominant"] = df["bull_power_ma5"] > df["bear_power_ma5"]
+    df["bear_power_dominant"] = df["bear_power_ma5"] > df["bull_power_ma5"]
+    return df
+
+
+def calculate_williams_r(df, period=10):
+    """Calculate Williams %R on a 0-100 scale where 50 is the center line."""
+    highest_high = df["high"].rolling(window=period, min_periods=1).max()
+    lowest_low = df["low"].rolling(window=period, min_periods=1).min()
+    denom = (highest_high - lowest_low).replace(0, np.nan)
+    williams_r = ((highest_high - df["close"]) / denom * 100).replace(
+        [np.inf, -np.inf],
+        np.nan,
+    )
+    df["williams_r"] = williams_r.fillna(50)
+    previous = df["williams_r"].shift(1)
+    df["williams_r_cross_bull"] = (previous >= 50) & (df["williams_r"] < 50)
+    df["williams_r_cross_bear"] = (previous <= 50) & (df["williams_r"] > 50)
+    df["williams_r_center_side"] = np.where(
+        df["williams_r"] < 50,
+        "bull",
+        np.where(df["williams_r"] > 50, "bear", "neutral"),
+    )
+    return df
+
+
 def calculate_bollinger_bands(df, period=20, std_dev=2):
     df["boll_mid"] = df["close"].rolling(window=period).mean()
     df["boll_std"] = df["close"].rolling(window=period).std()
@@ -125,4 +161,3 @@ def calculate_anchored_vwap(df):
         print(f"[VWAP] 计算失败: {e}")
         df["vwap"] = np.nan
     return df
-

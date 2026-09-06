@@ -148,6 +148,43 @@ def _risk_split_diagnostic(result):
     }
 
 
+def _direction_diagnostic(result):
+    if result.get("bull_power") is None and result.get("williams_r") is None:
+        return None
+    bull_power = _format_plain_number(result.get("bull_power"), digits=3)
+    bear_power = _format_plain_number(result.get("bear_power"), digits=3)
+    williams_r = _format_plain_number(result.get("williams_r"), digits=1)
+    side = result.get("williams_r_center_side")
+    if result.get("williams_r_cross_bull") is True:
+        williams_text = f"%R {williams_r} · 下穿 50，中轴偏多"
+        tone = "positive"
+    elif result.get("williams_r_cross_bear") is True:
+        williams_text = f"%R {williams_r} · 上穿 50，中轴偏空"
+        tone = "warning"
+    elif side == "bull":
+        williams_text = f"%R {williams_r} · 50 下方，价格偏近高位"
+        tone = "positive"
+    elif side == "bear":
+        williams_text = f"%R {williams_r} · 50 上方，价格偏离高位"
+        tone = "warning"
+    else:
+        williams_text = f"%R {williams_r} · 中轴附近"
+        tone = "muted"
+
+    if result.get("bear_power_dominant") is True:
+        power_text = f"多头力 {bull_power} / 空头力 {bear_power} · 空头力占优"
+        tone = "warning" if tone != "positive" else "muted"
+    elif result.get("bull_power_dominant") is True:
+        power_text = f"多头力 {bull_power} / 空头力 {bear_power} · 多头力占优"
+    else:
+        power_text = f"多头力 {bull_power} / 空头力 {bear_power}"
+    return {
+        "label": "方向诊断",
+        "value": f"{power_text} · {williams_text}",
+        "tone": tone,
+    }
+
+
 def build_score_badges(result):
     risk = classify_risk_score(result.get("risk_score"))
     sector = classify_sector_score(result.get("sector_score"))
@@ -230,6 +267,7 @@ def build_scan_explanation(result):
         item for item in (
             _breakout_diagnostic(result),
             _risk_split_diagnostic(result),
+            _direction_diagnostic(result),
         )
         if item is not None
     ]
