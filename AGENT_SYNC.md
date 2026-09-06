@@ -276,3 +276,17 @@
 
 - `venv/bin/python -m unittest tests.test_project_smoke.ProjectSmokeTest.test_analysis_pipeline_prepares_indicators_and_signals tests.test_project_smoke.ProjectSmokeTest.test_williams_direction_indicators_follow_course_formulas tests.test_project_smoke.ProjectSmokeTest.test_serializer_outputs_existing_chart_payload_contract tests.test_project_smoke.ProjectSmokeTest.test_scan_stock_frame_outputs_scored_opportunity_result`：4 tests OK。
 - `git diff --check`：通过。
+
+- [2026-09-07 00:52] Codex：**认领 P2-1 方向指标样本校准报告**。计划基于本地最新前复权缓存重新生成当前策略事件，按多空力度、Williams %R 50 中轴与组合状态分桶统计 5 日次日开盘口径表现；只新增报告，不改 `strategy.py`。
+
+## Codex 执行记录（2026-09-07 01:00 CST）
+
+### P2-1 方向指标样本校准已完成
+
+- 新增 `docs/p2-direction-calibration-audit.md`，基于本地 2400 个最新前复权缓存，重新生成 11232 条复合入场事件，可评估 10931 条。
+- 结论：P2 指标合理，但不能作为统一方向滤网；C突中 `%R 下穿 50` 有确认价值，C回中 `%R 偏空/空头力占优` 更像健康回踩，C观仍偏弱。
+- `docs/btq-quant-indicators.md`：P2 状态更新为第一版 + 校准；后续进入 `strategy.py` 前应先做 P2-2 消融实验并再决定是否 bump `SCAN_STRATEGY_VERSION`。
+
+### 验证
+
+- 本地只读校准脚本：2400 files / failures 0 / 11232 events / 10931 evaluated。
