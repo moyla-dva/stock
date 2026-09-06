@@ -240,3 +240,22 @@
 - 本轮未修改 `strategy.py` 阈值，后续建议先做“追高风险解释”和“降权实验”。
 
 - [2026-09-07 00:13] Codex：**认领并完成 P1-2A 历史视图策略版本修正**。`scan_workspace_loader` 现在统计真实快照版本分布；`scan_snapshot_meta` 在历史模式下显示被查看快照日的真实策略版本，当前模式仍显示当前代码策略。真实 2026-05-29 历史日抽查显示 `2026.05.27.1`，全量测试 133 tests OK。
+
+- [2026-09-07 00:20] Codex：**认领 T2-1 trade_plan 仓位公式与收益风险比**。计划修改 `stock_analyzer/trade_plan.py`、相关测试和必要文档；新增账户风险预算、可买股数、2R/3R 收益风险比字段，以及 C突高开/过热执行风险提示；不改 `strategy.py` 信号阈值。
+
+## Codex 执行记录（2026-09-07 00:28 CST）
+
+### T2-1 已完成第一版
+
+- `stock_analyzer/trade_plan.py`：新增账户风险预算、默认 3% 单笔风险、默认 30% 资金占用上限、A 股 100 股手数取整、建议股数、估算资金占用、估算风险金额。
+- `stock_analyzer/trade_plan.py`：新增 `risk_reward` 字段，明确 `2R` 最低门槛与 `3R` 优先目标；当调用方给出目标价且低于 2R 时，计划状态会变为 `blocked` 并写入 forbidden reason。
+- `stock_analyzer/trade_plan.py`：C突新增执行约束解释，包括次日高开禁追、突破日涨幅过大、距 MA20 过远、过热分偏高、量比不在健康区间；不改变 `strategy.py` 触发阈值。
+- `static/js/signalPanel.js`、`static/js/scanSelectionDetail.js`：交易计划展示补充建议股数、估算风险、2R/3R、收益风险比和执行约束。
+- `docs/btq-quant-indicators.md`：P1 状态更新为已完成第一版。
+
+### 验证
+
+- `venv/bin/python -m unittest discover -s tests`：136 tests OK。
+- `node --check static/js/signalPanel.js && node --check static/js/scanSelectionDetail.js`：通过。
+- `venv/bin/python -m compileall stock_analyzer/trade_plan.py`：通过。
+- `git diff --check`：通过。

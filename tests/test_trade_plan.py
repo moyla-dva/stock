@@ -76,6 +76,70 @@ class TradePlanTest(unittest.TestCase):
         self.assertNotIn("mainline_context", plan)
         self.assertIn("每一笔加仓单独管理止损", plan["position"]["rules"])
 
+    def test_trade_plan_calculates_position_from_account_risk(self):
+        frame = _base_frame()
+        frame.loc[len(frame) - 1, "composite_entry"] = True
+        frame.loc[len(frame) - 1, "composite_entry_type"] = "pullback"
+
+        plan = build_trade_plan(
+            frame,
+            context={
+                "alignment": "structure",
+                "account_size": 100000,
+                "risk_pct": 3,
+                "target_price": 13,
+            },
+        )
+
+        self.assertEqual(plan["status"], "ready")
+        self.assertEqual(plan["position"]["risk_pct"], 3)
+        self.assertEqual(plan["position"]["risk_budget_amount"], 3000)
+        self.assertEqual(plan["position"]["lot_size"], 100)
+        self.assertGreater(plan["position"]["suggested_shares"], 0)
+        self.assertLessEqual(plan["position"]["estimated_capital"], 30000)
+        self.assertEqual(plan["position"]["capped_by"], "max_capital_pct")
+        self.assertIn(plan["risk_reward"]["status"], {"pass", "ideal"})
+        self.assertGreaterEqual(plan["risk_reward"]["ratio"], 2)
+
+    def test_trade_plan_blocks_when_target_is_below_two_r(self):
+        frame = _base_frame()
+        frame.loc[len(frame) - 1, "composite_entry"] = True
+        frame.loc[len(frame) - 1, "composite_entry_type"] = "pullback"
+
+        plan = build_trade_plan(
+            frame,
+            context={
+                "alignment": "structure",
+                "account_size": 100000,
+                "risk_pct": 3,
+                "target_price": 11,
+            },
+        )
+
+        self.assertEqual(plan["status"], "blocked")
+        self.assertEqual(plan["risk_reward"]["status"], "fail")
+        self.assertIn("收益风险比低于 2:1", plan["forbidden_reasons"])
+
+    def test_trade_plan_marks_breakout_execution_constraints(self):
+        frame = _base_frame()
+        last = len(frame) - 1
+        frame.loc[last, "composite_entry"] = True
+        frame.loc[last, "composite_entry_type"] = "breakout"
+        frame.loc[last, "return_pct"] = 6.2
+        frame.loc[last, "ma20"] = frame.loc[last, "close"] / 1.11
+        frame.loc[last, "composite_risk_heat_score"] = 3
+        frame.loc[last, "volume_ratio"] = 3.1
+
+        plan = build_trade_plan(frame, context={"alignment": "structure"})
+
+        keys = [item["key"] for item in plan["execution_constraints"]]
+        self.assertIn("next_open_chase", keys)
+        self.assertIn("breakout_day_extended", keys)
+        self.assertIn("ma20_extended", keys)
+        self.assertIn("heat_score_high", keys)
+        self.assertIn("volume_ratio_outside_preferred", keys)
+        self.assertIn("确认至少 2R 的目标空间", plan["required_confirmations"])
+
     def test_williams_clock_marks_low_bandwidth_as_countdown_not_direction(self):
         rows = 60
         bandwidth = [10.0] * 50 + [1.0] * 10

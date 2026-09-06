@@ -463,10 +463,28 @@ function tradePlanStopText(stop) {
 
 function tradePlanPositionText(plan) {
     var position = (plan && plan.position) || {};
+    if (position.suggested_shares != null) {
+        var text = '建议 ' + Number(position.suggested_shares).toFixed(0) + ' 股';
+        if (position.estimated_risk_amount != null) {
+            text += ' · 估算风险 ' + Number(position.estimated_risk_amount).toFixed(2);
+        }
+        return text;
+    }
     if (position.risk_per_share != null) {
         return '每股风险 ' + Number(position.risk_per_share).toFixed(3) + '，再按资金预算反推股数';
     }
     return position.formula || '先确定单笔风险金额，再反推仓位';
+}
+
+function tradePlanRiskRewardText(plan) {
+    var rr = (plan && plan.risk_reward) || {};
+    if (rr.ratio != null) {
+        return '收益风险比 ' + Number(rr.ratio).toFixed(2) + ':1 · ' + (rr.label || '');
+    }
+    if (rr.r2_price != null && rr.r3_price != null) {
+        return '2R ' + formatPrice(rr.r2_price) + ' · 3R ' + formatPrice(rr.r3_price);
+    }
+    return '确认至少 2R 的目标空间';
 }
 
 function appendTradePlanTags(tags, plan) {
@@ -577,7 +595,7 @@ function renderAnalysisDecision(visiblePoints, allPoints) {
         path.appendChild(createAnalysisDecisionPathStep(
             '03',
             tradePlanStopText(stop),
-            tradePlanPositionText(tradePlan),
+            tradePlanPositionText(tradePlan) + ' · ' + tradePlanRiskRewardText(tradePlan),
             tradePlanStepTone(tradePlan, 'risk'),
             tradePlan.status === 'ready' || tradePlan.status === 'blocked'
         ));

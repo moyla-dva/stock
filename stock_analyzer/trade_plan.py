@@ -7,6 +7,11 @@ from stock_analyzer.technical_structures import build_technical_structures
 
 
 MAX_STOP_DISTANCE_PCT = 8.0
+DEFAULT_RISK_PCT = 3.0
+DEFAULT_MAX_CAPITAL_PCT = 30.0
+BOARD_LOT_SIZE = 100
+MIN_RISK_REWARD = 2.0
+IDEAL_RISK_REWARD = 3.0
 
 
 def _as_float(value, default=None):
@@ -26,6 +31,13 @@ def _as_bool(value):
         return bool(value)
     except (TypeError, ValueError):
         return False
+
+
+def _as_int(value, default=None):
+    number = _as_float(value)
+    if number is None:
+        return default
+    return int(number)
 
 
 def _format_date(value):
@@ -58,6 +70,12 @@ def _recent_high(df_display, window=5):
     if df_display is None or df_display.empty or "high" not in df_display.columns:
         return None
     return _as_float(df_display.tail(window)["high"].max())
+
+
+def _column_latest(df_display, column):
+    if df_display is None or df_display.empty or column not in df_display.columns:
+        return None
+    return df_display.iloc[-1].get(column)
 
 
 def _previous_low(df_display):
@@ -153,6 +171,178 @@ def _targets(close, stop):
     }
 
 
+def _context_float(context, key):
+    if not isinstance(context, dict):
+        return None
+    return _as_float(context.get(key))
+
+
+def _position_plan(close, stop, context):
+    risk_per_share = stop.get("risk_per_share")
+    account_size = _context_float(context, "account_size")
+    risk_pct = _context_float(context, "risk_pct")
+    risk_budget_amount = _context_float(context, "risk_budget_amount")
+    max_capital_pct = _context_float(context, "max_capital_pct")
+    missing_inputs = []
+
+    if account_size is None:
+        missing_inputs.append("account_size")
+    if risk_budget_amount is None:
+        if risk_pct is None:
+            risk_pct = DEFAULT_RISK_PCT
+        if account_size is not None:
+            risk_budget_amount = account_size * risk_pct / 100
+        else:
+            missing_inputs.append("risk_budget_amount")
+    if max_capital_pct is None:
+        max_capital_pct = DEFAULT_MAX_CAPITAL_PCT
+
+    plan = {
+        "risk_per_share": risk_per_share,
+        "formula": "账户余额 × 单笔风险比例 / 每股风险",
+        "account_size": None if account_size is None else round(account_size, 2),
+        "risk_pct": None if risk_pct is None else round(risk_pct, 2),
+        "risk_budget_amount": None if risk_budget_amount is None else round(risk_budget_amount, 2),
+        "max_capital_pct": round(max_capital_pct, 2),
+        "max_capital_amount": None if account_size is None else round(account_size * max_capital_pct / 100, 2),
+        "lot_size": BOARD_LOT_SIZE,
+        "raw_shares": None,
+        "shares_by_risk": None,
+        "shares_by_capital": None,
+        "suggested_shares": None,
+        "suggested_lots": None,
+        "estimated_capital": None,
+        "estimated_risk_amount": None,
+        "capped_by": None,
+        "missing_inputs": missing_inputs,
+        "rules": [
+            "单笔风险先固定金额，再反推股数",
+            "首笔风险预算默认 3%，账户约束默认最多动用 30% 资金",
+            "每一笔加仓单独管理止损",
+        ],
+    }
+    if close is None or risk_per_share is None or risk_per_share <= 0:
+        return plan
+    if risk_budget_amount is None:
+        return plan
+
+    raw_shares = risk_budget_amount / risk_per_share
+    shares_by_risk = int(raw_shares // BOARD_LOT_SIZE) * BOARD_LOT_SIZE
+    shares_by_capital = None
+    capped_by = None
+    if account_size is not None and max_capital_pct is not None:
+        max_capital_amount = account_size * max_capital_pct / 100
+        shares_by_capital = int((max_capital_amount / close) // BOARD_LOT_SIZE) * BOARD_LOT_SIZE
+        if shares_by_capital < shares_by_risk:
+            capped_by = "max_capital_pct"
+    suggested_shares = shares_by_risk
+    if shares_by_capital is not None:
+        suggested_shares = min(shares_by_risk, shares_by_capital)
+    suggested_shares = max(0, suggested_shares)
+
+    plan.update({
+        "raw_shares": round(raw_shares, 2),
+        "shares_by_risk": shares_by_risk,
+        "shares_by_capital": shares_by_capital,
+        "suggested_shares": suggested_shares,
+        "suggested_lots": int(suggested_shares / BOARD_LOT_SIZE),
+        "estimated_capital": round(suggested_shares * close, 2),
+        "estimated_risk_amount": round(suggested_shares * risk_per_share, 2),
+        "capped_by": capped_by,
+    })
+    return plan
+
+
+def _risk_reward_plan(close, stop, context, targets):
+    risk_per_share = stop.get("risk_per_share")
+    target_price = _context_float(context, "target_price")
+    if target_price is None:
+        target_price = _context_float(context, "expected_target_price")
+    reward = None
+    ratio = None
+    status = "pending"
+    label = "目标待确认"
+    if close is not None and risk_per_share is not None and risk_per_share > 0 and target_price is not None:
+        reward = target_price - close
+        ratio = reward / risk_per_share
+        if ratio >= IDEAL_RISK_REWARD:
+            status = "ideal"
+            label = "达到 3R"
+        elif ratio >= MIN_RISK_REWARD:
+            status = "pass"
+            label = "达到 2R"
+        else:
+            status = "fail"
+            label = "收益风险比不足"
+    return {
+        "min_ratio": MIN_RISK_REWARD,
+        "ideal_ratio": IDEAL_RISK_REWARD,
+        "target_price": _round_price(target_price),
+        "reward_per_share": None if reward is None else round(reward, 3),
+        "ratio": None if ratio is None else round(ratio, 2),
+        "status": status,
+        "label": label,
+        "r2_price": targets.get("r2"),
+        "r3_price": targets.get("r3"),
+        "note": "明确目标价后，低于 2R 不进入执行；3R 为更优先计划。",
+    }
+
+
+def _ma20_deviation_pct(latest):
+    close = _as_float(latest.get("close"))
+    ma20 = _as_float(latest.get("ma20"))
+    if close is None or not ma20:
+        return None
+    return (close / ma20 - 1) * 100
+
+
+def _execution_constraints(latest, entry):
+    constraints = []
+    if entry.get("signal_type") != "breakout":
+        return constraints
+
+    return_pct = _as_float(latest.get("return_pct"))
+    ma20_deviation = _ma20_deviation_pct(latest)
+    risk_heat_score = _as_int(latest.get("composite_risk_heat_score"))
+    volume_ratio = _as_float(latest.get("volume_ratio"))
+
+    constraints.append({
+        "key": "next_open_chase",
+        "label": "次日高开禁追",
+        "severity": "warning",
+        "detail": "若次日开盘高于信号日收盘 1% 以上，不按开盘价追入，等待回踩或盘中确认。",
+    })
+    if return_pct is not None and return_pct >= 6:
+        constraints.append({
+            "key": "breakout_day_extended",
+            "label": "突破日涨幅过大",
+            "severity": "warning",
+            "detail": f"突破日涨幅 {return_pct:.2f}%，历史分桶显示次日开盘口径偏弱。",
+        })
+    if ma20_deviation is not None and ma20_deviation >= 10:
+        constraints.append({
+            "key": "ma20_extended",
+            "label": "距离 MA20 过远",
+            "severity": "warning",
+            "detail": f"当前距 MA20 {ma20_deviation:.2f}%，追涨回撤风险升高。",
+        })
+    if risk_heat_score is not None and risk_heat_score >= 3:
+        constraints.append({
+            "key": "heat_score_high",
+            "label": "过热分偏高",
+            "severity": "warning",
+            "detail": f"过热分 {risk_heat_score}，C突需要降权或等待回踩确认。",
+        })
+    if volume_ratio is not None and (volume_ratio < 1.5 or volume_ratio >= 2.5):
+        constraints.append({
+            "key": "volume_ratio_outside_preferred",
+            "label": "量比不在健康区间",
+            "severity": "info",
+            "detail": f"当前量比 {volume_ratio:.2f}，历史分桶中 1.5-2.5 更稳。",
+        })
+    return constraints
+
+
 def _status(permission, stop):
     if permission.get("mode") == "risk_control":
         return "risk_control", "风险处理"
@@ -193,14 +383,25 @@ def build_trade_plan(df_display, context=None):
     close = _as_float(latest.get("close"))
     stop = _stop_plan(df_display, latest, permission)
     entry = _entry_plan(df_display, latest, permission)
+    targets = _targets(close, stop)
+    position = _position_plan(close, stop, context or {})
+    risk_reward = _risk_reward_plan(close, stop, context or {}, targets)
+    execution_constraints = _execution_constraints(latest, entry)
     status, status_label = _status(permission, stop)
     forbidden_reasons = list(permission.get("forbidden_reasons", []))
+    required_confirmations = list(permission.get("required_confirmations", []))
     if stop.get("too_wide"):
         forbidden_reasons.append(f"止损距离超过 {MAX_STOP_DISTANCE_PCT:.0f}%")
     if stop.get("price") is None and permission.get("can_open"):
         forbidden_reasons.append("缺少有效止损位")
         status = "blocked"
         status_label = "缺止损位"
+    if risk_reward["status"] == "fail":
+        forbidden_reasons.append(f"收益风险比低于 {MIN_RISK_REWARD:.0f}:1")
+        status = "blocked"
+        status_label = "收益风险比不足"
+    elif risk_reward["status"] == "pending":
+        required_confirmations.append("确认至少 2R 的目标空间")
 
     williams_clock = structures.get("williams_clock", {})
     plan_type = "observe"
@@ -243,19 +444,12 @@ def build_trade_plan(df_display, context=None):
         "technical_structures": structures,
         "entry": entry,
         "stop": stop,
-        "position": {
-            "risk_per_share": risk_per_share,
-            "formula": "可承受亏损金额 / 每股风险",
-            "missing_inputs": ["account_size", "risk_budget_amount"],
-            "rules": [
-                "单笔风险先固定金额，再反推股数",
-                "左侧只试错，不能用杠杆放大",
-                "每一笔加仓单独管理止损",
-            ],
-        },
-        "targets": _targets(close, stop),
+        "position": position,
+        "targets": targets,
+        "risk_reward": risk_reward,
+        "execution_constraints": execution_constraints,
         "forbidden_reasons": forbidden_reasons,
-        "required_confirmations": permission.get("required_confirmations", []),
+        "required_confirmations": required_confirmations,
         "invalidation_conditions": [
             "入场理由不存在或触发后没有浮盈安全垫",
             "跌破计划止损位",

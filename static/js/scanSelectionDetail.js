@@ -109,6 +109,28 @@ function formatTradePlanPercent(value) {
     return Number(value).toFixed(2) + '%';
 }
 
+function formatTradePlanRiskReward(plan) {
+    var rr = (plan && plan.risk_reward) || {};
+    if (rr.ratio != null) {
+        return '收益风险比 ' + Number(rr.ratio).toFixed(2) + ':1';
+    }
+    if (rr.r2_price != null && rr.r3_price != null) {
+        return '2R ' + formatTradePlanPrice(rr.r2_price) + ' / 3R ' + formatTradePlanPrice(rr.r3_price);
+    }
+    return '目标待确认';
+}
+
+function formatTradePlanExecutionConstraint(plan) {
+    var constraints = Array.isArray(plan && plan.execution_constraints) ? plan.execution_constraints : [];
+    if (!constraints.length) return null;
+    var primary = constraints[0];
+    return {
+        title: primary.label || '执行约束',
+        detail: primary.detail || '先确认执行价格，不追过热形态',
+        tone: primary.severity === 'warning' ? 'warning' : 'muted'
+    };
+}
+
 function renderScanTradePlanSection(item) {
     var plan = item && item.trade_plan;
     if (!plan) return null;
@@ -144,9 +166,13 @@ function renderScanTradePlanSection(item) {
         : ((stop.basis || '结构止损') + ' · 距离 ' + formatTradePlanPercent(stop.distance_pct));
     var positionDetail = position.risk_per_share == null
         ? (position.formula || '可承受亏损金额 / 每股风险')
-        : ('每股风险 ' + Number(position.risk_per_share).toFixed(3) + ' · 再反推股数');
+        : (position.suggested_shares == null
+            ? ('每股风险 ' + Number(position.risk_per_share).toFixed(3) + ' · 再反推股数')
+            : ('建议 ' + Number(position.suggested_shares).toFixed(0) + ' 股 · 估算风险 ' + formatTradePlanPrice(position.estimated_risk_amount)));
+    var riskReward = plan.risk_reward || {};
+    var executionConstraint = formatTradePlanExecutionConstraint(plan);
 
-    [
+    var checklistItems = [
         createScanChecklistItem(
             '权限',
             permission.mode_label || plan.status_label || '-',
@@ -174,6 +200,12 @@ function renderScanTradePlanSection(item) {
             stop.price == null ? 'warning' : 'positive'
         ),
         createScanChecklistItem(
+            '收益风险',
+            riskReward.label || '目标待确认',
+            formatTradePlanRiskReward(plan),
+            riskReward.status === 'fail' ? 'danger' : (riskReward.status === 'pending' ? 'warning' : 'positive')
+        ),
+        createScanChecklistItem(
             '威廉时钟',
             clock.state_label || '未计算',
             clock.summary || '只决定是否值得研究，不预测方向',
@@ -185,7 +217,16 @@ function renderScanTradePlanSection(item) {
             Array.isArray(plan.protection_rules) && plan.protection_rules.length ? plan.protection_rules[0] : '有浮盈后转成利润保护',
             plan.status === 'risk_control' ? 'danger' : 'warning'
         )
-    ].forEach(function(node) {
+    ];
+    if (executionConstraint) {
+        checklistItems.splice(4, 0, createScanChecklistItem(
+            '执行',
+            executionConstraint.title,
+            executionConstraint.detail,
+            executionConstraint.tone
+        ));
+    }
+    checklistItems.forEach(function(node) {
         grid.appendChild(node);
     });
 
