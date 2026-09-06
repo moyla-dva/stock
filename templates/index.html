@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A股短线结构工作台</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-command.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-buttons.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-pool-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-side-panel.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-progress.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-jobs.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-history.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-filters.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-insights.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-results.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-detail.css') }}">
+</head>
+<body>
+    <main class="app-shell">
+        <header class="command-bar">
+            <section class="brand-block" aria-label="产品标识">
+                <div class="brand-mark">A</div>
+                <div>
+                    <div class="eyebrow">LOCAL MARKET DESK</div>
+                    <h1>A股短线结构工作台</h1>
+                </div>
+            </section>
+
+            <section class="desk-switcher" aria-label="工作区">
+                <button class="desk-switch-btn active" id="workspace-tab-candidates" onclick="setWorkspaceView('candidates')">候选池</button>
+                <button class="desk-switch-btn" id="workspace-tab-analysis" onclick="setWorkspaceView('analysis')">单股确认</button>
+                <button class="desk-switch-btn" id="workspace-tab-data" onclick="setWorkspaceView('data')">数据后台</button>
+            </section>
+
+            <section class="top-command-strip" aria-label="当前工作区命令">
+                <div class="analysis-command-group">
+                    <section class="command-cluster" aria-label="分析命令">
+                        <div class="code-control">
+                            <label for="stock-code">股票代码</label>
+                            <input type="text" id="stock-code" placeholder="600063" value="600063" onkeypress="handleKeyPress(event)">
+                        </div>
+                        <button class="primary-action" onclick="analyzeStock()" id="btn-analyze">开始分析</button>
+                    </section>
+                </div>
+
+            </section>
+        </header>
+
+        <section class="status-strip" aria-label="当前状态">
+            <div class="instrument-block">
+                <div class="instrument-title" id="stock-title">等待分析...</div>
+                <div class="instrument-meta">
+                    <span id="active-mode-label">综合研判</span>
+                    <span id="stock-sector">板块: -</span>
+                    <span id="data-window">数据窗口: -</span>
+                    <span id="loading">待命</span>
+                </div>
+            </div>
+            <div class="metric-rail">
+                <div class="metric-tile">
+                    <span>综合</span>
+                    <strong id="stat-composite">0</strong>
+                </div>
+                <div class="metric-tile metric-tile--wide">
+                    <span>回测</span>
+                    <strong id="stat-detail">-</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="workspace desk-view active" id="desk-view-analysis">
+            <section class="chart-pane" aria-label="K线分析">
+                <div class="pane-head">
+                    <div>
+                        <div class="pane-label" id="chart-context-label">综合研判 · SIGNAL MAP</div>
+                        <h2 id="chart-title">价格结构</h2>
+                    </div>
+                    <div class="pane-tools">
+                        <div class="chart-period-toggle" aria-label="K线周期">
+                            <button type="button" class="chart-period-btn active" id="chart-period-daily" onclick="setChartPeriod('daily')">日线</button>
+                            <button type="button" class="chart-period-btn" id="chart-period-60m" onclick="setChartPeriod('60m')">60m</button>
+                            <button type="button" class="chart-period-btn" id="chart-period-4h" onclick="setChartPeriod('4h')">4h</button>
+                        </div>
+                        <div class="chart-view-toggle" aria-label="图面密度">
+                            <button class="chart-view-btn active" id="chart-view-focus" onclick="setChartSignalView('focus')">核心</button>
+                            <button class="chart-view-btn" id="chart-view-full" onclick="setChartSignalView('full')">全部</button>
+                        </div>
+                        <div class="chart-state" id="chart-state">等待数据</div>
+                    </div>
+                </div>
+                <div id="chart-container"></div>
+            </section>
+
+            <aside class="inspector-pane" aria-label="信号详情">
+                <nav class="inspector-tabs" aria-label="右侧工作区">
+                    <button class="inspector-tab active" id="inspector-tab-overview" onclick="setInspectorView('overview')">当前</button>
+                    <button class="inspector-tab" id="inspector-tab-legend" onclick="setInspectorView('legend')">图例</button>
+                    <button class="inspector-tab" id="inspector-tab-events" onclick="setInspectorView('events')">事件</button>
+                </nav>
+
+                <div class="inspector-view inspector-view--overview active" id="inspector-view-overview">
+                    <section class="context-panel">
+                        <div class="panel-head">
+                            <span>最终确认台</span>
+                            <span id="signal-health">待命</span>
+                        </div>
+                        <section class="analysis-decision-panel" id="analysis-decision-panel" aria-label="单股决策承接">
+                            <div class="analysis-decision-verdict" id="analysis-decision-verdict">
+                                <span>当前处理</span>
+                                <strong id="analysis-decision-title">等待结构确认</strong>
+                                <small id="analysis-decision-detail">如果这只票来自扫描候选，系统会在这里解释为什么打开它。</small>
+                            </div>
+                            <div class="analysis-decision-path" id="analysis-decision-path" aria-label="单股确认路径"></div>
+                            <div class="analysis-decision-tags" id="analysis-decision-tags" aria-label="单股上下文标签"></div>
+                            <div class="analysis-decision-actions" id="analysis-decision-actions" aria-label="单股路径动作"></div>
+                        </section>
+                        <div class="analysis-support-panel">
+                            <div class="analysis-support-head">确认摘要</div>
+                            <div class="analysis-summary-grid" aria-label="当前确认摘要">
+                                <div class="analysis-summary-card analysis-summary-card--wide">
+                                    <span>当前定位</span>
+                                    <strong id="latest-signal">-</strong>
+                                </div>
+                                <div class="analysis-summary-card">
+                                    <span>信号日</span>
+                                    <strong id="latest-signal-date">-</strong>
+                                </div>
+                                <div class="analysis-summary-card">
+                                    <span>可见事件</span>
+                                    <strong id="visible-signal-count">0</strong>
+                                </div>
+                            </div>
+                            <div class="signal-note" id="latest-signal-note">等待数据载入</div>
+                            <div class="score-strip" aria-label="综合评分">
+                                <div class="score-cell">
+                                    <span>建仓</span>
+                                    <strong id="score-setup">-</strong>
+                                </div>
+                                <div class="score-cell">
+                                    <span>确认</span>
+                                    <strong id="score-confirm">-</strong>
+                                </div>
+                                <div class="score-cell">
+                                    <span>风险</span>
+                                    <strong id="score-risk">-</strong>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="analysis-support-panel analysis-support-panel--secondary tag-profile-panel">
+                            <div class="analysis-support-head">画像核对</div>
+                            <div class="tag-profile-summary" id="tag-profile-summary">等待画像载入</div>
+                            <div class="tag-profile-groups" id="tag-profile-groups" aria-label="股票画像标签分层"></div>
+                            <div class="tag-profile-flags" id="tag-profile-flags" aria-label="股票画像核对提示"></div>
+                        </div>
+                        <div class="analysis-support-panel analysis-support-panel--secondary timeframe-support-panel">
+                            <div class="analysis-support-head">辅助确认</div>
+                            <div class="timeframe-note" id="timeframe-note">日线管方向，60m 管入场确认，4h 由 60m 合成做结构确认。</div>
+                            <div class="timeframe-grid" id="timeframe-grid" aria-label="多周期确认列表"></div>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="inspector-view inspector-view--legend" id="inspector-view-legend">
+                    <section class="legend-panel">
+                        <div class="panel-head">
+                            <span>信号图例</span>
+                            <span id="legend-mode-label">综合研判</span>
+                        </div>
+                        <div id="signal-filter-list" class="signal-filter-list"></div>
+                    </section>
+                </div>
+
+                <div class="inspector-view inspector-view--events" id="inspector-view-events">
+                    <section class="event-panel">
+                        <div class="panel-head">
+                            <span>事件流</span>
+                            <span id="event-range-label">倒序</span>
+                        </div>
+                        <div id="event-list" class="event-list"></div>
+                    </section>
+                </div>
+            </aside>
+        </section>
+
+        <section class="market-workspace desk-view" id="desk-view-scan" aria-label="短线结构工作台">
+            <section class="scan-command-panel scan-command-panel--top" aria-label="扫描命令栏">
+                <div class="scan-command-status-group">
+                    <div class="scan-command-kicker">
+                        <span>扫描状态</span>
+                        <strong id="scan-status">未开始</strong>
+                    </div>
+
+                    <div class="scan-cache-strip scan-cache-strip--single" id="scan-cache-strip" aria-label="扫描缓存状态">
+                        <div>
+                            <span>数据状态</span>
+                            <strong id="scan-cache-summary">已扫描 0 · 数据 - · 结果 - · 策略 -</strong>
+                        </div>
+                    </div>
+
+                    <div class="scan-progress-strip" id="scan-progress-strip" hidden aria-label="扫描进度">
+                        <div class="scan-progress-meter" aria-hidden="true">
+                            <span id="scan-progress-fill"></span>
+                        </div>
+                        <div class="scan-progress-copy">
+                            <strong id="scan-progress-title">等待扫描</strong>
+                            <span id="scan-progress-detail">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="scan-command-run-group">
+                    <div class="scan-command-actions-row">
+                        <div class="scan-actions">
+                            <button onclick="scanActivePool()" id="btn-scan-active" class="scan-button scan-button--opportunity">更新参与候选</button>
+                            <button onclick="cancelActiveScanJob()" id="btn-cancel-scan" class="scan-button scan-button--cancel" disabled hidden>停止扫描</button>
+                        </div>
+
+                        <details class="scan-settings-menu">
+                            <summary aria-label="扫描设置">
+                                <span>设置</span>
+                            </summary>
+                            <div class="scan-settings-menu__body">
+                                <div class="scan-settings-section">
+                                    <span>刷新策略</span>
+                                    <div class="scan-refresh-toggle" aria-label="扫描刷新策略">
+                                        <button class="scan-refresh-btn active" id="scan-refresh-auto" onclick="setScanRefreshPolicy('auto')">
+                                            <span>增量更新</span>
+                                        </button>
+                                        <button class="scan-refresh-btn" id="scan-refresh-cache" onclick="setScanRefreshPolicy('cache')">
+                                            <span>仅读本地</span>
+                                        </button>
+                                        <button class="scan-refresh-btn" id="scan-refresh-force" onclick="setScanRefreshPolicy('force')">
+                                            <span>全量重扫</span>
+                                        </button>
+                                    </div>
+                                    <div class="scan-policy-hints" aria-label="刷新策略说明">
+                                        <span><strong>增量更新</strong> 跳过今日已完成结果，只补缺失、过期或旧策略结果。</span>
+                                        <span><strong>仅读本地</strong> 只读取已有本地结果，不发起计算。</span>
+                                        <span><strong>全量重扫</strong> 忽略本地结果，当前池全部重新计算。</span>
+                                    </div>
+                                </div>
+
+                                <div class="scan-settings-section">
+                                    <span>高级治理</span>
+                                    <div class="scan-governance-body">
+                                        <div class="scan-snapshot-meta" aria-label="本地结果治理">
+                                            <div class="scan-snapshot-status" id="scan-snapshot-status">
+                                                <span>结果状态</span>
+                                                <strong id="scan-snapshot-health">等待</strong>
+                                                <small id="scan-snapshot-detail">策略 - · 有效 0 · 过期 0</small>
+                                            </div>
+                                            <button type="button" class="scan-rebuild-btn" id="btn-rebuild-snapshot" onclick="runSnapshotGovernanceAction()">重建当前池</button>
+                                        </div>
+
+                                        <div class="scan-concept-meta" aria-label="股票概念库">
+                                            <div class="scan-concept-status" id="scan-concept-status">
+                                                <span>概念库</span>
+                                                <strong id="scan-concept-health">读取中</strong>
+                                                <small id="scan-concept-detail">覆盖 0 只 · 0 概念</small>
+                                            </div>
+                                            <button type="button" class="scan-concept-btn" id="btn-refresh-concepts" data-scan-action="refresh-concepts" onclick="refreshStockConceptLibrary()">刷新概念库</button>
+                                        </div>
+
+                                        <div class="scan-data-source-meta" aria-label="数据源状态">
+                                            <div class="scan-data-source-status" id="scan-data-source-status">
+                                                <span>数据源</span>
+                                                <strong id="scan-data-source-health">读取中</strong>
+                                                <small id="scan-data-source-detail">缓存 / Provider / 任务记录</small>
+                                            </div>
+                                            <button type="button" class="scan-data-source-btn" id="btn-refresh-data-sources" data-scan-action="refresh-data-sources" onclick="refreshDataSourceStatus()">刷新状态</button>
+                                        </div>
+
+                                        <div class="scan-data-actions" aria-label="数据治理操作">
+                                            <button type="button" id="btn-sync-governance" data-scan-action="sync-governance" onclick="syncDataGovernanceStatus()">同步治理状态</button>
+                                            <button type="button" onclick="pruneExpiredScanCache()">清理本地结果</button>
+                                        </div>
+
+                                        <div class="scan-plan-confirm" id="scan-plan-confirm" hidden>
+                                            <div class="scan-plan-confirm__copy">
+                                                <span id="scan-plan-version">策略 -</span>
+                                                <strong id="scan-plan-title">策略重算确认</strong>
+                                                <small id="scan-plan-detail">将处理 0 只</small>
+                                            </div>
+                                            <div class="scan-plan-confirm__actions">
+                                                <button type="button" onclick="hideScanPlanConfirm()">取消</button>
+                                                <button type="button" id="btn-confirm-scan-plan" onclick="confirmPendingScanPlan()">确认重算</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            </section>
+
+            <section class="market-results-pane">
+                <div class="pane-head market-results-head">
+                    <div class="market-results-title">
+                        <div class="pane-label" id="market-results-label">CANDIDATE DESK</div>
+                        <h2 id="market-results-heading">候选池</h2>
+                    </div>
+                    <div class="candidate-desk-brief" id="candidate-desk-brief" aria-label="候选池当前状态">
+                        <div class="candidate-desk-brief__copy">
+                            <span id="candidate-desk-brief-label">本地结构</span>
+                            <strong id="candidate-desk-brief-title">正在读取候选池</strong>
+                            <small id="candidate-desk-brief-detail">系统会优先展示可参与名单，再进入单股确认。</small>
+                        </div>
+                        <button type="button" id="btn-scan-candidate-action" class="candidate-desk-brief__action" onclick="scanActivePool()">更新参与候选</button>
+                    </div>
+                    <div class="market-results-tools">
+                        <div class="scan-pool-tabs scan-pool-tabs--market" aria-label="扫描池">
+                            <button class="scan-pool-tab active" id="scan-pool-opportunity" onclick="setScanPool('opportunity')">
+                                <span>参与候选</span>
+                                <strong id="scan-count-opportunity">0</strong>
+                            </button>
+                            <button class="scan-pool-tab" id="scan-pool-risk" onclick="setScanPool('risk')">
+                                <span>风险验证</span>
+                                <strong id="scan-count-risk">0</strong>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <section class="scan-workspace-page scan-workspace-page--candidates" id="scan-workspace-page-candidates" aria-label="执行层">
+                    <section class="scan-filter-panel" aria-label="候选筛选">
+                        <div class="scan-filter-row">
+                            <label class="scan-field scan-field--search">
+                                <span>快速定位</span>
+                                <input id="scan-search" type="search" placeholder="搜索股票 / 板块 / 概念" oninput="setScanFilterQuery(this.value)">
+                            </label>
+                            <div class="scan-recommendation" aria-label="系统推荐">
+                                <span>系统动作</span>
+                                <strong id="scan-recommendation-title">读取结构</strong>
+                                <small id="scan-recommendation-detail">按结构、确认和风险自动排序</small>
+                            </div>
+                        </div>
+                        <div class="scan-candidate-context" id="scan-candidate-context" aria-label="当前名单上下文">
+                            <div class="scan-candidate-context__copy">
+                                <span id="scan-candidate-context-label">当前语境</span>
+                                <strong id="scan-candidate-context-title">系统正在整理参与名单</strong>
+                                <small id="scan-candidate-context-detail">默认按结构、确认和风险排序，必要时再展开高级筛选。</small>
+                            </div>
+                            <div class="scan-candidate-context__actions" id="scan-candidate-context-actions"></div>
+                        </div>
+                    </section>
+
+                    <section id="scan-result-panel" class="scan-result-panel is-visible">
+                        <div class="scan-result-header">
+                            <span class="scan-result-title">当前执行层</span>
+                            <span class="scan-result-scope">系统按结构语境整理</span>
+                        </div>
+                        <div id="scan-result-summary" class="scan-result-summary" aria-live="polite"></div>
+                        <div id="scan-list" class="scan-list"></div>
+                    </section>
+                </section>
+
+                <section class="scan-workspace-page scan-workspace-page--data" id="scan-workspace-page-data" aria-label="数据后台看板">
+                    <section class="scan-data-decision" id="scan-data-decision" aria-label="当前治理判断">
+                        <div class="scan-data-decision__copy">
+                            <span>当前判断</span>
+                            <strong id="scan-data-decision-title">等待本地状态</strong>
+                            <small id="scan-data-decision-detail">系统正在读取本地结果、概念库和数据源状态。</small>
+                        </div>
+                        <div class="scan-data-decision__meta">
+                            <strong id="scan-data-decision-badge">读取中</strong>
+                            <div id="scan-data-decision-tags" class="scan-data-decision-tags" aria-label="治理提示"></div>
+                        </div>
+                    </section>
+
+                    <div class="scan-data-overview" aria-label="数据状态总览">
+                        <div class="scan-data-tile">
+                            <span>扫描覆盖</span>
+                            <strong id="scan-data-loaded-count">0</strong>
+                            <small id="scan-data-result-detail">等待扫描结果</small>
+                        </div>
+                        <div class="scan-data-tile">
+                            <span>结果健康</span>
+                            <strong id="scan-data-snapshot-health">等待</strong>
+                            <small id="scan-data-snapshot-detail">策略 - · 有效 0</small>
+                        </div>
+                        <div class="scan-data-tile">
+                            <span>概念底座</span>
+                            <strong id="scan-data-concept-health">读取中</strong>
+                            <small id="scan-data-concept-detail">覆盖 0 只 · 0 概念</small>
+                        </div>
+                        <div class="scan-data-tile">
+                            <span>数据底座</span>
+                            <strong id="scan-data-source-health-main">读取中</strong>
+                            <small id="scan-data-source-detail-main">缓存 / Provider / 任务记录</small>
+                        </div>
+                    </div>
+
+                    <div class="scan-data-grid">
+                        <section class="scan-data-card scan-data-card--wide" aria-label="扫描任务">
+                            <div class="panel-head">
+                                <span>后台任务</span>
+                                <button type="button" class="scan-data-link" onclick="loadScanJobHistory()">刷新任务</button>
+                            </div>
+                            <div class="scan-data-job-summary">
+                                <div>
+                                    <span>当前任务</span>
+                                    <strong id="scan-data-job-current">-</strong>
+                                </div>
+                                <div>
+                                    <span>耗时</span>
+                                    <strong id="scan-data-job-duration">-</strong>
+                                </div>
+                            </div>
+                            <div id="scan-data-job-list" class="scan-data-job-list"></div>
+                        </section>
+
+                        <section class="scan-data-card" aria-label="历史快照">
+                            <div class="panel-head">
+                                <span>本地快照</span>
+                                <button type="button" class="scan-data-link" onclick="loadScanHistory()">刷新历史</button>
+                            </div>
+                            <div class="scan-data-copy">
+                                <strong id="scan-data-history-title">本地快照</strong>
+                                <span id="scan-data-history-detail">等待历史结果</span>
+                            </div>
+                        </section>
+
+                        <section class="scan-data-card" aria-label="治理操作">
+                            <div class="panel-head">
+                                <span>治理操作</span>
+                                <button type="button" class="scan-data-link" data-scan-action="sync-governance" onclick="syncDataGovernanceStatus()">同步状态</button>
+                            </div>
+                            <div class="scan-data-copy scan-data-copy--governance">
+                                <strong>只在需要时再动手</strong>
+                                <span id="scan-data-actions-detail">刷新状态、补齐概念库、清理过期结果都收在这里。</span>
+                            </div>
+                            <details class="scan-data-actions-disclosure">
+                                <summary>展开治理动作</summary>
+                                <div class="scan-data-actions-panel">
+                                    <button type="button" data-scan-action="refresh-data-sources" onclick="refreshDataSourceStatus()">刷新数据源状态</button>
+                                    <button type="button" id="btn-refresh-board-market" data-scan-action="refresh-board-market" onclick="refreshConceptBoardMarketCache()">刷新概念行情</button>
+                                    <button type="button" data-scan-action="refresh-concepts" onclick="refreshStockConceptLibrary()">刷新概念库</button>
+                                    <button type="button" id="scan-cache-prune" onclick="pruneExpiredScanCache()">清理过期结果</button>
+                                </div>
+                                <div class="scan-cache-confirm" id="scan-cache-prune-confirm" hidden>
+                                    <div>
+                                        <strong id="scan-cache-confirm-title">确认清理本地结果</strong>
+                                        <span id="scan-cache-confirm-detail">等待缓存状态</span>
+                                    </div>
+                                    <div class="scan-cache-confirm__actions">
+                                        <button type="button" onclick="hideScanCachePruneConfirm()">取消</button>
+                                        <button type="button" id="scan-cache-prune-confirm-btn" onclick="confirmPruneScanCache()">确认清理</button>
+                                    </div>
+                                </div>
+                            </details>
+                        </section>
+                    </div>
+                </section>
+            </section>
+
+            <aside class="market-control-pane" aria-label="扫描辅助信息">
+                <section class="scan-side-panel" aria-label="扫描辅助信息">
+                    <div class="scan-side-view active" id="scan-side-view-detail">
+                        <div class="panel-head">
+                            <span>决策详情</span>
+                            <span id="scan-selected-source">未选择</span>
+                        </div>
+                        <div id="scan-selected-detail" class="scan-selected-detail">
+                            <div class="empty-state">暂无候选选中</div>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/signalPanel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chartMarkers.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chartOptions.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chartView.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanState.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanWorkspaceStore.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanFeedback.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanControls.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanExplain.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanBoardMarket.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanFilters.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanSelectionDetail.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanSelectionRender.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanSelection.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanResultCard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanResults.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanView.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanProfiles.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanHistory.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanJobFormat.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanJobRender.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanJobs.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanConcepts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanDataSources.js') }}"></script>
+</body>
+</html>

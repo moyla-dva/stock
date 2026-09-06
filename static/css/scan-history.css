@@ -1,0 +1,204 @@
+/* Scan snapshot history and cache governance. */
+
+.scan-history-panel {
+    display: grid;
+    gap: 10px;
+}
+
+.scan-history-panel .panel-head {
+    padding: 0;
+    min-height: 30px;
+    border-bottom: 0;
+    background: transparent;
+}
+
+.scan-history-refresh,
+.scan-history-current button {
+    min-width: 0;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.scan-history-current button:disabled {
+    color: var(--muted);
+    cursor: default;
+    opacity: 0.55;
+}
+
+.scan-history-current {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 42px;
+    padding: 8px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.scan-history-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+}
+
+.scan-history-current span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-cache-governance {
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    padding: 7px 9px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: #f8faf7;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.scan-cache-confirm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 9px;
+    border: 1px solid rgba(183, 121, 31, 0.28);
+    border-radius: 8px;
+    background: var(--warning-soft);
+}
+
+.scan-cache-confirm[hidden] {
+    display: none;
+}
+
+.scan-cache-confirm strong,
+.scan-cache-confirm span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.scan-cache-confirm strong {
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-cache-confirm span {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
+.scan-cache-confirm__actions {
+    display: flex;
+    gap: 6px;
+}
+
+.scan-cache-confirm__actions button {
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.scan-cache-confirm__actions button:last-child {
+    border-color: #202421;
+    background: #202421;
+    color: #fff;
+}
+
+.scan-cache-confirm__actions button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.scan-history-list {
+    display: grid;
+    gap: 7px;
+}
+
+.scan-history-item {
+    width: 100%;
+    min-height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+}
+
+.scan-history-item.active {
+    border-color: var(--scan);
+    box-shadow: inset 3px 0 0 var(--scan);
+}
+
+.scan-history-item__main {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.scan-history-item strong,
+.scan-history-item span,
+.scan-history-item small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-history-item strong {
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.scan-history-item span,
+.scan-history-item small {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.scan-history-item em {
+    flex: 0 0 auto;
+    min-width: 48px;
+    padding: 5px 7px;
+    border-radius: 999px;
+    background: #eef1ec;
+    color: var(--muted);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 900;
+    text-align: center;
+}

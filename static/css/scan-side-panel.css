@@ -1,0 +1,86 @@
+/* Scan side assistant panel. */
+
+.scan-side-panel {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.market-control-pane .scan-side-panel {
+    height: 100%;
+}
+
+.scan-side-tabs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #eef1ec;
+}
+
+.scan-side-tab {
+    height: 34px;
+    min-width: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-side-tab.active {
+    background: #202421;
+    color: #fff;
+}
+
+body[data-workspace="candidates"] .scan-side-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body[data-workspace="candidates"] #scan-side-tab-calibration,
+body[data-workspace="candidates"] #scan-side-tab-research,
+body[data-workspace="candidates"] #scan-side-tab-history,
+body[data-workspace="candidates"] #scan-side-tab-tasks {
+    display: none;
+}
+
+.scan-side-view {
+    min-height: 0;
+    display: none;
+    overflow: auto;
+    padding-top: 10px;
+}
+
+.scan-side-view.active {
+    display: block;
+}
+
+body[data-workspace="data"] .scan-side-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body[data-workspace="data"] #scan-side-tab-detail,
+body[data-workspace="data"] #scan-side-tab-sector,
+body[data-workspace="data"] #scan-side-tab-calibration,
+body[data-workspace="data"] #scan-side-tab-research {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    .scan-side-tabs {
+        grid-template-columns: repeat(6, minmax(72px, 1fr));
+        overflow-x: auto;
+    }
+
+    body[data-workspace="data"] .scan-side-tabs {
+        grid-template-columns: repeat(2, minmax(72px, 1fr));
+    }
+
+    body[data-workspace="candidates"] .scan-side-tabs {
+        grid-template-columns: repeat(2, minmax(72px, 1fr));
+    }
+}

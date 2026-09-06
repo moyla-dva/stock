@@ -1,0 +1,213 @@
+/* Scan pool navigation. */
+
+.scan-pool-tabs {
+    margin-top: 10px;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid rgba(23, 29, 26, 0.1);
+    border-radius: 8px;
+    background: #edf2eb;
+}
+
+.scan-pool-tab {
+    min-width: 0;
+    height: 44px;
+    flex: 1;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: left;
+    transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.scan-pool-tab.active {
+    background: #171d1a;
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(23, 29, 26, 0.16);
+}
+
+.scan-pool-tab span,
+.scan-pool-tab strong {
+    display: block;
+    overflow: hidden;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-pool-tab span {
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.scan-pool-tab strong {
+    margin-top: 4px;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.market-results-head {
+    min-height: 78px;
+    display: grid;
+    grid-template-columns: minmax(170px, 0.55fr) minmax(260px, 1fr) minmax(280px, 0.78fr);
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(23, 29, 26, 0.1);
+    background:
+        linear-gradient(90deg, rgba(0, 125, 111, 0.08), transparent 42%),
+        #fbfcf8;
+}
+
+.market-results-pane .scan-pool-tabs {
+    margin: 0;
+}
+
+.market-results-title {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.candidate-desk-brief {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 10px 9px 12px;
+    border: 1px solid rgba(0, 125, 111, 0.22);
+    border-radius: 8px;
+    background:
+        linear-gradient(90deg, rgba(224, 245, 240, 0.82), rgba(255, 255, 255, 0.7)),
+        #f8fbf7;
+    box-shadow: inset 3px 0 0 var(--buy);
+}
+
+.candidate-desk-brief--risk {
+    border-color: rgba(189, 52, 52, 0.2);
+    background:
+        linear-gradient(90deg, rgba(249, 227, 223, 0.74), rgba(255, 255, 255, 0.72)),
+        #fffafa;
+    box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.candidate-desk-brief__copy {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.candidate-desk-brief__copy span,
+.candidate-desk-brief__copy small {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.15;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.candidate-desk-brief__copy span {
+    color: var(--buy);
+}
+
+.candidate-desk-brief--risk .candidate-desk-brief__copy span {
+    color: var(--danger);
+}
+
+.candidate-desk-brief__copy strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.15;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.candidate-desk-brief__action {
+    min-width: 104px;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 7px;
+    background: #171d1a;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.candidate-desk-brief__action--risk {
+    background: var(--danger);
+}
+
+.candidate-desk-brief__action--opportunity {
+    background: #171d1a;
+}
+
+.candidate-desk-brief__action:hover {
+    transform: translateY(-1px);
+}
+
+.candidate-desk-brief__action:disabled {
+    transform: none;
+}
+
+.market-results-tools {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr);
+    gap: 10px;
+    align-items: center;
+}
+
+.market-results-tools .scan-pool-tabs {
+    grid-column: 1;
+    width: 100%;
+    max-width: 420px;
+    justify-self: end;
+}
+
+body[data-workspace="data"] .market-results-tools {
+    display: none;
+}
+
+body[data-workspace="data"] .candidate-desk-brief {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    .market-results-head {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .market-results-tools {
+        grid-template-columns: 1fr;
+    }
+
+    .market-results-tools .scan-pool-tabs {
+        max-width: none;
+        justify-self: stretch;
+    }
+
+    .candidate-desk-brief {
+        grid-template-columns: 1fr;
+    }
+
+    .candidate-desk-brief__copy small {
+        white-space: normal;
+    }
+
+    .candidate-desk-brief__action {
+        width: 100%;
+    }
+}

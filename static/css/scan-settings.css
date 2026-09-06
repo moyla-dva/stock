@@ -1,0 +1,430 @@
+/* Scan command settings and local data governance. */
+
+.scan-governance-body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 0;
+}
+
+.scan-snapshot-meta,
+.scan-concept-meta,
+.scan-data-source-meta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.scan-snapshot-status,
+.scan-concept-status,
+.scan-data-source-status {
+    min-width: 0;
+    min-height: 50px;
+    padding: 8px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.scan-snapshot-status--healthy {
+    border-color: rgba(0, 137, 123, 0.28);
+    background: var(--buy-soft);
+}
+
+.scan-snapshot-status--partial {
+    border-color: rgba(183, 121, 31, 0.28);
+    background: var(--warning-soft);
+}
+
+.scan-snapshot-status--legacy {
+    border-color: rgba(45, 99, 89, 0.24);
+    background: rgba(45, 99, 89, 0.08);
+}
+
+.scan-snapshot-status--expired {
+    border-color: rgba(200, 55, 55, 0.24);
+    background: var(--danger-soft);
+}
+
+.scan-snapshot-status--history {
+    border-color: rgba(45, 99, 89, 0.24);
+    background: #eef5f2;
+}
+
+.scan-concept-status--ready {
+    border-color: rgba(0, 137, 123, 0.28);
+    background: var(--buy-soft);
+}
+
+.scan-concept-status--running {
+    border-color: rgba(183, 121, 31, 0.28);
+    background: var(--warning-soft);
+}
+
+.scan-concept-status--empty {
+    border-color: rgba(45, 99, 89, 0.18);
+    background: #f6f8f5;
+}
+
+.scan-concept-status--failed {
+    border-color: rgba(200, 55, 55, 0.24);
+    background: var(--danger-soft);
+}
+
+.scan-data-source-status--ready {
+    border-color: rgba(0, 137, 123, 0.28);
+    background: var(--buy-soft);
+}
+
+.scan-data-source-status--warning {
+    border-color: rgba(183, 121, 31, 0.28);
+    background: var(--warning-soft);
+}
+
+.scan-data-source-status--empty {
+    border-color: rgba(45, 99, 89, 0.18);
+    background: #f6f8f5;
+}
+
+.scan-snapshot-status span,
+.scan-snapshot-status small,
+.scan-concept-status span,
+.scan-concept-status small,
+.scan-data-source-status span,
+.scan-data-source-status small {
+    display: block;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.1;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-snapshot-status strong,
+.scan-concept-status strong,
+.scan-data-source-status strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.15;
+    font-weight: 900;
+}
+
+.scan-snapshot-status small,
+.scan-concept-status small,
+.scan-data-source-status small {
+    margin-top: 4px;
+    color: #5f6962;
+}
+
+.scan-rebuild-btn,
+.scan-concept-btn,
+.scan-data-source-btn {
+    min-width: 0;
+    min-height: 50px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #202421;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-concept-btn {
+    background: #2d6359;
+}
+
+.scan-data-source-btn {
+    background: #39413b;
+}
+
+.scan-rebuild-btn:disabled,
+.scan-concept-btn:disabled,
+.scan-data-source-btn:disabled {
+    background: #8c918b;
+    cursor: default;
+}
+
+.scan-data-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.scan-data-actions button {
+    min-width: 0;
+    min-height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #eef1ec;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-data-actions button:hover {
+    border-color: var(--line-strong);
+}
+
+.scan-data-actions button:disabled {
+    color: var(--muted);
+    cursor: default;
+    opacity: 0.65;
+}
+
+.scan-plan-confirm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+    padding: 9px;
+    border: 1px solid rgba(45, 99, 89, 0.24);
+    border-radius: 8px;
+    background: rgba(45, 99, 89, 0.08);
+}
+
+.scan-governance-body .scan-plan-confirm {
+    grid-column: 1 / -1;
+}
+
+.scan-plan-confirm[hidden] {
+    display: none;
+}
+
+.scan-plan-confirm__copy {
+    min-width: 0;
+}
+
+.scan-plan-confirm__copy span,
+.scan-plan-confirm__copy small {
+    display: block;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.15;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-plan-confirm__copy strong {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.2;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-plan-confirm__copy small {
+    margin-top: 4px;
+}
+
+.scan-plan-confirm__actions {
+    display: flex;
+    gap: 6px;
+}
+
+.scan-plan-confirm__actions button {
+    height: 32px;
+    min-width: 58px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.scan-plan-confirm__actions button:last-child {
+    border-color: #202421;
+    background: #202421;
+    color: #fff;
+}
+
+.scan-plan-confirm__actions button:disabled {
+    background: #8c918b;
+    color: #fff;
+    cursor: default;
+}
+
+.scan-refresh-toggle {
+    margin-top: 10px;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #eef1ec;
+}
+
+.scan-command-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 168px;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.scan-command-actions-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 72px;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.scan-command-panel .scan-refresh-toggle {
+    margin-top: 0;
+    align-self: stretch;
+}
+
+.scan-refresh-btn {
+    height: 32px;
+    min-width: 0;
+    flex: 1;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-refresh-btn.active {
+    background: #202421;
+    color: #fff;
+}
+
+.scan-settings-menu {
+    position: relative;
+    min-width: 0;
+}
+
+.scan-settings-menu summary {
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 900;
+    list-style: none;
+}
+
+.scan-settings-menu summary::-webkit-details-marker {
+    display: none;
+}
+
+.scan-settings-menu[open] summary {
+    border-color: #202421;
+    background: #202421;
+    color: #fff;
+}
+
+.scan-settings-menu__body {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 20;
+    width: min(560px, calc(100vw - 32px));
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 18px 45px rgba(27, 32, 28, 0.16);
+}
+
+.scan-settings-section {
+    display: grid;
+    gap: 8px;
+}
+
+.scan-settings-section > span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+.scan-policy-hints {
+    display: grid;
+    gap: 5px;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+    font-weight: 700;
+}
+
+.scan-policy-hints span {
+    display: block;
+}
+
+.scan-policy-hints strong {
+    color: var(--ink);
+    font-weight: 900;
+}
+
+.scan-command-panel .scan-actions {
+    margin-top: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.scan-command-panel--top .scan-actions {
+    align-self: stretch;
+}
+
+@media (max-width: 1180px) {
+    .scan-governance-body {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    .scan-command-actions-row {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-settings-menu__body {
+        position: static;
+        width: 100%;
+        margin-top: 8px;
+        box-shadow: none;
+    }
+
+    .scan-snapshot-meta,
+    .scan-concept-meta,
+    .scan-data-source-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-plan-confirm {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-plan-confirm__actions {
+        justify-content: stretch;
+    }
+
+    .scan-plan-confirm__actions button {
+        flex: 1;
+    }
+}

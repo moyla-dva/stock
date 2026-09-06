@@ -1,0 +1,51 @@
+"""Stock-analysis API handlers."""
+
+from flask import request
+
+from stock_analyzer.tag_profile import attach_stock_tag_profile
+
+
+def stock_list_response(jsonify, get_stock_codes_func):
+    try:
+        stock_list = get_stock_codes_func()
+        return jsonify({"count": len(stock_list), "codes": stock_list})
+    except Exception as exc:
+        print(f"get_stock_list 异常: {exc}")
+        return jsonify({"error": str(exc), "count": 0, "codes": []}), 500
+
+
+def stock_profiles_response(jsonify, stock_service, get_stock_profile_func):
+    try:
+        data = request.get_json(silent=True) or {}
+        codes = data.get("codes", [])
+        if not isinstance(codes, list):
+            return jsonify({"error": "codes必须为数组"}), 400
+
+        profiles = stock_service.load_stock_profiles(
+            codes,
+            get_stock_profile_func=get_stock_profile_func,
+        )
+        return jsonify({"count": len(profiles), "profiles": profiles})
+    except Exception as exc:
+        print(f"[股票画像] 异常: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+def analyze_response(jsonify, normalize_code_func, fetch_data_func, get_stock_profile_func, get_stock_name_func):
+    raw_code = request.args.get("code", "600063")
+    code = normalize_code_func(raw_code)
+    if not code:
+        return jsonify({"error": "无效的股票代码，请输入6位数字代码"}), 400
+    print(f"收到分析请求: {code}")
+
+    data = fetch_data_func(code)
+    if not data:
+        return jsonify({"error": "无法获取数据，请检查代码是否正确"}), 400
+
+    profile = get_stock_profile_func(code)
+    stock_name = profile.get("name") or get_stock_name_func(code)
+    data["stock_name"] = f"{stock_name} ({code})"
+    data["stock_sector"] = profile.get("sector") or ""
+    data["stock_concepts"] = profile.get("concepts") or []
+    attach_stock_tag_profile(data, profile={**profile, "code": code, "name": stock_name})
+    return jsonify(data)

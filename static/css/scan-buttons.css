@@ -1,0 +1,37 @@
+/* Scan action buttons. */
+
+.scan-button {
+    width: 100%;
+    height: 40px;
+    border-radius: 8px;
+    padding: 0 16px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+    font-weight: 700;
+    transition: background 0.2s, opacity 0.2s, transform 0.2s;
+}
+
+.scan-button[hidden] {
+    display: none;
+}
+
+.scan-button--opportunity,
+.scan-button--gold {
+    background: var(--scan);
+}
+
+.scan-button--risk {
+    background: var(--danger);
+}
+
+.scan-button--bottom,
+.scan-button--blue {
+    background: var(--scan-blue);
+}
+
+.scan-button--cancel {
+    background: #202421;
+    min-width: 112px;
+}

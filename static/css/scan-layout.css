@@ -1,0 +1,128 @@
+/* Scan workspace layout and shell-level panel ownership. */
+
+.market-workspace {
+    min-height: 0;
+    grid-template-columns: minmax(520px, 1fr) minmax(380px, 440px);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+        "scan-command scan-command"
+        "scan-results scan-side";
+    gap: 12px;
+    overflow: hidden;
+}
+
+.market-results-pane,
+.market-control-pane {
+    min-height: 0;
+    border-radius: 8px;
+}
+
+.market-results-pane {
+    grid-area: scan-results;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(23, 29, 26, 0.11);
+    box-shadow: var(--shadow);
+}
+
+.market-control-pane {
+    grid-area: scan-side;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+body[data-workspace="candidates"] .market-workspace {
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas:
+        "scan-results scan-side";
+}
+
+body[data-workspace="data"] .market-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+        "scan-command"
+        "scan-results";
+}
+
+body[data-workspace="candidates"] .scan-command-panel--top {
+    display: none;
+}
+
+body[data-workspace="data"] .market-control-pane {
+    display: none;
+}
+
+.scan-workbench,
+.scan-command-panel,
+.scan-side-panel,
+.scan-result-panel {
+    border: 1px solid rgba(23, 29, 26, 0.11);
+    border-radius: 8px;
+    background: var(--surface-raised);
+    padding: 12px;
+}
+
+.scan-workspace-page {
+    min-height: 0;
+    display: none;
+    overflow: hidden;
+}
+
+body[data-workspace="candidates"] .scan-workspace-page--candidates,
+body[data-workspace="data"] .scan-workspace-page--data {
+    display: grid;
+}
+
+.scan-workspace-page--candidates {
+    grid-template-rows: auto minmax(0, 1fr);
+}
+
+.scan-workspace-page--data {
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 0 14px 14px;
+    overflow: auto;
+}
+
+@media (max-width: 1180px) {
+    body[data-workspace="candidates"] .market-workspace {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        grid-template-areas:
+            "scan-results"
+            "scan-side";
+        overflow: visible;
+    }
+
+    body[data-workspace="candidates"] .market-results-pane {
+        height: auto;
+        min-height: 0;
+    }
+
+    body[data-workspace="candidates"] .market-control-pane,
+    body[data-workspace="candidates"] .scan-side-panel,
+    body[data-workspace="candidates"] .scan-side-view.active {
+        min-height: 0;
+        overflow: visible;
+    }
+}
+
+@media (max-width: 720px) {
+    .market-workspace {
+        gap: 10px;
+    }
+
+    .scan-workspace-page--data {
+        padding: 0 10px 10px;
+    }
+}

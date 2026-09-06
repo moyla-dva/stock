@@ -1,0 +1,438 @@
+/* Scan job summary and history list. */
+
+.scan-job-panel {
+    margin-top: 10px;
+}
+
+.scan-side-view .scan-job-panel {
+    margin-top: 0;
+}
+
+.scan-job-summary {
+    display: flex;
+    gap: 8px;
+}
+
+.scan-job-summary div {
+    min-width: 0;
+    flex: 1;
+    min-height: 48px;
+    padding: 8px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.scan-job-progress {
+    display: grid;
+    gap: 7px;
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8faf6;
+}
+
+.scan-job-progress[hidden] {
+    display: none;
+}
+
+.scan-job-summary span,
+.scan-job-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.1;
+    font-weight: 800;
+}
+
+.scan-job-summary strong,
+.scan-job-item strong {
+    display: block;
+    margin-top: 5px;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-job-list {
+    margin-top: 8px;
+    display: grid;
+    gap: 6px;
+    max-height: 118px;
+    overflow: auto;
+    padding-right: 2px;
+}
+
+.scan-side-view .scan-job-list {
+    max-height: 320px;
+}
+
+.scan-data-overview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.scan-data-decision {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fcfdfb;
+}
+
+.scan-data-decision--ready {
+    background: #f7fbf8;
+    border-color: #cfe5d6;
+}
+
+.scan-data-decision--watch {
+    background: #fffaf2;
+    border-color: #ecd9aa;
+}
+
+.scan-data-decision--action {
+    background: #fff6f4;
+    border-color: #efc3b9;
+}
+
+.scan-data-decision--busy {
+    background: #f3fbfb;
+    border-color: #bae2df;
+}
+
+.scan-data-decision__copy,
+.scan-data-decision__meta {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+}
+
+.scan-data-decision__copy span,
+.scan-data-decision__copy small {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.3;
+}
+
+.scan-data-decision__copy small {
+    white-space: normal;
+}
+
+.scan-data-decision__copy strong,
+.scan-data-decision__meta strong {
+    color: var(--ink);
+    font-weight: 900;
+    line-height: 1.15;
+}
+
+.scan-data-decision__copy strong {
+    font-size: 22px;
+}
+
+.scan-data-decision__meta {
+    justify-items: end;
+}
+
+.scan-data-decision__meta strong {
+    font-size: 13px;
+}
+
+.scan-data-decision-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.scan-data-decision-tag {
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.scan-data-tile,
+.scan-data-card,
+.scan-data-job-summary div {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.scan-data-tile {
+    display: grid;
+    gap: 5px;
+    min-height: 72px;
+    padding: 10px 12px;
+}
+
+.scan-data-tile span,
+.scan-data-tile small,
+.scan-data-job-summary span,
+.scan-data-copy span {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-data-tile strong,
+.scan-data-job-summary strong,
+.scan-data-copy strong {
+    overflow: hidden;
+    color: var(--ink);
+    font-weight: 900;
+    line-height: 1.12;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-data-tile strong {
+    font-size: 18px;
+}
+
+.scan-data-grid {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 10px;
+}
+
+.scan-data-card {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.scan-data-card--wide {
+    grid-row: 1 / span 2;
+}
+
+.scan-data-link {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #f8faf6;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.scan-data-link:hover {
+    border-color: var(--line-strong);
+    color: var(--ink);
+}
+
+.scan-data-job-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.scan-data-job-summary div {
+    min-height: 58px;
+    padding: 9px 10px;
+}
+
+.scan-data-job-summary strong {
+    display: block;
+    margin-top: 5px;
+    font-size: 13px;
+}
+
+.scan-data-job-list {
+    min-height: 0;
+    display: grid;
+    gap: 6px;
+    overflow: auto;
+    padding-right: 2px;
+}
+
+.scan-data-copy {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    padding: 10px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: #f8faf6;
+}
+
+.scan-data-copy strong {
+    font-size: 15px;
+}
+
+.scan-data-copy--governance {
+    background: #fcfdfb;
+}
+
+.scan-data-copy--governance span {
+    white-space: normal;
+}
+
+.scan-data-actions-disclosure {
+    display: grid;
+    gap: 8px;
+}
+
+.scan-data-actions-disclosure summary {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+    list-style: none;
+}
+
+.scan-data-actions-disclosure summary::-webkit-details-marker {
+    display: none;
+}
+
+.scan-data-actions-panel {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+}
+
+.scan-data-actions-panel button {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8faf6;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    text-align: left;
+}
+
+.scan-data-actions-panel button:hover {
+    border-color: var(--line-strong);
+    background: #eef1ec;
+}
+
+.scan-job-history {
+    margin-top: 8px;
+}
+
+.scan-job-history summary {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.scan-job-item {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.scan-job-item__main {
+    min-width: 0;
+}
+
+.scan-job-item__status {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #eef1ec;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.scan-job-item__action {
+    flex: 0 0 auto;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid rgba(32, 36, 33, 0.18);
+    border-radius: 7px;
+    background: #202421;
+    color: #fff;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.scan-job-item--completed .scan-job-item__status {
+    background: var(--buy-soft);
+    color: var(--buy);
+}
+
+.scan-job-item--running .scan-job-item__status,
+.scan-job-item--queued .scan-job-item__status {
+    background: rgba(124, 58, 237, 0.12);
+    color: var(--scan);
+}
+
+.scan-job-item--failed .scan-job-item__status,
+.scan-job-item--interrupted .scan-job-item__status {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.scan-job-item--cancelled .scan-job-item__status {
+    background: var(--warning-soft);
+    color: var(--warning);
+}
+
+@media (max-width: 900px) {
+    .scan-data-decision {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-data-decision__meta,
+    .scan-data-decision-tags {
+        justify-items: start;
+        justify-content: flex-start;
+    }
+
+    .scan-data-overview,
+    .scan-data-grid,
+    .scan-data-job-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-data-card--wide {
+        grid-row: auto;
+    }
+}

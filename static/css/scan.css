@@ -1,0 +1,13 @@
+/* Market scan workspace styles. */
+
+.scan-workbench {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto auto auto auto auto auto minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.scan-workbench--control {
+    display: block;
+    overflow: visible;
+}

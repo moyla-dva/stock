@@ -1,0 +1,167 @@
+/* Scan task progress strip. */
+
+.scan-progress-strip {
+    grid-column: 1 / -1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+    padding-top: 1px;
+}
+
+.scan-progress-strip[hidden] {
+    display: none;
+}
+
+.scan-progress-meter {
+    height: 8px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #eef1ec;
+}
+
+.scan-progress-meter span {
+    display: block;
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--scan);
+    transition: width 0.25s ease;
+}
+
+.scan-progress-strip--completed .scan-progress-meter span {
+    background: var(--buy);
+}
+
+.scan-progress-strip--failed .scan-progress-meter span,
+.scan-progress-strip--interrupted .scan-progress-meter span {
+    background: var(--danger);
+}
+
+.scan-progress-strip--cancelled .scan-progress-meter span,
+.scan-progress-strip--cancelling .scan-progress-meter span {
+    background: var(--warning);
+}
+
+.scan-progress-copy {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.scan-progress-copy strong,
+.scan-progress-copy span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-progress-copy strong {
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.scan-progress-copy span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.scan-progress-steps {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.scan-progress-step {
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.scan-progress-step--done {
+    border-color: rgba(0, 137, 123, 0.24);
+    background: var(--buy-soft);
+    color: var(--buy);
+}
+
+.scan-progress-step--active {
+    border-color: rgba(124, 58, 237, 0.26);
+    background: rgba(124, 58, 237, 0.1);
+    color: var(--scan);
+}
+
+.scan-progress-step--failed {
+    border-color: rgba(200, 55, 55, 0.24);
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.scan-progress-metrics {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.scan-progress-metrics span {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+    padding: 6px 7px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.scan-progress-metrics em,
+.scan-progress-metrics strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-progress-metrics em {
+    color: var(--muted);
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.scan-progress-metrics strong {
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+@media (max-width: 720px) {
+    .scan-progress-strip {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-progress-steps {
+        grid-template-columns: 1fr;
+    }
+
+    .scan-progress-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
