@@ -10,6 +10,18 @@ from stock_analyzer.scan_snapshot import (
 from stock_analyzer.versioning import build_strategy_meta
 
 
+def _strategy_versions(counts, labels, current_strategy_version):
+    versions = []
+    for version, count in sorted((counts or {}).items(), key=lambda item: (-item[1], item[0])):
+        versions.append({
+            "version": version,
+            "label": (labels or {}).get(version) or ("旧策略快照" if version != current_strategy_version else "当前策略"),
+            "count": int(count or 0),
+            "status": "current" if version == current_strategy_version else "legacy",
+        })
+    return versions
+
+
 def build_snapshot_meta(
     start_date=None,
     snapshot_count=0,
@@ -24,6 +36,9 @@ def build_snapshot_meta(
     latest_snapshot_day="-",
     latest_data_date="-",
     history_snapshot_day=None,
+    strategy_version_counts=None,
+    active_strategy_version_counts=None,
+    strategy_version_labels=None,
 ):
     snapshot_count_value = int(snapshot_count or 0)
     valid_snapshot_count_value = int(valid_snapshot_count or 0)
@@ -75,11 +90,28 @@ def build_snapshot_meta(
         action_label = "按需更新"
 
     strategy_meta = build_strategy_meta(start_date=start_date)
-    strategy_version = strategy_meta["strategy_version"]
+    current_code_strategy_version = strategy_meta["strategy_version"]
+    version_counts = active_strategy_version_counts or strategy_version_counts or {}
+    strategy_versions = _strategy_versions(
+        version_counts,
+        strategy_version_labels,
+        current_code_strategy_version,
+    )
+    if health == "history" and len(strategy_versions) == 1:
+        strategy_version = strategy_versions[0]["version"]
+        strategy_label = strategy_versions[0]["label"]
+    elif health == "history" and len(strategy_versions) > 1:
+        strategy_version = "mixed"
+        strategy_label = "多策略快照"
+    else:
+        strategy_version = current_code_strategy_version
+        strategy_label = strategy_meta["strategy_label"]
     if health == "history":
+        version_text = strategy_label if strategy_version == "mixed" else f"{strategy_label} {strategy_version}"
         health_summary = "历史快照回看"
-        health_detail = "当前查看 {} · 最新快照 {} · 数据 {}".format(
+        health_detail = "当前查看 {} · {} · 最新快照 {} · 数据 {}".format(
             history_display,
+            version_text,
             latest_snapshot_display,
             latest_data_display,
         )
@@ -116,7 +148,10 @@ def build_snapshot_meta(
     return {
         "schema_version": SNAPSHOT_VERSION,
         "strategy_version": strategy_version,
-        "strategy_label": strategy_meta["strategy_label"],
+        "strategy_label": strategy_label,
+        "current_code_strategy_version": current_code_strategy_version,
+        "current_code_strategy_label": strategy_meta["strategy_label"],
+        "strategy_versions": strategy_versions,
         "explanation_version": strategy_meta["explanation_version"],
         "start_date": start_date or "-",
         "snapshot_count": snapshot_count_value,

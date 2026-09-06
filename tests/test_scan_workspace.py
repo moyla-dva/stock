@@ -466,6 +466,39 @@ class ScanWorkspaceTest(unittest.TestCase):
         self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["strategy_status"], "legacy")
         self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["strategy_source_label"], "旧策略")
 
+    def test_history_workspace_reports_snapshot_strategy_version(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
+        frame.loc[11, "composite_entry"] = True
+        frame.loc[11, "composite_entry_type"] = "pullback"
+        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+
+        with TemporaryDirectory() as tmp_dir:
+            with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
+                with patch("stock_analyzer.scan_snapshot.beijing_now", return_value=pd.Timestamp("2026-05-30")):
+                    snapshot = build_scan_snapshot("600063", "示例股票", frame, snapshot_day="2026-05-29")
+                    snapshot["strategy_version"] = "2026.05.27.1"
+                    snapshot["strategy_meta"]["strategy_version"] = "2026.05.27.1"
+                    snapshot["strategy_meta"]["strategy_label"] = "旧版综合策略"
+                    write_scan_snapshot(snapshot, start_date="2025-04-29", snapshot_day="2026-05-29")
+                    workspace = collect_scan_workspace(
+                        start_date="2025-04-29",
+                        snapshot_day="2026-05-29",
+                    )
+
+        self.assertTrue(workspace["history_mode"])
+        self.assertEqual(workspace["snapshot_meta"]["health"], "history")
+        self.assertEqual(workspace["snapshot_meta"]["strategy_version"], "2026.05.27.1")
+        self.assertEqual(workspace["snapshot_meta"]["strategy_label"], "旧版综合策略")
+        self.assertEqual(workspace["snapshot_meta"]["current_code_strategy_version"], SCAN_STRATEGY_VERSION)
+        self.assertEqual(workspace["snapshot_meta"]["strategy_versions"], [{
+            "version": "2026.05.27.1",
+            "label": "旧版综合策略",
+            "count": 1,
+            "status": "legacy",
+        }])
+        self.assertIn("旧版综合策略 2026.05.27.1", workspace["snapshot_meta"]["health_detail"])
+
     def test_collect_scan_workspace_ignores_replaced_legacy_snapshot_for_health(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")

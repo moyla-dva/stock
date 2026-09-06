@@ -108,6 +108,9 @@ def build_workspace_response(
         latest_snapshot_day=latest_snapshot_day,
         latest_data_date=latest_data_date,
         history_snapshot_day=target_snapshot_day,
+        strategy_version_counts=loaded.get("strategy_version_counts"),
+        active_strategy_version_counts=loaded.get("active_strategy_version_counts"),
+        strategy_version_labels=loaded.get("strategy_version_labels"),
     )
     strategy_health = build_strategy_health(pools, snapshot_meta)
 

@@ -1,5 +1,7 @@
 """Load scan snapshots into base workspace pools."""
 
+from collections import Counter
+
 from stock_analyzer import catalog
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.profile_relations import (
@@ -59,6 +61,17 @@ def _latest_snapshot_day(paths):
     return latest
 
 
+def _snapshot_strategy_version(snapshot):
+    return str(snapshot.get("strategy_version") or "legacy")
+
+
+def _snapshot_strategy_label(snapshot, is_current_strategy):
+    strategy_meta = snapshot.get("strategy_meta") if isinstance(snapshot.get("strategy_meta"), dict) else {}
+    if strategy_meta.get("strategy_label"):
+        return strategy_meta["strategy_label"]
+    return "当前策略" if is_current_strategy else "旧策略快照"
+
+
 def _workspace_snapshot_paths(start_date=None, target_snapshot_day="", latest_only=False):
     if target_snapshot_day:
         return scan_snapshot_day_files(start_date=start_date, snapshot_day=target_snapshot_day)
@@ -87,6 +100,9 @@ def load_workspace_snapshot_pools(start_date=None, scan_types=(), logger=None, s
     legacy_snapshot_count = 0
     active_current_strategy_snapshot_count = 0
     active_legacy_snapshot_count = 0
+    strategy_version_counts = Counter()
+    active_strategy_version_counts = Counter()
+    strategy_version_labels = {}
     latest_snapshots = {}
     latest_snapshot_day = "-"
     latest_data_date = "-"
@@ -114,7 +130,14 @@ def load_workspace_snapshot_pools(start_date=None, scan_types=(), logger=None, s
             continue
 
         valid_snapshot_count += 1
-        if is_current_strategy_snapshot(snapshot):
+        is_current_strategy = is_current_strategy_snapshot(snapshot)
+        strategy_version = _snapshot_strategy_version(snapshot)
+        strategy_version_counts[strategy_version] += 1
+        strategy_version_labels.setdefault(
+            strategy_version,
+            _snapshot_strategy_label(snapshot, is_current_strategy),
+        )
+        if is_current_strategy:
             current_strategy_snapshot_count += 1
         else:
             legacy_snapshot_count += 1
@@ -134,8 +157,11 @@ def load_workspace_snapshot_pools(start_date=None, scan_types=(), logger=None, s
         sector = snapshot.get("sector") or cached_profile.get("sector") or ""
         concepts = result_concepts(snapshot) or result_concepts(cached_profile)
         is_current_strategy = is_current_strategy_snapshot(snapshot)
+        strategy_version = _snapshot_strategy_version(snapshot)
         strategy_status = "current" if is_current_strategy else "legacy"
-        strategy_meta = snapshot.get("strategy_meta") if isinstance(snapshot.get("strategy_meta"), dict) else {}
+        strategy_label = _snapshot_strategy_label(snapshot, is_current_strategy)
+        active_strategy_version_counts[strategy_version] += 1
+        strategy_version_labels.setdefault(strategy_version, strategy_label)
         if is_current_strategy:
             active_current_strategy_snapshot_count += 1
         else:
@@ -168,7 +194,7 @@ def load_workspace_snapshot_pools(start_date=None, scan_types=(), logger=None, s
             result["strategy_status"] = strategy_status
             result["strategy_source_label"] = "当前策略" if is_current_strategy else "旧策略"
             result["snapshot_strategy_version"] = snapshot.get("strategy_version") or "legacy"
-            result["snapshot_strategy_label"] = strategy_meta.get("strategy_label") or ("当前策略" if is_current_strategy else "旧策略快照")
+            result["snapshot_strategy_label"] = strategy_label
             if is_current_strategy:
                 pools[scan_type]["current_strategy_count"] += 1
             else:
@@ -185,6 +211,9 @@ def load_workspace_snapshot_pools(start_date=None, scan_types=(), logger=None, s
         "legacy_snapshot_count": legacy_snapshot_count,
         "active_current_strategy_snapshot_count": active_current_strategy_snapshot_count,
         "active_legacy_snapshot_count": active_legacy_snapshot_count,
+        "strategy_version_counts": dict(strategy_version_counts),
+        "active_strategy_version_counts": dict(active_strategy_version_counts),
+        "strategy_version_labels": strategy_version_labels,
         "latest_snapshots": latest_snapshots,
         "latest_snapshot_day": latest_snapshot_day,
         "latest_data_date": latest_data_date,
