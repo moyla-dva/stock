@@ -96,6 +96,20 @@ function scanV2PointCategory(item, fallbackCategory) {
     return fallbackCategory || 'observe';
 }
 
+function scanV2PointChartLabel(item, signal) {
+    item = item || {};
+    signal = signal || scanFirstText(item, ['v2_signal', 'v2Signal']);
+    if (signal !== 'C风') return signal;
+    var state = scanFirstText(item, ['v2_state', 'v2State']);
+    var name = scanFirstText(item, ['v2_signal_name', 'v2SignalName']);
+    if (state === 'risk_top_watch' || name.indexOf('顶部') >= 0) return '风顶';
+    if (state === 'risk_warning' || name.indexOf('预警') >= 0) return '风警';
+    if (state === 'risk_stop_loss' || name.indexOf('止损') >= 0) return '风损';
+    if (state === 'risk_take_profit' || name.indexOf('收益') >= 0) return '风盈';
+    if (state === 'risk_exit' || name.indexOf('离场') >= 0) return '风离';
+    return 'C风';
+}
+
 function scanPointStrategyMeta(point, meta) {
     point = point || {};
     meta = meta || {};
@@ -105,6 +119,7 @@ function scanPointStrategyMeta(point, meta) {
     return Object.assign({}, meta, {
         label: signal,
         name: scanFirstText(point, ['v2_signal_name', 'v2SignalName']) || meta.name || '',
+        chartLabel: scanV2PointChartLabel(point, signal),
         detail: scanFirstText(point, ['v2_detail', 'v2Detail']) || meta.detail || '',
         category: scanV2PointCategory(point, meta.category)
     });
@@ -179,6 +194,7 @@ window.isScanLegacyStrategyView = isScanLegacyStrategyView;
 window.scanDisplaySignalText = scanDisplaySignalText;
 window.scanV2CandidateRole = scanV2CandidateRole;
 window.scanV2DecisionVerdict = scanV2DecisionVerdict;
+window.scanV2PointChartLabel = scanV2PointChartLabel;
 window.scanPointStrategyMeta = scanPointStrategyMeta;
 window.refreshActiveScanChartFocusStrategyView = refreshActiveScanChartFocusStrategyView;
 window.scanLegacyViewExplanation = scanLegacyViewExplanation;

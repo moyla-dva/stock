@@ -37,6 +37,7 @@ function chartSymbolOffsetFor(category) {
 function styleChartPoint(point, view) {
     var meta = getPointMeta(point);
     var category = meta.category || point.signalCategory || 'observe';
+    var chartLabel = meta.chartLabel || meta.label || '';
     var compact = view === 'full';
     var styled = Object.assign({}, point);
     styled.symbol = chartSymbolFor(category);
@@ -49,10 +50,10 @@ function styleChartPoint(point, view) {
     });
     styled.label = Object.assign({}, point.label || {}, {
         show: !compact && category !== 'observe',
-        formatter: meta.label,
+        formatter: chartLabel,
         position: 'inside',
         color: '#fff',
-        fontSize: meta.label.length > 2 ? 10 : 11,
+        fontSize: chartLabel.length > 2 ? 10 : 11,
         fontWeight: 'bold'
     });
     if (category === 'observe') {

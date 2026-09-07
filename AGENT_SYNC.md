@@ -360,3 +360,18 @@
 - `node --check static/js/app.js static/js/scanStrategyCompare.js static/js/signalPanel.js static/js/chartMarkers.js static/js/chartOptions.js`：通过。
 - `venv/bin/python -m unittest discover -s tests`：140 tests OK。
 - `git diff --check`：通过。
+
+## Codex 执行记录（2026-09-07 10:55 CST）
+
+### V2图面 `C风` 子类型显示已修正
+
+- 问题原因：V2 契约把顶部背离、风险预警、止损、收益保护、趋势离场统一归入 `C风` 风控大类；上一版图表 mark point 只显示父级 `v2_signal`，导致 K 线上多个不同风控事件都显示为 `C风`。
+- `static/js/scanStrategyCompare.js`：新增图面短标签映射，`C风` 按子状态显示为 `风顶 / 风警 / 风损 / 风盈 / 风离`；右侧详情和 tooltip 仍保留完整 `C风 + 子名称`，不改变后端 V2 语义契约。
+- `static/js/chartMarkers.js`：mark point 标签优先使用 `meta.chartLabel`，避免图面短码和详情完整名称互相挤占。
+
+### 验证
+
+- 浏览器实测 `http://127.0.0.1:5009/` 单股确认页：V2 图面风险标记已按子类型显示，不再全部显示为 `C风`；右侧最终确认台仍显示风控处理语义。
+- `node --check static/js/scanStrategyCompare.js static/js/chartMarkers.js`：通过。
+- `venv/bin/python -m unittest discover -s tests`：140 tests OK。
+- `git diff --check`：通过。
