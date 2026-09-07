@@ -2,6 +2,9 @@
 
 from copy import deepcopy
 
+from stock_analyzer.market_permission import build_stock_trade_permission
+from stock_analyzer.technical_structures import build_technical_structures
+
 
 _V2_BY_EVENT_KEY = {
     "composite_pullback": {
@@ -196,4 +199,319 @@ def c_signal_v2_mark_fields(event_key):
     return {
         camel_key: fields[snake_key]
         for snake_key, camel_key in _CAMEL_KEYS.items()
+    }
+
+
+def _as_float(value, default=None):
+    try:
+        if value is None:
+            return default
+        number = float(value)
+        return number if number == number else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value, default=0):
+    number = _as_float(value)
+    return default if number is None else int(number)
+
+
+def _as_bool(value):
+    try:
+        return bool(value)
+    except (TypeError, ValueError):
+        return False
+
+
+def _format_date(value):
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value or "-")[:10]
+
+
+def _latest_row(df_display):
+    if df_display is None or df_display.empty:
+        return None
+    return df_display.iloc[-1]
+
+
+def _v2_state_contract(signal_key, *, state, state_label, permission, permission_label, reason, next_action):
+    fields = c_signal_v2_fields(signal_key)
+    return {
+        "state": state,
+        "state_label": state_label,
+        "permission": permission,
+        "permission_label": permission_label,
+        "signal": fields["v2_signal"],
+        "signal_name": fields["v2_signal_name"],
+        "role": fields["v2_role"],
+        "role_label": fields["v2_role_label"],
+        "tone": fields["v2_tone"],
+        "trade_intent": fields["trade_intent"],
+        "trade_intent_label": fields["trade_intent_label"],
+        "requires_trade_plan": fields["requires_trade_plan"],
+        "requires_stop_loss": fields["requires_stop_loss"],
+        "plan_scope": fields["v2_plan_scope"],
+        "detail": fields["v2_detail"],
+        "reason": reason,
+        "next_action": next_action,
+    }
+
+
+def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
+    """Build the Phase 2.1 V2 state model from current facts.
+
+    This does not replace the legacy strategy trigger yet. It creates a stable
+    fact -> state -> permission -> action contract so later V2 trigger modules
+    can plug in without changing the UI payload shape.
+    """
+    latest = _latest_row(df_display)
+    if latest is None:
+        return {
+            "version": 1,
+            "source": "c_signal_v2_phase_2_1",
+            "latest_date": "-",
+            **_v2_state_contract(
+                "",
+                state="no_data",
+                state_label="无数据",
+                permission="forbidden",
+                permission_label="禁止",
+                reason="没有足够行情数据",
+                next_action="先补齐行情数据",
+            ),
+            "scores": {"setup": 0, "confirm": 0, "risk": 0},
+            "facts": {},
+            "event_mapping": c_signal_v2_fields(event_key) if event_key else None,
+        }
+
+    permission_payload = build_stock_trade_permission(df_display, context=context)
+    structures = build_technical_structures(df_display)
+    scores = {
+        "setup": _as_int(latest.get("composite_setup_score")),
+        "confirm": _as_int(latest.get("composite_confirm_score")),
+        "risk": _as_int(latest.get("composite_risk_score")),
+    }
+    entry_type = str(latest.get("composite_entry_type") or "").strip()
+    exit_type = str(latest.get("composite_exit_type") or latest.get("composite_risk_type") or "").strip()
+    has_entry = _as_bool(latest.get("composite_entry"))
+    has_exit = _as_bool(latest.get("composite_exit"))
+    has_risk = _as_bool(latest.get("composite_risk")) or _as_bool(latest.get("composite_risk_warn"))
+    has_bottom = _as_bool(latest.get("is_bottom_divergence"))
+    clock = structures.get("williams_clock", {})
+
+    right_side = structures.get("right_side", {})
+    facts = {
+        "trend": {
+            "above_ma20": right_side.get("above_ma20"),
+            "ma20_up": right_side.get("ma20_up"),
+            "trend_ok": right_side.get("trend_ok"),
+            "williams_r": _as_float(latest.get("williams_r")),
+            "williams_r_center_side": latest.get("williams_r_center_side"),
+            "williams_r_cross_bull": _as_bool(latest.get("williams_r_cross_bull")),
+            "williams_r_cross_bear": _as_bool(latest.get("williams_r_cross_bear")),
+            "bull_power_dominant": _as_bool(latest.get("bull_power_dominant")),
+            "bear_power_dominant": _as_bool(latest.get("bear_power_dominant")),
+        },
+        "setup": {
+            "repair_impulse": _as_bool(latest.get("composite_repair_impulse")),
+            "repair_confirm": _as_bool(latest.get("composite_repair_confirm")),
+            "pullback_setup": _as_bool(latest.get("composite_pullback_setup")),
+            "breakout_setup": _as_bool(latest.get("composite_breakout_setup")),
+            "prior_breakout": _as_bool(latest.get("composite_prior_breakout")),
+            "bottom_divergence": has_bottom,
+        },
+        "risk": {
+            "risk_score": scores["risk"],
+            "risk_break_score": _as_int(latest.get("composite_risk_break_score")),
+            "risk_heat_score": _as_int(latest.get("composite_risk_heat_score")),
+            "has_risk": has_risk,
+            "has_exit": has_exit,
+        },
+        "clock": {
+            "state": clock.get("state"),
+            "state_label": clock.get("state_label"),
+            "action_label": clock.get("action_label"),
+        },
+    }
+
+    if has_exit or permission_payload.get("mode") == "risk_control" or scores["risk"] >= 4:
+        risk_key = "composite_exit"
+        if exit_type == "stop_loss":
+            risk_key = "composite_stop_loss"
+        elif exit_type == "take_profit":
+            risk_key = "composite_take_profit"
+        contract = _v2_state_contract(
+            risk_key,
+            state="risk_control",
+            state_label="风险处理",
+            permission="risk_only",
+            permission_label="只处理风险",
+            reason=latest.get("composite_risk_reason") or "风险分过高或离场信号已触发",
+            next_action=permission_payload.get("risk_action") or "停止新开，优先处理风险",
+        )
+    elif permission_payload.get("can_open") and entry_type == "breakout":
+        contract = _v2_state_contract(
+            "composite_breakout",
+            state="breakout_triggered",
+            state_label="突破触发",
+            permission="breakout_allowed",
+            permission_label="允许突破计划",
+            reason=latest.get("composite_entry_reason") or "突破条件已出现",
+            next_action="进入突破交易计划，检查高开、过热、止损和 2R",
+        )
+    elif permission_payload.get("can_open") and entry_type == "pullback":
+        contract = _v2_state_contract(
+            "composite_pullback",
+            state="pullback_triggered",
+            state_label="回踩触发",
+            permission="pullback_allowed",
+            permission_label="允许回踩计划",
+            reason=latest.get("composite_entry_reason") or "回踩条件已出现",
+            next_action="进入回踩交易计划，检查结构止损、仓位和 2R",
+        )
+    elif has_entry or _as_bool(latest.get("composite_repair_confirm")):
+        contract = _v2_state_contract(
+            "composite_confirm",
+            state="repair_setup",
+            state_label="修复观察",
+            permission="watch_only",
+            permission_label="只观察",
+            reason=latest.get("composite_entry_reason") or "修复信号尚未进入可执行入场",
+            next_action="等待结构触发，不提前重仓",
+        )
+    elif facts["setup"]["breakout_setup"]:
+        contract = _v2_state_contract(
+            "",
+            state="breakout_setup",
+            state_label="突破准备",
+            permission="watch_only",
+            permission_label="只观察",
+            reason="价格靠近突破语境，但尚未进入可执行触发",
+            next_action="等待明确突破触发，再交给交易计划",
+        )
+    elif facts["setup"]["pullback_setup"]:
+        contract = _v2_state_contract(
+            "",
+            state="pullback_setup",
+            state_label="回踩蓄势",
+            permission="watch_only",
+            permission_label="只观察",
+            reason="价格回到可观察支撑语境，但还缺执行许可",
+            next_action="等待回踩触发和风险下降",
+        )
+    elif has_bottom:
+        contract = _v2_state_contract(
+            "composite_bottom_divergence",
+            state="research_bottom",
+            state_label="底部研究",
+            permission="watch_only",
+            permission_label="只观察",
+            reason="出现底背离观察事实",
+            next_action="等待分型、矩形或触发器确认",
+        )
+    elif clock.get("state") in {"countdown", "compression_watch", "expanding"} or scores["setup"] >= 1:
+        contract = _v2_state_contract(
+            "composite_bottom_divergence",
+            state="researchable",
+            state_label="值得研究",
+            permission="watch_only",
+            permission_label="只观察",
+            reason=clock.get("state_label") or "出现观察级结构事实",
+            next_action=clock.get("action_label") or "加入观察，等待方向和触发",
+        )
+    else:
+        contract = _v2_state_contract(
+            "",
+            state="idle",
+            state_label="无结构",
+            permission="forbidden",
+            permission_label="禁止",
+            reason="没有足够结构证据",
+            next_action="继续等待新的事实信号",
+        )
+
+    return {
+        "version": 1,
+        "source": "c_signal_v2_phase_2_1",
+        "latest_date": _format_date(latest.get("date")),
+        **contract,
+        "scores": scores,
+        "facts": facts,
+        "permission_context": {
+            "mode": permission_payload.get("mode"),
+            "mode_label": permission_payload.get("mode_label"),
+            "can_open": permission_payload.get("can_open"),
+            "can_hold": permission_payload.get("can_hold"),
+        },
+        "event_mapping": c_signal_v2_fields(event_key) if event_key else None,
+    }
+
+
+def build_c_signal_v2_state_from_result(result):
+    """Build a lightweight V2 state model from a persisted scan result."""
+    result = result or {}
+    signal_key = result.get("signal_key") or ""
+    fields = c_signal_v2_fields(signal_key)
+    risk_score = _as_int(result.get("risk_score"))
+    confirm_score = _as_int(result.get("confirm_score"))
+    setup_score = _as_int(result.get("setup_score"))
+    scan_type = result.get("scan_type") or result.get("_scan_type") or ""
+    role = fields.get("v2_role")
+
+    if role == "risk" or scan_type == "risk":
+        state = fields.get("v2_state") if role == "risk" else "risk_control"
+        state_label = fields.get("v2_state_label") if role == "risk" else "风险处理"
+        permission = "risk_only"
+        permission_label = "只处理风险"
+    elif fields.get("requires_trade_plan"):
+        is_breakout = signal_key == "composite_breakout"
+        state = "breakout_triggered" if is_breakout else "pullback_triggered"
+        state_label = "突破触发" if is_breakout else "回踩触发"
+        permission = "breakout_allowed" if is_breakout else "pullback_allowed"
+        permission_label = "允许突破计划" if is_breakout else "允许回踩计划"
+    elif role in {"watch", "candidate"}:
+        state = fields.get("v2_state") or "structure_candidate"
+        state_label = fields.get("v2_state_label") or fields.get("v2_role_label") or "观察"
+        permission = "watch_only"
+        permission_label = "只观察"
+    else:
+        state = "idle"
+        state_label = "无结构"
+        permission = "forbidden"
+        permission_label = "禁止"
+
+    return {
+        "version": 1,
+        "source": "scan_result_backfill",
+        "latest_date": result.get("date") or "-",
+        "event_date": result.get("event_date") or result.get("date") or "-",
+        "state": state,
+        "state_label": state_label,
+        "permission": permission,
+        "permission_label": permission_label,
+        "signal": fields["v2_signal"],
+        "signal_name": fields["v2_signal_name"],
+        "role": fields["v2_role"],
+        "role_label": fields["v2_role_label"],
+        "tone": fields["v2_tone"],
+        "trade_intent": fields["trade_intent"],
+        "trade_intent_label": fields["trade_intent_label"],
+        "requires_trade_plan": fields["requires_trade_plan"],
+        "requires_stop_loss": fields["requires_stop_loss"],
+        "plan_scope": fields["v2_plan_scope"],
+        "detail": fields["v2_detail"],
+        "reason": result.get("reason") or fields["v2_detail"],
+        "next_action": result.get("trade_intent_label") or fields["trade_intent_label"],
+        "scores": {
+            "setup": setup_score,
+            "confirm": confirm_score,
+            "risk": risk_score,
+        },
+        "facts": {
+            "snapshot": True,
+            "source_label": result.get("strategy_source_label") or result.get("snapshot_strategy_label") or "",
+        },
+        "event_mapping": fields,
     }

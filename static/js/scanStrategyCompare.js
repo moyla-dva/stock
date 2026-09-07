@@ -55,14 +55,38 @@ function scanDisplaySignalText(item) {
     return isScanV2StrategyView() ? scanV2SignalText(item) : scanLegacySignalText(item);
 }
 
+function scanV2StateModel(item) {
+    item = item || {};
+    return item.c_signal_v2_state || item.v2_state_model || item.v2StateModel || null;
+}
+
+function scanV2StateSignalText(model) {
+    if (!model) return '';
+    return ((model.signal || '') + ' ' + (model.signal_name || model.signalName || '')).trim();
+}
+
 function scanStrategyScopeText() {
     return isScanV2StrategyView()
-        ? 'V2语义层对比 · 指标/评分沿用当前策略'
+        ? 'V2状态模型对比 · 旧C事件保留为迁移来源'
         : '旧C字段对照 · 显示原信号名称与原评分';
 }
 
 function scanV2CandidateRole(item) {
     item = item || {};
+    var model = scanV2StateModel(item);
+    if (model && (model.role_label || model.permission_label)) {
+        var modelRole = model.role || model.permission || 'watch';
+        return {
+            kind: 'v2_' + modelRole,
+            label: model.role_label || model.permission_label,
+            tone: model.tone || 'muted',
+            score: modelRole === 'entry' ? 90 : (modelRole === 'risk' ? 80 : (modelRole === 'watch' ? 48 : 36)),
+            detail: model.detail || model.reason || model.state_label || 'V2 状态模型',
+            action: model.next_action || model.trade_intent_label || '按 V2 状态模型处理',
+            requiresPlan: Boolean(model.requires_trade_plan || model.requiresTradePlan),
+            requiresStop: Boolean(model.requires_stop_loss || model.requiresStopLoss)
+        };
+    }
     var roleLabel = scanFirstText(item, ['v2_role_label', 'v2RoleLabel']);
     if (!roleLabel) return null;
     var role = scanFirstText(item, ['v2_role', 'v2Role']) || 'candidate';
@@ -82,6 +106,18 @@ function scanV2CandidateRole(item) {
 
 function scanV2DecisionVerdict(item, explanation) {
     item = item || {};
+    var model = scanV2StateModel(item);
+    if (model) {
+        var modelPlanText = model.requires_trade_plan || model.requiresTradePlan ? '需要交易计划' : '不生成入场计划';
+        var modelStopText = model.requires_stop_loss || model.requiresStopLoss ? '需要入场止损价' : '不要求入场止损价';
+        return {
+            tone: model.tone || 'muted',
+            title: (model.role_label || model.permission_label || 'V2定位') + ' · ' + (scanV2StateSignalText(model) || model.state_label || '状态模型'),
+            detail: (model.reason || model.detail || (explanation && explanation.summary) || item.reason || '等待更多结构确认')
+                + ' · ' + modelPlanText + ' / ' + modelStopText,
+            action: model.next_action || model.trade_intent_label || '按 V2 状态模型处理'
+        };
+    }
     var role = scanV2CandidateRole(item);
     if (!role) return null;
     var planText = role.requiresPlan ? '需要交易计划' : '不生成入场计划';
@@ -128,12 +164,29 @@ function scanStrategyDeltaItems(item) {
 
     var legacyText = scanLegacySignalText(item);
     var v2Text = scanV2SignalText(item);
+    var model = scanV2StateModel(item);
     var role = scanV2CandidateRole(item);
     var action = scanFirstText(item, ['trade_intent_label', 'tradeIntentLabel'])
         || (role && role.action)
         || '先按语义定位处理';
     var planText = role && role.requiresPlan ? '需要交易计划' : '不生成入场计划';
     var stopText = role && role.requiresStop ? '需要入场止损价' : '不要求入场止损价';
+    if (model) {
+        var modelSignalText = scanV2StateSignalText(model) || v2Text || legacyText || '暂无信号';
+        var modelPlanText = model.requires_trade_plan || model.requiresTradePlan ? '需要交易计划' : '不生成入场计划';
+        var modelStopText = model.requires_stop_loss || model.requiresStopLoss ? '需要入场止损价' : '不要求入场止损价';
+        return [
+            {
+                label: '信号映射',
+                value: (legacyText && legacyText !== modelSignalText)
+                    ? (legacyText + ' -> ' + modelSignalText)
+                    : modelSignalText
+            },
+            { label: '状态模型', value: (model.state_label || '-') + ' / ' + (model.permission_label || '-') },
+            { label: '执行含义', value: (model.next_action || model.trade_intent_label || '按 V2 状态模型处理') + ' · ' + modelPlanText + ' / ' + modelStopText },
+            { label: '指标口径', value: '已接入 V2 事实/许可状态模型，旧C事件仍保留为迁移来源' }
+        ];
+    }
 
     return [
         {
@@ -184,7 +237,7 @@ function scanLegacyViewExplanation(item) {
     var signalName = scanLegacySignalText(item);
     explanation.headline = signalName;
     explanation.drivers = (explanation.drivers || []).filter(function(driver) {
-        return driver.label !== 'V2定位';
+        return ['V2定位', 'V2状态'].indexOf(driver.label) < 0;
     });
     explanation.score_badges = (explanation.score_badges || []).filter(function(badge) {
         return badge.label !== '定位';
@@ -233,6 +286,7 @@ window.getScanStrategyView = getScanStrategyView;
 window.isScanV2StrategyView = isScanV2StrategyView;
 window.isScanLegacyStrategyView = isScanLegacyStrategyView;
 window.scanDisplaySignalText = scanDisplaySignalText;
+window.scanV2StateModel = scanV2StateModel;
 window.scanStrategyScopeText = scanStrategyScopeText;
 window.scanV2CandidateRole = scanV2CandidateRole;
 window.scanV2DecisionVerdict = scanV2DecisionVerdict;

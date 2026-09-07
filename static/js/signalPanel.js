@@ -713,7 +713,12 @@ function renderAnalysisDecision(visiblePoints, allPoints) {
     verdict.className = 'analysis-decision-verdict analysis-decision-verdict--' + tone;
     panel.className = 'analysis-decision-panel analysis-decision-panel--' + tone;
     renderAnalysisDecisionTags(tags);
-    renderAnalysisStrategyDelta(focus || latest);
+    var stateModel = lastData && lastData.c_signal_v2_state ? lastData.c_signal_v2_state : null;
+    var deltaSource = focus || latest || null;
+    if (stateModel) {
+        deltaSource = Object.assign({}, deltaSource || {}, { c_signal_v2_state: stateModel });
+    }
+    renderAnalysisStrategyDelta(deltaSource);
 }
 
 function renderSignalBoard(allPoints, visiblePoints) {

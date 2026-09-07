@@ -64,6 +64,7 @@ function setActiveScanChartFocus(item) {
         v2_role: item.v2_role || '',
         v2_role_label: item.v2_role_label || '',
         v2_tone: item.v2_tone || '',
+        v2_state_model: item.v2_state_model || null,
         trade_intent_label: item.trade_intent_label || '',
         requires_trade_plan: item.requires_trade_plan,
         requires_stop_loss: item.requires_stop_loss,

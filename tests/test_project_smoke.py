@@ -10,7 +10,7 @@ import app
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.backtest import evaluate_signal_events
 from stock_analyzer.board_market_refresh import refresh_board_market_cache
-from stock_analyzer.c_signal_v2 import c_signal_v2_fields
+from stock_analyzer.c_signal_v2 import build_c_signal_v2_state, c_signal_v2_fields
 from stock_analyzer.catalog import (
     FALLBACK_STOCK_CODES,
     get_cached_stock_profile,
@@ -821,6 +821,42 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(item["event"]["v2_signal"], "C研")
         self.assertEqual(item["event"]["v2_role_label"], "观察")
         self.assertFalse(item["event"]["requires_stop_loss"])
+
+    def test_c_signal_v2_state_model_separates_permission_from_legacy_event(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame["composite_setup_score"] = [1] * 12
+        frame["composite_confirm_score"] = [4] * 12
+        frame["composite_risk_score"] = [0] * 12
+        frame.loc[11, "composite_entry"] = True
+        frame.loc[11, "composite_entry_type"] = "breakout"
+        frame.loc[11, "composite_entry_reason"] = "前高突破 / MACD多头"
+
+        state = build_c_signal_v2_state(frame, event_key="composite_breakout")
+
+        self.assertEqual(state["state"], "breakout_triggered")
+        self.assertEqual(state["permission"], "breakout_allowed")
+        self.assertEqual(state["signal"], "C突")
+        self.assertTrue(state["requires_trade_plan"])
+        self.assertTrue(state["requires_stop_loss"])
+        self.assertEqual(state["event_mapping"]["v2_signal"], "C突")
+
+    def test_c_signal_v2_state_model_prioritizes_risk_without_entry_stop(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame["composite_setup_score"] = [1] * 12
+        frame["composite_confirm_score"] = [1] * 12
+        frame["composite_risk_score"] = [4] * 12
+        frame.loc[11, "composite_exit"] = True
+        frame.loc[11, "composite_exit_type"] = "stop_loss"
+        frame.loc[11, "composite_risk_reason"] = "止损 / 跌破MA20"
+
+        state = build_c_signal_v2_state(frame, event_key="composite_stop_loss")
+
+        self.assertEqual(state["state"], "risk_control")
+        self.assertEqual(state["permission"], "risk_only")
+        self.assertEqual(state["signal"], "C风")
+        self.assertEqual(state["signal_name"], "止损风控")
+        self.assertFalse(state["requires_trade_plan"])
+        self.assertFalse(state["requires_stop_loss"])
 
     @patch("app.get_stock_profile", return_value={"name": "示例股票", "sector": "半导体"})
     @patch("app.fetch_and_process_data", return_value={
@@ -1942,7 +1978,7 @@ class ProjectSmokeTest(unittest.TestCase):
     def test_scan_stock_frame_outputs_scored_opportunity_result(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["composite_setup_score"] = [1] * 12
-        frame["composite_confirm_score"] = [2] * 12
+        frame["composite_confirm_score"] = [4] * 12
         frame["composite_risk_score"] = [0] * 12
         frame["composite_risk_break_score"] = [0] * 12
         frame["composite_risk_heat_score"] = [1] * 12
@@ -1979,7 +2015,7 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertTrue(result["requires_trade_plan"])
         self.assertTrue(result["requires_stop_loss"])
         self.assertEqual(result["setup_score"], 1)
-        self.assertEqual(result["confirm_score"], 2)
+        self.assertEqual(result["confirm_score"], 4)
         self.assertEqual(result["risk_score"], 0)
         self.assertGreater(result["rank_score"], 0)
         self.assertEqual(result["risk_break_score"], 0)
@@ -1998,13 +2034,15 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(result["williams_r_center_side"], "bull")
         driver_labels = [driver["label"] for driver in result["explanation"]["drivers"]]
         badge_labels = [badge["label"] for badge in result["explanation"]["score_badges"]]
-        self.assertIn("V2定位", driver_labels)
+        self.assertIn("V2状态", driver_labels)
         self.assertIn("突破诊断", driver_labels)
         self.assertIn("风险拆分", driver_labels)
         self.assertIn("方向诊断", driver_labels)
         self.assertIn("定位", badge_labels)
+        self.assertEqual(result["v2_state_model"]["state"], "breakout_triggered")
+        self.assertEqual(result["v2_state_model"]["permission"], "breakout_allowed")
         self.assertEqual(result["view_model"]["signal_text"], "C突 突破入场")
-        self.assertEqual(result["view_model"]["decision_label"], "可交易")
+        self.assertEqual(result["view_model"]["decision_label"], "允许突破计划")
 
     def test_scan_stock_frame_demotes_composite_confirm_to_repair_watch(self):
         frame = self._minimal_signal_frame(rows=12)
@@ -2026,8 +2064,10 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(result["trade_intent"], "watch_only")
         self.assertFalse(result["requires_trade_plan"])
         self.assertFalse(result["requires_stop_loss"])
+        self.assertEqual(result["v2_state_model"]["state"], "repair_setup")
+        self.assertEqual(result["v2_state_model"]["permission"], "watch_only")
         self.assertEqual(result["view_model"]["signal_text"], "C修 修复观察")
-        self.assertEqual(result["view_model"]["decision_label"], "观察")
+        self.assertEqual(result["view_model"]["decision_label"], "只观察")
 
     def test_risk_pool_marks_confirmed_risk_stage(self):
         frame = self._minimal_signal_frame(rows=12)
@@ -2125,6 +2165,30 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(result["v2_signal"], "C修")
         self.assertEqual(result["trade_intent"], "watch_only")
         self.assertFalse(result["requires_stop_loss"])
+        self.assertEqual(result["v2_state_model"]["source"], "scan_result_backfill")
+        self.assertEqual(result["v2_state_model"]["state"], "repair_watch")
+        self.assertEqual(result["v2_state_model"]["permission"], "watch_only")
+
+    def test_scan_result_backfill_keeps_bottom_research_out_of_risk_state(self):
+        result = scan_result_from_snapshot({
+            "results": {
+                "bottom_div": {
+                    "code": "600063",
+                    "name": "示例股票",
+                    "signal_key": "composite_bottom_divergence",
+                    "signal": "C底",
+                    "date": "2026-05-10",
+                    "risk_score": 4,
+                    "setup_score": 3,
+                    "confirm_score": 2,
+                },
+            },
+        }, "bottom_div")
+
+        self.assertEqual(result["v2_state_model"]["source"], "scan_result_backfill")
+        self.assertEqual(result["v2_state_model"]["state"], "research_bottom")
+        self.assertEqual(result["v2_state_model"]["permission"], "watch_only")
+        self.assertEqual(result["v2_state_model"]["signal"], "C研")
 
     def test_check_stock_signal_reuses_snapshot_for_other_scan_types(self):
         frame = self._minimal_signal_frame(rows=12)

@@ -6,7 +6,7 @@ from datetime import datetime, time
 from pathlib import Path
 
 from stock_analyzer.code_utils import normalize_code
-from stock_analyzer.c_signal_v2 import c_signal_v2_fields
+from stock_analyzer.c_signal_v2 import build_c_signal_v2_state_from_result, c_signal_v2_fields
 from stock_analyzer.data_fetcher import beijing_now
 from stock_analyzer.scanner import SCAN_CONFIG, format_scan_date, normalize_scan_type, scan_stock_frame
 from stock_analyzer.trade_plan import build_trade_plan
@@ -283,6 +283,8 @@ def scan_result_from_snapshot(snapshot, scan_type):
         output["trade_plan"] = snapshot["trade_plan"]
     if output.get("signal_key") and not output.get("v2_signal"):
         output.update(c_signal_v2_fields(output.get("signal_key")))
+    if output.get("signal_key") and not output.get("v2_state_model"):
+        output["v2_state_model"] = build_c_signal_v2_state_from_result(output)
     return output
 
 

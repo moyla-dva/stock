@@ -3,7 +3,7 @@
 import math
 
 from stock_analyzer.backtest import evaluate_signal_events
-from stock_analyzer.c_signal_v2 import c_signal_v2_fields
+from stock_analyzer.c_signal_v2 import build_c_signal_v2_state, c_signal_v2_fields
 from stock_analyzer.events import (
     build_composite_signal_events,
     build_new_signal_events,
@@ -433,6 +433,7 @@ def build_scan_result(code, name, df_display, event, scan_type, signal_stats):
         "avg_ret": _none_or_round(signal_stats.get("avg_ret"), 2),
     }
     result.update(c_signal_v2_fields(event.key))
+    result["v2_state_model"] = build_c_signal_v2_state(df_display, event_key=event.key)
     result.update(latest_diagnostic_summary(df_display))
     result.update(_pool_stage_fields(scan_type, event, scores, df_display))
     return attach_scan_explanation(result)

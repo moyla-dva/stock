@@ -4,6 +4,7 @@
 import concurrent.futures
 
 from stock_analyzer.analysis import build_analysis_frame
+from stock_analyzer.c_signal_v2 import build_c_signal_v2_state
 from stock_analyzer.catalog import (
     get_stock_concept_cache_status,
     get_stock_profile,
@@ -32,6 +33,7 @@ def fetch_and_process_data(code, logger=None, verbose=True):
         return None
     payload = analysis_frame_to_chart_payload(df_display)
     payload["stock_code"] = normalized
+    payload["c_signal_v2_state"] = build_c_signal_v2_state(df_display)
     payload["trade_plan"] = build_trade_plan(df_display)
     payload["multi_timeframes"] = build_multi_timeframe_payload(
         normalized,

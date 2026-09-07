@@ -186,6 +186,19 @@ def _direction_diagnostic(result):
 
 
 def _v2_signal_driver(result):
+    state_model = result.get("v2_state_model") or {}
+    if state_model:
+        plan_text = "需交易计划" if state_model.get("requires_trade_plan") else "不生成入场计划"
+        stop_text = "需入场止损价" if state_model.get("requires_stop_loss") else "不要求入场止损价"
+        return {
+            "label": "V2状态",
+            "value": (
+                f"{_text(state_model.get('signal'))} {_text(state_model.get('signal_name'))}"
+                f" · {_text(state_model.get('state_label'))} · {_text(state_model.get('permission_label'))}"
+                f" · {plan_text} / {stop_text}"
+            ),
+            "tone": _text(state_model.get("tone"), "muted"),
+        }
     if not result.get("v2_signal"):
         return None
     intent = _text(result.get("trade_intent_label"), "候选观察")
@@ -213,7 +226,15 @@ def build_score_badges(result):
         {"label": "风险", "value": _text(result.get("risk_score")), "tone": risk["tone"], "hint": risk["hint"]},
         {"label": "共振", "value": _text(result.get("sector_score")), "tone": sector["tone"], "hint": sector["hint"]},
     ]
-    if result.get("v2_role_label"):
+    state_model = result.get("v2_state_model") or {}
+    if state_model:
+        badges.append({
+            "label": "定位",
+            "value": _text(state_model.get("permission_label"), _text(state_model.get("role_label"))),
+            "tone": _text(state_model.get("tone"), "muted"),
+            "hint": _text(state_model.get("reason"), _text(state_model.get("detail"), "V2 状态模型")),
+        })
+    elif result.get("v2_role_label"):
         badges.append({
             "label": "定位",
             "value": _text(result.get("v2_role_label")),
@@ -379,7 +400,14 @@ def build_scan_view_model(result, explanation=None):
     rank = classify_rank_score(result.get("final_score") if result.get("final_score") is not None else result.get("rank_score"))
     risk = classify_risk_score(result.get("risk_score"))
     confidence = classify_score_confidence(result.get("score_confidence"))
-    if result.get("v2_signal"):
+    state_model = result.get("v2_state_model") or {}
+    if state_model:
+        signal_text = (
+            _text(state_model.get("signal"), "信号")
+            + " "
+            + _text(state_model.get("signal_name"), "")
+        ).strip()
+    elif result.get("v2_signal"):
         signal_text = (
             _text(result.get("v2_signal"), "信号")
             + " "
@@ -397,7 +425,7 @@ def build_scan_view_model(result, explanation=None):
     score = result.get("final_score") if result.get("final_score") is not None else result.get("rank_score")
     decision = _text(result.get("pool_stage_label"), "")
     if not decision or decision == "-":
-        decision = _text(result.get("v2_role_label"), "")
+        decision = _text(state_model.get("permission_label"), _text(result.get("v2_role_label"), ""))
     if not decision or decision == "-":
         decision = confidence["label"] if confidence["label"] != "可信度待定" else rank["label"]
     return {
