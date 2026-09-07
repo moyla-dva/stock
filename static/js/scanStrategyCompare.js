@@ -36,9 +36,9 @@ function isScanLegacyStrategyView() {
 
 function scanLegacySignalText(item) {
     item = item || {};
-    var label = scanFirstText(item, ['signal_label', 'signalLabel', 'signalCode', 'signal']) || '-';
-    var name = scanFirstText(item, ['signal_name']);
-    if (!name && (item.signalKey || item.signalLabel || item.signalCode)) {
+    var label = scanFirstText(item, ['signal_label', 'signalLabel', 'signalCode', 'signal', 'label']) || '-';
+    var name = scanFirstText(item, ['signal_name', 'signalName']);
+    if (!name && (item.signal_key || item.signalKey || item.signalLabel || item.signalCode || item.label)) {
         name = scanFirstText(item, ['name']);
     }
     return (label + ' ' + name).trim();
@@ -53,6 +53,12 @@ function scanV2SignalText(item) {
 
 function scanDisplaySignalText(item) {
     return isScanV2StrategyView() ? scanV2SignalText(item) : scanLegacySignalText(item);
+}
+
+function scanStrategyScopeText() {
+    return isScanV2StrategyView()
+        ? 'V2语义层对比 · 指标/评分沿用当前策略'
+        : '旧C字段对照 · 显示原信号名称与原评分';
 }
 
 function scanV2CandidateRole(item) {
@@ -108,6 +114,38 @@ function scanV2PointChartLabel(item, signal) {
     if (state === 'risk_take_profit' || name.indexOf('收益') >= 0) return '风盈';
     if (state === 'risk_exit' || name.indexOf('离场') >= 0) return '风离';
     return 'C风';
+}
+
+function scanStrategyDeltaItems(item) {
+    item = item || {};
+    if (!isScanV2StrategyView()) {
+        return [
+            { label: '显示口径', value: '旧C字段与原信号名称' },
+            { label: '评分口径', value: '原建仓/确认/风险分' },
+            { label: '用途', value: '用于和 V2 语义层逐项对照' }
+        ];
+    }
+
+    var legacyText = scanLegacySignalText(item);
+    var v2Text = scanV2SignalText(item);
+    var role = scanV2CandidateRole(item);
+    var action = scanFirstText(item, ['trade_intent_label', 'tradeIntentLabel'])
+        || (role && role.action)
+        || '先按语义定位处理';
+    var planText = role && role.requiresPlan ? '需要交易计划' : '不生成入场计划';
+    var stopText = role && role.requiresStop ? '需要入场止损价' : '不要求入场止损价';
+
+    return [
+        {
+            label: '信号映射',
+            value: (legacyText && v2Text && legacyText !== v2Text)
+                ? (legacyText + ' -> ' + v2Text)
+                : (v2Text || legacyText || '暂无信号')
+        },
+        { label: 'V2定位', value: role ? role.label : '观察' },
+        { label: '执行含义', value: action + ' · ' + planText + ' / ' + stopText },
+        { label: '指标口径', value: '沿用当前策略指标与评分，尚未启用 V2 独立阈值' }
+    ];
 }
 
 function scanPointStrategyMeta(point, meta) {
@@ -167,6 +205,9 @@ function renderScanStrategyViewToggle() {
             label.textContent = view === 'v2' ? 'V2语义' : '旧C字段';
         }
     });
+    document.querySelectorAll('[data-scan-strategy-scope]').forEach(function(node) {
+        node.textContent = scanStrategyScopeText();
+    });
 }
 
 function setScanStrategyView(view) {
@@ -192,9 +233,11 @@ window.getScanStrategyView = getScanStrategyView;
 window.isScanV2StrategyView = isScanV2StrategyView;
 window.isScanLegacyStrategyView = isScanLegacyStrategyView;
 window.scanDisplaySignalText = scanDisplaySignalText;
+window.scanStrategyScopeText = scanStrategyScopeText;
 window.scanV2CandidateRole = scanV2CandidateRole;
 window.scanV2DecisionVerdict = scanV2DecisionVerdict;
 window.scanV2PointChartLabel = scanV2PointChartLabel;
+window.scanStrategyDeltaItems = scanStrategyDeltaItems;
 window.scanPointStrategyMeta = scanPointStrategyMeta;
 window.refreshActiveScanChartFocusStrategyView = refreshActiveScanChartFocusStrategyView;
 window.scanLegacyViewExplanation = scanLegacyViewExplanation;

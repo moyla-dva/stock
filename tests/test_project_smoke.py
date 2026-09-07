@@ -39,7 +39,7 @@ from stock_analyzer.market_boards import (
     read_cached_board_market,
     write_cached_board_market,
 )
-from stock_analyzer.multi_timeframe import build_multi_timeframe_payload
+from stock_analyzer.multi_timeframe import build_multi_timeframe_payload, summarize_timeframe
 from stock_analyzer.normalizer import normalize_price_frame
 from stock_analyzer.providers.concepts import _stock_rows_from_ths_concept_html
 from stock_analyzer.providers.stock_history_minute import StockMinuteHistoryProvider, market_symbol_for_sina
@@ -804,6 +804,23 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIn("chart", payload["hour_4"])
         self.assertTrue(payload["hour_4"]["derived"])
         self.assertIn("由 60m 合成", payload["hour_4"]["detail"])
+
+    def test_timeframe_event_payload_exposes_v2_semantics(self):
+        frame = self._minimal_signal_frame(rows=12)
+        frame.loc[11, "is_bottom_divergence"] = True
+
+        item = summarize_timeframe(
+            frame,
+            period_key="daily",
+            period_label="日线",
+            role_label="主趋势",
+        )
+
+        self.assertEqual(item["event"]["signal_key"], "composite_bottom_divergence")
+        self.assertEqual(item["event"]["signal_label"], "C底")
+        self.assertEqual(item["event"]["v2_signal"], "C研")
+        self.assertEqual(item["event"]["v2_role_label"], "观察")
+        self.assertFalse(item["event"]["requires_stop_loss"])
 
     @patch("app.get_stock_profile", return_value={"name": "示例股票", "sector": "半导体"})
     @patch("app.fetch_and_process_data", return_value={

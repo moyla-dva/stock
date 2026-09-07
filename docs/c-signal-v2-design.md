@@ -355,6 +355,8 @@ V2 不取消评分，但改变评分职责。
 
 本阶段只做语义分层，不改变旧策略触发条件：
 
+> 因此在 Phase 1 中，图表指标、建仓/确认/风险评分、扫描排序基础仍会和旧 C 口径一致；V2 的差异只体现在信号命名、角色定位、交易意图、是否要求交易计划/止损价。若要让指标本身发生差异，需要进入 Phase 2 独立指标层。
+
 - `stock_analyzer/c_signal_v2.py` 新增 V2 字段映射；
 - 扫描结果并行输出 `v2_signal / v2_state / v2_role / trade_intent / requires_trade_plan / requires_stop_loss`；
 - 图表 mark point 并行输出 camelCase V2 字段；

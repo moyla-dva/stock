@@ -1,6 +1,7 @@
 """Multi-timeframe confirmation helpers for the single-stock analysis view."""
 
 from stock_analyzer.analysis import prepare_analysis_frame
+from stock_analyzer.c_signal_v2 import c_signal_v2_fields
 from stock_analyzer.events import build_composite_signal_events
 from stock_analyzer.intraday_fetcher import fetch_stock_minute_history
 from stock_analyzer.normalizer import normalize_price_frame
@@ -19,14 +20,19 @@ def _recent_event_summary(frame):
     if not events:
         return None
     event = events[-1]
-    return {
+    summary = {
         "key": event.key,
+        "signal_key": event.key,
         "label": event.label,
+        "signal_label": event.label,
         "name": event.name,
+        "signal_name": event.name,
         "date": event.date,
         "reason": event.reason or event.value or "",
         "category": event.category,
     }
+    summary.update(c_signal_v2_fields(event.key))
+    return summary
 
 
 def _timeframe_tone(frame, summary):

@@ -322,6 +322,17 @@ function renderStockTagProfile(profile) {
     });
 }
 
+function timeframeCardDetailText(item) {
+    item = item || {};
+    if (item.event && typeof scanDisplaySignalText === 'function') {
+        var signalText = scanDisplaySignalText(item.event);
+        if (signalText && signalText !== '-') {
+            return signalText + (item.event.reason ? ' · ' + item.event.reason : '');
+        }
+    }
+    return item.detail || '等待更多确认。';
+}
+
 function renderMultiTimeframeBoard(timeframes) {
     var note = document.getElementById('timeframe-note');
     var grid = document.getElementById('timeframe-grid');
@@ -382,7 +393,7 @@ function renderMultiTimeframeBoard(timeframes) {
 
         var detail = document.createElement('p');
         detail.className = 'timeframe-card-detail';
-        detail.textContent = item.detail || '等待更多确认。';
+        detail.textContent = timeframeCardDetailText(item);
         card.appendChild(detail);
 
         if (item.scores) {
@@ -437,6 +448,42 @@ function renderAnalysisDecisionTags(tags) {
         tag.className = 'analysis-decision-tag';
         tag.textContent = text;
         container.appendChild(tag);
+    });
+}
+
+function renderAnalysisStrategyDelta(source) {
+    var panel = document.getElementById('analysis-v2-delta-panel');
+    var list = document.getElementById('analysis-v2-delta-list');
+    if (!panel || !list) return;
+
+    list.innerHTML = '';
+    if (!source) {
+        var empty = document.createElement('div');
+        empty.className = 'analysis-v2-delta-empty';
+        empty.textContent = typeof scanStrategyScopeText === 'function'
+            ? scanStrategyScopeText()
+            : '等待信号后展示策略视角差异';
+        list.appendChild(empty);
+        return;
+    }
+
+    var items = typeof scanStrategyDeltaItems === 'function'
+        ? scanStrategyDeltaItems(source)
+        : [
+            { label: '显示口径', value: '当前信号显示' },
+            { label: '指标口径', value: '沿用当前策略指标与评分' }
+        ];
+
+    items.forEach(function(item) {
+        var row = document.createElement('div');
+        row.className = 'analysis-v2-delta-item';
+        var label = document.createElement('span');
+        label.textContent = item.label || '-';
+        var value = document.createElement('strong');
+        value.textContent = item.value || '-';
+        row.appendChild(label);
+        row.appendChild(value);
+        list.appendChild(row);
     });
 }
 
@@ -666,6 +713,7 @@ function renderAnalysisDecision(visiblePoints, allPoints) {
     verdict.className = 'analysis-decision-verdict analysis-decision-verdict--' + tone;
     panel.className = 'analysis-decision-panel analysis-decision-panel--' + tone;
     renderAnalysisDecisionTags(tags);
+    renderAnalysisStrategyDelta(focus || latest);
 }
 
 function renderSignalBoard(allPoints, visiblePoints) {

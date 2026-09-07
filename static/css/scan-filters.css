@@ -12,7 +12,7 @@
 
 .scan-filter-row {
     display: grid;
-    grid-template-columns: minmax(260px, 1fr) minmax(280px, 0.9fr) auto;
+    grid-template-columns: minmax(240px, 1fr) minmax(260px, 0.9fr) auto minmax(190px, 0.55fr);
     gap: 8px;
     align-items: end;
 }
@@ -143,6 +143,26 @@
 .scan-strategy-toggle button:focus-visible {
     outline: 2px solid rgba(0, 137, 123, 0.25);
     outline-offset: 1px;
+}
+
+.strategy-scope-note {
+    min-height: 34px;
+    max-width: 232px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 10px;
+    border: 1px solid rgba(41, 84, 73, 0.13);
+    border-radius: 8px;
+    background: #f8faf4;
+    color: #52645b;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1.25;
+}
+
+.strategy-scope-note--scan {
+    min-height: 38px;
+    max-width: none;
 }
 
 .scan-reset-btn {
@@ -319,6 +339,11 @@
 
     .scan-strategy-toggle {
         width: 100%;
+    }
+
+    .strategy-scope-note {
+        width: 100%;
+        max-width: none;
     }
 
     .scan-candidate-context {

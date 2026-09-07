@@ -612,6 +612,51 @@ body[data-desk="scan"] h1 {
     padding: 0 2px;
 }
 
+.analysis-v2-delta-panel {
+    border-color: rgba(0, 137, 123, 0.14);
+    background: #f8faf4;
+}
+
+.analysis-v2-delta-list {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.analysis-v2-delta-item {
+    display: grid;
+    grid-template-columns: 74px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 9px 10px;
+    border-top: 1px solid rgba(32, 36, 33, 0.06);
+}
+
+.analysis-v2-delta-item:first-child {
+    border-top: 0;
+}
+
+.analysis-v2-delta-item span {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1.35;
+}
+
+.analysis-v2-delta-item strong,
+.analysis-v2-delta-empty {
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1.45;
+}
+
+.analysis-v2-delta-empty {
+    padding: 10px;
+    color: var(--muted);
+}
+
 .tag-profile-panel {
     gap: 10px;
 }
@@ -1473,6 +1518,11 @@ body[data-desk="scan"] h1 {
 
     .analysis-summary-grid {
         grid-template-columns: 1fr;
+    }
+
+    .analysis-v2-delta-item {
+        grid-template-columns: 1fr;
+        gap: 3px;
     }
 
     .analysis-decision-actions {

@@ -375,3 +375,21 @@
 - `node --check static/js/scanStrategyCompare.js static/js/chartMarkers.js`：通过。
 - `venv/bin/python -m unittest discover -s tests`：140 tests OK。
 - `git diff --check`：通过。
+
+## Codex 执行记录（2026-09-07 11:29 CST）
+
+### V2语义层边界与单股差异展示已补清楚
+
+- 问题原因：当前 V2 是 Phase 1 语义兼容层，底层指标、建仓/确认/风险评分、扫描排序基础仍沿用旧 C 策略，所以“指标显示”本来就会和旧版一致。
+- `templates/index.html`、`static/css/scan-filters.css`：在候选池和单股确认页的策略切换旁新增口径提示：`V2语义层对比 · 指标/评分沿用当前策略`。
+- `static/js/scanStrategyCompare.js`、`static/js/signalPanel.js`：单股确认台新增 `V2差异诊断`，逐项展示旧信号到 V2 信号的映射、V2定位、执行含义、是否要求交易计划/止损价，以及指标口径边界。
+- `stock_analyzer/multi_timeframe.py`、`static/js/signalPanel.js`：多周期辅助确认的事件 payload 并行输出 V2 字段，卡片详情随 `旧C / V2` 视角切换显示 `C底/C止` 或 `C研/C风`。
+- `docs/c-signal-v2-design.md`：补充 Phase 1 说明，明确真正让指标和评分变化需要进入 Phase 2 独立指标层。
+- `tests/test_project_smoke.py`：新增多周期事件 V2 字段契约测试。
+
+### 验证
+
+- 浏览器实测 `http://127.0.0.1:5009/` 单股确认页：V2 下差异诊断显示 `C底 综合底背离 -> C研 底部研究`，并明确 `不生成入场计划 / 不要求入场止损价`；多周期卡片显示 `C研 底部研究`、`C风 止损风控`。
+- 浏览器实测切回 `旧C`：多周期卡片恢复 `C底 综合底背离`、`C止 综合止损`，差异诊断恢复旧字段说明。
+- `node --check static/js/scanStrategyCompare.js static/js/signalPanel.js static/js/scanView.js`：通过。
+- `venv/bin/python -m unittest discover -s tests`：141 tests OK。

@@ -97,6 +97,7 @@
                             <button type="button" data-scan-strategy-view="legacy" aria-pressed="false" onclick="setScanStrategyView('legacy')">旧C</button>
                             <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
                         </div>
+                        <div class="strategy-scope-note" data-scan-strategy-scope>V2语义层对比 · 指标/评分沿用当前策略</div>
                         <div class="chart-state" id="chart-state">等待数据</div>
                     </div>
                 </div>
@@ -126,6 +127,10 @@
                             <div class="analysis-decision-tags" id="analysis-decision-tags" aria-label="单股上下文标签"></div>
                             <div class="analysis-decision-actions" id="analysis-decision-actions" aria-label="单股路径动作"></div>
                         </section>
+                        <div class="analysis-support-panel analysis-v2-delta-panel" id="analysis-v2-delta-panel" aria-label="V2差异诊断">
+                            <div class="analysis-support-head">V2差异诊断</div>
+                            <div class="analysis-v2-delta-list" id="analysis-v2-delta-list"></div>
+                        </div>
                         <div class="analysis-support-panel">
                             <div class="analysis-support-head">确认摘要</div>
                             <div class="analysis-summary-grid" aria-label="当前确认摘要">
@@ -352,6 +357,7 @@
                                 <button type="button" data-scan-strategy-view="legacy" aria-pressed="false" onclick="setScanStrategyView('legacy')">旧C</button>
                                 <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
                             </div>
+                            <div class="strategy-scope-note strategy-scope-note--scan" data-scan-strategy-scope>V2语义层对比 · 指标/评分沿用当前策略</div>
                         </div>
                         <div class="scan-candidate-context" id="scan-candidate-context" aria-label="当前名单上下文">
                             <div class="scan-candidate-context__copy">

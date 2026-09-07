@@ -262,10 +262,12 @@ function renderScanCandidateContext() {
 
     label.textContent = strategyView === 'v2' ? 'V2语义视角' : '旧C字段视角';
     title.textContent = (hasManualRange ? '局部筛选' : ('全池' + queueLabel))
-        + ' · ' + (strategyView === 'v2' ? '按观察/候选/可交易/风控对比' : '按旧信号名称和旧评分对比');
+        + ' · ' + (strategyView === 'v2' ? '按观察/候选/可交易/风控重读' : '按旧信号名称和旧评分对比');
     detail.textContent = manualView.active
         ? '手动条件生效中，系统排序仍保留。'
-        : recommendation.title + ' · ' + recommendation.detail;
+        : recommendation.title + ' · ' + recommendation.detail + ' · ' + (typeof scanStrategyScopeText === 'function'
+            ? scanStrategyScopeText()
+            : '指标/评分沿用当前策略');
 
     node.className = 'scan-candidate-context scan-candidate-context--open';
     actions.innerHTML = '';
