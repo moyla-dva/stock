@@ -258,6 +258,7 @@
 ### 验证
 
 - `venv/bin/python -m unittest discover -s tests`：136 tests OK。
+
 - `node --check static/js/signalPanel.js && node --check static/js/scanSelectionDetail.js`：通过。
 - `venv/bin/python -m compileall stock_analyzer/trade_plan.py`：通过。
 - `git diff --check`：通过。
@@ -393,3 +394,57 @@
 - 浏览器实测切回 `旧C`：多周期卡片恢复 `C底 综合底背离`、`C止 综合止损`，差异诊断恢复旧字段说明。
 - `node --check static/js/scanStrategyCompare.js static/js/signalPanel.js static/js/scanView.js`：通过。
 - `venv/bin/python -m unittest discover -s tests`：141 tests OK。
+
+## Antigravity 执行记录（2026-09-07 15:14 CST）
+
+### 今日增量数据扫描与数据源强化落位
+
+- **数据源强化 (`stock_analyzer/providers/stock_history.py`)**：
+  - 攻克腾讯盘后静态缓存延迟问题：在 `_fetch_tx_history_direct` 中，当请求包含当前年份时，结束日期参数动态留空（`""`），使腾讯 API 实时返回收盘生成的当日完整日线 Bar（避免 Akshare 硬编码未来年份请求导致的 2026-09-04 静态滞后）。
+  - 在 `StockHistoryProvider.fetch_history` 中增加检查：当 AkShare 返回的最新日期落后于目标收盘日时，自动无缝触发腾讯直连抓取，确保收盘后能获取到当日增量。
+- **质量验证**：
+  - `venv/bin/python -m unittest discover -s tests`：144 tests 全部通过 (OK)。
+  - 抽样验证 `600063`、`000001`、`600519`、`300750`，均成功读取并计算出 `2026-09-07` 的收盘 K 线及量化衍生指标。
+- **全市场增量批扫已 100% 完成**：
+  - 全市场 5,525 支股票全部完成增量扫描更新，生成 2026-09-07 策略快照 5,502 份，过期/缺失快照清零。
+  - 今日最新候选池产出：**参与候选 119 支、风险验证 221 支、修复观察 273 支**。
+  - 工作区内存缓存已刷新，Web 工作台已全面展示今日（2026-09-07）收盘研判结果。
+
+## Codex 执行记录（2026-09-07 16:15 CST）
+
+### C_SIGNAL_V2_PHASE_2_1 已完成
+
+- `stock_analyzer/c_signal_v2.py`：新增 V2 状态模型，按事实层 → 状态 → 权限 → 行动语义输出 `state`、`permission`、`signal`、`requires_trade_plan`、`requires_stop_loss` 等字段。
+- `/api/analyze`：单股确认页新增 `c_signal_v2_state`，用于解释“历史事件”和“当前处理状态”的差异。
+- 候选扫描与缓存：新扫描结果写入 `v2_state_model`；旧快照读取时自动回填轻量状态模型。
+- 前端候选池/单股页：V2 视角优先读取状态模型，旧 C 字段仅作为迁移来源和 fallback；入场类才显示需要交易计划/入场止损，观察/风控类不再要求止损价。
+- 修正旧缓存回填边界：`bottom_div` 等研究信号即使历史风险分较高，也不会被单凭分数改写为 `C风/risk_only`；只有明确风控事件或风险池进入风控状态。
+
+### 验证
+
+- `venv/bin/python -m unittest discover -s tests`：144 tests OK。
+- `node --check static/js/app.js`、`static/js/scanStrategyCompare.js`、`static/js/signalPanel.js`：通过。
+- `venv/bin/python -m compileall stock_analyzer/c_signal_v2.py stock_analyzer/scanner.py stock_analyzer/scan_snapshot.py stock_analyzer/stock_service.py stock_analyzer/scan_explainer.py`：通过。
+- `git diff --check`：通过。
+- API 抽查：单股 `600063` 当前状态为 `risk_control / risk_only / C风 趋势离场`；候选池回填结果为 `bottom_div = C研/只观察`、`opportunity = C突/允许突破计划`、`risk = C风/只处理风险`。
+- 页面抽查：候选页显示 `V2状态模型对比`，候选卡片已区分 `C突/C回/C修`；单股确认页 V2 差异诊断显示 `C底 综合底背离 -> C风 趋势离场`，并标注“不生成入场计划 / 不要求入场止损价”。
+
+## Codex 执行记录（2026-09-07 16:30 CST）
+
+### C_SIGNAL_V2_PHASE_2_2 已完成
+
+- `stock_analyzer/c_signal_v2.py`：新增 V2 候选优先级模型，将 `trade_ready`、`repair_watch`、`research_watch`、`structure_watch`、`risk_control`、`blocked` 从状态语义转成排序语义。
+- 候选工作台：系统排序不再只看旧 `rank_score/final_score`，而是先看 V2 状态优先级，再结合综合分、板块/概念共振、确认/建仓/风险分与回放胜率。
+- 前端候选池：`V2` 视角读取后端 `v2_priority_*` 字段，`旧C` 视角继续保留原有队列判断，临时对比按钮可以直观看到两套策略差异。
+- 快照兼容：旧扫描快照读取时自动回填 `v2_state_model` 和 `v2_priority_*`，不用等全市场重扫才能验证新策略口径。
+- 单测适配：补齐 Antigravity 已落位的腾讯直连兜底 mock，避免数据源单测触发真实网络请求。
+- 文档：`docs/c-signal-v2-design.md` 追加 Phase 2-2 落地状态，明确这一步完成的是候选优先级接管，尚未重写底层触发指标。
+
+### 验证
+
+- `venv/bin/python -m unittest discover -s tests`：145 tests OK。
+- `node --check static/js/app.js static/js/scanFilters.js static/js/scanStrategyCompare.js`：通过。
+- `venv/bin/python -m compileall stock_analyzer/c_signal_v2.py stock_analyzer/scanner.py stock_analyzer/scan_snapshot.py stock_analyzer/scan_workspace_response.py stock_analyzer/scan_explainer.py`：通过。
+- `git diff --check`：通过。
+- API 抽查：参与候选前排为 `trade_ready`，修复观察前排为 `repair_watch`，风险验证前排为 `risk_control`。
+- 页面抽查：`http://127.0.0.1:5009/` 已展示 2026-09-07 最新快照，V2 候选摘要显示 `可执行计划 80 · 修复观察 39`，首卡为 `可执行计划 / C突 / 突破入场`。

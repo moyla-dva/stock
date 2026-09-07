@@ -1,6 +1,7 @@
 """Provider adapters for daily A-share price history."""
 
 import json
+from datetime import datetime
 
 import akshare as ak
 import pandas as pd
@@ -37,10 +38,12 @@ def _fetch_tx_history_direct(tx_code, start_text, end_text, adjust="", logger=No
     rows = []
     timeout = configure_default_socket_timeout()
     url = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
+    current_year = datetime.now().year
     for year in range(range_start, range_end):
+        end_date_str = "" if year >= current_year else f"{year + 1}-12-31"
         params = {
             "_var": f"kline_day{adjust}{year}",
-            "param": f"{tx_code},day,{year}-01-01,{year + 1}-12-31,640,{adjust}",
+            "param": f"{tx_code},day,{year}-01-01,{end_date_str},640,{adjust}",
             "r": "0.8205512681390605",
         }
         try:
@@ -122,12 +125,22 @@ class StockHistoryProvider:
                 logger.error(f"ak.stock_zh_a_hist_tx 失败: {e}")
             df = None
 
-        if (df is None or df.empty) and tx_code and tx_code.startswith("bj"):
+        latest_date_str = ""
+        if df is not None and not df.empty:
+            for col in ("date", "日期"):
+                if col in df.columns:
+                    s = pd.to_datetime(df[col], errors="coerce").dropna()
+                    if not s.empty:
+                        latest_date_str = s.max().strftime("%Y%m%d")
+                    break
+
+        # 当 akshare 获取为空、或返回数据落后于目标收盘日（例如盘后静态缓存未更新）时，调用腾讯直连
+        if (df is None or df.empty) or (end_text and latest_date_str and latest_date_str < str(end_text)):
             if verbose:
-                print(f"[DEBUG] 北交所兜底: 直接从腾讯源获取数据: {tx_code}", flush=True)
+                print(f"[DEBUG] 触发腾讯直连获取最新数据: {tx_code}", flush=True)
             if logger:
-                logger.info(f"北交所兜底: 直接从腾讯源获取数据: {tx_code}")
-            df = _fetch_tx_history_direct(
+                logger.info(f"触发腾讯直连获取最新数据: {tx_code}")
+            direct_df = _fetch_tx_history_direct(
                 tx_code,
                 start_text,
                 end_text,
@@ -135,6 +148,8 @@ class StockHistoryProvider:
                 logger=logger,
                 verbose=verbose,
             )
+            if direct_df is not None and not direct_df.empty:
+                df = direct_df
 
         if (df is None or df.empty) and adjust in ("", "none", None):
             try:

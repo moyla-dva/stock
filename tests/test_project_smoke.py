@@ -221,14 +221,16 @@ class ProjectSmokeTest(unittest.TestCase):
         )
 
     @patch("stock_analyzer.data_fetcher.date_range_for_recent_days")
+    @patch("stock_analyzer.providers.stock_history._fetch_tx_history_direct")
     @patch("stock_analyzer.providers.stock_history.fetch_tdx_daily_bars")
     @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
-    def test_fetch_stock_history_falls_back_to_secondary_provider(self, mock_tx, mock_tdx, mock_dates):
+    def test_fetch_stock_history_falls_back_to_secondary_provider(self, mock_tx, mock_tdx, mock_direct_tx, mock_dates):
         mock_dates.return_value = (
             pd.Timestamp("2026-01-01"),
             pd.Timestamp("2026-01-31"),
         )
         mock_tx.return_value = pd.DataFrame()
+        mock_direct_tx.return_value = pd.DataFrame()
         expected = pd.DataFrame({"date": ["2026-01-02"]})
         mock_tdx.return_value = expected
 
@@ -245,11 +247,13 @@ class ProjectSmokeTest(unittest.TestCase):
         )
 
     @patch("stock_analyzer.data_fetcher.beijing_now")
+    @patch("stock_analyzer.providers.stock_history._fetch_tx_history_direct")
     @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
-    def test_fetch_stock_history_accepts_fixed_start_date(self, mock_tx, mock_now):
+    def test_fetch_stock_history_accepts_fixed_start_date(self, mock_tx, mock_direct_tx, mock_now):
         mock_now.return_value = pd.Timestamp("2026-05-10")
         expected = pd.DataFrame({"日期": ["2025-04-29"]})
         mock_tx.return_value = expected
+        mock_direct_tx.return_value = pd.DataFrame()
 
         result = fetch_stock_history("600063", start_date="2025-04-29")
 
@@ -304,11 +308,13 @@ class ProjectSmokeTest(unittest.TestCase):
         )
 
     @patch("stock_analyzer.data_fetcher.beijing_now")
+    @patch("stock_analyzer.providers.stock_history._fetch_tx_history_direct")
     @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
-    def test_fetch_stock_history_uses_local_cache_when_enabled(self, mock_tx, mock_now):
+    def test_fetch_stock_history_uses_local_cache_when_enabled(self, mock_tx, mock_direct_tx, mock_now):
         mock_now.return_value = pd.Timestamp("2026-05-10")
         expected = pd.DataFrame({"日期": ["2025-04-29"], "收盘": [10.0]})
         mock_tx.return_value = expected
+        mock_direct_tx.return_value = pd.DataFrame()
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)):
@@ -320,20 +326,23 @@ class ProjectSmokeTest(unittest.TestCase):
         pd.testing.assert_frame_equal(second, expected)
 
     @patch("stock_analyzer.data_fetcher.beijing_now")
+    @patch("stock_analyzer.providers.stock_history._fetch_tx_history_direct")
     @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
-    def test_fetch_stock_history_refreshes_stale_current_day_cache(self, mock_tx, mock_now):
+    def test_fetch_stock_history_refreshes_stale_current_day_cache(self, mock_tx, mock_direct_tx, mock_now):
         mock_now.return_value = pd.Timestamp("2026-05-11 16:00:00")
         stale = pd.DataFrame({"date": ["2026-05-08"], "close": [6.71]})
         fresh = pd.DataFrame({"date": ["2026-05-11"], "close": [6.76]})
-        mock_tx.side_effect = [stale, fresh]
+        mock_tx.return_value = stale
+        mock_direct_tx.return_value = fresh
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)):
                 first = fetch_stock_history("600063", start_date="2025-04-29", use_cache=True)
                 second = fetch_stock_history("600063", start_date="2025-04-29", use_cache=True)
 
-        self.assertEqual(mock_tx.call_count, 2)
-        pd.testing.assert_frame_equal(first, stale)
+        self.assertEqual(mock_tx.call_count, 1)
+        self.assertEqual(mock_direct_tx.call_count, 1)
+        pd.testing.assert_frame_equal(first, fresh)
         pd.testing.assert_frame_equal(second, fresh)
 
     @patch("stock_analyzer.intraday_fetcher.beijing_now")
@@ -2041,6 +2050,9 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIn("定位", badge_labels)
         self.assertEqual(result["v2_state_model"]["state"], "breakout_triggered")
         self.assertEqual(result["v2_state_model"]["permission"], "breakout_allowed")
+        self.assertEqual(result["v2_priority_group"], "trade_ready")
+        self.assertEqual(result["v2_priority_label"], "可执行计划")
+        self.assertGreater(result["v2_priority_score"], result["rank_score"])
         self.assertEqual(result["view_model"]["signal_text"], "C突 突破入场")
         self.assertEqual(result["view_model"]["decision_label"], "允许突破计划")
 

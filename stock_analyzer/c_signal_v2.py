@@ -515,3 +515,143 @@ def build_c_signal_v2_state_from_result(result):
         },
         "event_mapping": fields,
     }
+
+
+_V2_PRIORITY_GROUPS = {
+    "trade_ready": {
+        "label": "可执行计划",
+        "detail": "V2 已进入入场许可，仍需交易计划校验止损、仓位和收益风险比。",
+        "tone": "positive",
+        "queue_priority": 5,
+    },
+    "repair_watch": {
+        "label": "修复观察",
+        "detail": "结构在修复，但尚未进入可执行入场许可。",
+        "tone": "warning",
+        "queue_priority": 4,
+    },
+    "research_watch": {
+        "label": "研究观察",
+        "detail": "只进入研究或观察，不生成交易计划。",
+        "tone": "muted",
+        "queue_priority": 3,
+    },
+    "structure_watch": {
+        "label": "结构备选",
+        "detail": "存在结构线索，但确认不足或仍需等待触发。",
+        "tone": "muted",
+        "queue_priority": 2,
+    },
+    "risk_control": {
+        "label": "风险处理",
+        "detail": "优先处理止损、趋势破坏或收益保护，不新增入场暴露。",
+        "tone": "danger",
+        "queue_priority": 1,
+    },
+    "blocked": {
+        "label": "禁止",
+        "detail": "当前没有足够的 V2 结构或许可。",
+        "tone": "muted",
+        "queue_priority": 0,
+    },
+}
+
+
+def _v2_priority_group(scan_type, state_model):
+    permission = state_model.get("permission") or ""
+    state = state_model.get("state") or ""
+    role = state_model.get("role") or ""
+
+    if permission == "risk_only" or role == "risk":
+        return "risk_control"
+    if permission in {"breakout_allowed", "pullback_allowed"}:
+        return "trade_ready"
+    if state in {"repair_setup", "repair_watch"}:
+        return "repair_watch"
+    if state in {"research_bottom", "researchable"}:
+        return "research_watch"
+    if permission == "watch_only":
+        return "structure_watch"
+    return "blocked"
+
+
+def _v2_priority_base(scan_type, group_key, permission):
+    if scan_type == "risk":
+        return {
+            "risk_control": 500,
+            "repair_watch": 120,
+            "research_watch": 90,
+            "structure_watch": 80,
+            "trade_ready": 60,
+            "blocked": 0,
+        }.get(group_key, 0)
+    if scan_type == "bottom_div":
+        return {
+            "trade_ready": 420,
+            "repair_watch": 390,
+            "research_watch": 330,
+            "structure_watch": 260,
+            "risk_control": 120,
+            "blocked": 0,
+        }.get(group_key, 0)
+    return {
+        "trade_ready": 520 if permission == "breakout_allowed" else 500,
+        "repair_watch": 360,
+        "research_watch": 210,
+        "structure_watch": 180,
+        "risk_control": 60,
+        "blocked": 0,
+    }.get(group_key, 0)
+
+
+def build_c_signal_v2_priority(result):
+    """Return the V2 system-priority contract for a scan result."""
+    result = result or {}
+    state_model = result.get("v2_state_model") or result.get("c_signal_v2_state")
+    if not state_model and result.get("signal_key"):
+        state_model = build_c_signal_v2_state_from_result(result)
+    state_model = state_model or {}
+
+    scan_type = result.get("scan_type") or result.get("_scan_type") or "opportunity"
+    group_key = _v2_priority_group(scan_type, state_model)
+    group = _V2_PRIORITY_GROUPS[group_key]
+    permission = state_model.get("permission") or ""
+    final_score = _as_float(result.get("final_score"), _as_float(result.get("rank_score"), 0.0)) or 0.0
+    confirm_score = _as_float(result.get("confirm_score"), 0.0) or 0.0
+    setup_score = _as_float(result.get("setup_score"), 0.0) or 0.0
+    risk_score = _as_float(result.get("risk_score"), 0.0) or 0.0
+    sector_score = _as_float(result.get("sector_score"), 0.0) or 0.0
+    concept_score = _as_float(result.get("concept_score"), 0.0) or 0.0
+    confidence = result.get("score_confidence") if isinstance(result.get("score_confidence"), dict) else {}
+    replay_avg = _as_float(confidence.get("replay_5d_avg_ret"), 0.0) or 0.0
+    replay_sample_count = _as_int(confidence.get("replay_5d_sample_count"), 0)
+
+    score = _v2_priority_base(scan_type, group_key, permission)
+    score += final_score * 0.72
+    score += max(sector_score, concept_score) * 0.18
+    score += min(sector_score, concept_score) * 0.06
+    score += confirm_score * 7
+    score += setup_score * 3
+    if scan_type == "risk":
+        score += risk_score * 18
+    else:
+        score -= risk_score * 12
+    if replay_sample_count:
+        score += max(-8.0, min(8.0, replay_avg * 1.5))
+
+    return {
+        "v2_priority_group": group_key,
+        "v2_priority_label": group["label"],
+        "v2_priority_detail": group["detail"],
+        "v2_priority_tone": group["tone"],
+        "v2_queue_priority": group["queue_priority"],
+        "v2_priority_score": round(score, 1),
+        "v2_priority_source": "c_signal_v2_phase_2_2",
+    }
+
+
+def apply_c_signal_v2_priority(pools):
+    """Attach V2 priority fields to all scan workspace pool results."""
+    for pool in (pools or {}).values():
+        for result in pool.get("results", []):
+            result.update(build_c_signal_v2_priority(result))

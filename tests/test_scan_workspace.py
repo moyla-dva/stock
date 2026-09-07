@@ -11,6 +11,7 @@ from stock_analyzer.scan_planner import plan_scan_codes
 from stock_analyzer.scan_snapshot import build_scan_snapshot, write_scan_snapshot
 from stock_analyzer.scan_workspace import collect_scan_workspace
 from stock_analyzer.versioning import (
+    DATA_ADJUST,
     SCAN_STRATEGY_VERSION,
     SCAN_SNAPSHOT_SCHEMA_VERSION,
 )
@@ -263,6 +264,87 @@ class ScanWorkspaceTest(unittest.TestCase):
         self.assertEqual(workspace["market_structure_meta"]["mode"], "candidate_validated")
         self.assertEqual(workspace["sector_overview"][0]["structure_mode_label"], "候选验证")
         self.assertIn("候选验证", workspace["sector_overview"][0]["structure_source_label"])
+
+    def test_collect_scan_workspace_sorts_system_results_by_v2_priority(self):
+        breakout_snapshot = {
+            "version": SCAN_SNAPSHOT_SCHEMA_VERSION,
+            "strategy_version": SCAN_STRATEGY_VERSION,
+            "data_adjust": DATA_ADJUST,
+            "code": "600063",
+            "name": "突破股票",
+            "sector": "半导体",
+            "concepts": [],
+            "snapshot_day": "20260510",
+            "data_date": "2026-05-10",
+            "computed_scan_types": ["opportunity"],
+            "results": {
+                "opportunity": {
+                    "code": "600063",
+                    "name": "突破股票",
+                    "scan_type": "opportunity",
+                    "date": "2026-05-10",
+                    "event_date": "2026-05-10",
+                    "signal_key": "composite_breakout",
+                    "signal": "C突",
+                    "signal_label": "C突",
+                    "signal_name": "综合突破",
+                    "reason": "前高突破",
+                    "setup_score": 1,
+                    "confirm_score": 4,
+                    "risk_score": 0,
+                    "rank_score": 45.0,
+                },
+            },
+        }
+        repair_snapshot = {
+            "version": SCAN_SNAPSHOT_SCHEMA_VERSION,
+            "strategy_version": SCAN_STRATEGY_VERSION,
+            "data_adjust": DATA_ADJUST,
+            "code": "000001",
+            "name": "修复股票",
+            "sector": "半导体",
+            "concepts": [],
+            "snapshot_day": "20260510",
+            "data_date": "2026-05-10",
+            "computed_scan_types": ["opportunity"],
+            "results": {
+                "opportunity": {
+                    "code": "000001",
+                    "name": "修复股票",
+                    "scan_type": "opportunity",
+                    "date": "2026-05-10",
+                    "event_date": "2026-05-10",
+                    "signal_key": "composite_confirm",
+                    "signal": "C观",
+                    "signal_label": "C观",
+                    "signal_name": "修复确认",
+                    "reason": "底背离修复",
+                    "setup_score": 2,
+                    "confirm_score": 3,
+                    "risk_score": 0,
+                    "rank_score": 55.0,
+                },
+            },
+        }
+
+        with TemporaryDirectory() as tmp_dir:
+            with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
+                with patch("stock_analyzer.catalog.CATALOG_CACHE_DIR", Path(tmp_dir) / "catalog"):
+                    with patch("stock_analyzer.scan_snapshot.beijing_now", return_value=pd.Timestamp("2026-05-11")):
+                        write_scan_snapshot(breakout_snapshot, start_date="2025-04-29", snapshot_day="2026-05-10")
+                        write_scan_snapshot(repair_snapshot, start_date="2025-04-29", snapshot_day="2026-05-10")
+                        workspace = collect_scan_workspace(
+                            start_date="2025-04-29",
+                            include_replay=False,
+                            include_market_universe=False,
+                            include_market_breadth=False,
+                        )
+
+        results = workspace["pools"]["opportunity"]["results"]
+        self.assertEqual([item["code"] for item in results], ["600063", "000001"])
+        self.assertEqual(results[0]["v2_priority_group"], "trade_ready")
+        self.assertEqual(results[1]["v2_priority_group"], "repair_watch")
+        self.assertGreater(results[0]["v2_priority_score"], results[1]["v2_priority_score"])
 
     def test_collect_scan_workspace_caps_loaded_results_and_reports_total(self):
         frame = self._minimal_signal_frame(rows=12)

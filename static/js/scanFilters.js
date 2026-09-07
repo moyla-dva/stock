@@ -6,6 +6,14 @@ function scanCompositeScore(item) {
     return scanNumericValue(item, 'final_score', scanNumericValue(item, 'rank_score', 0));
 }
 
+function scanV2PriorityScore(item) {
+    return scanNumericValue(item, 'v2_priority_score', scanCompositeScore(item));
+}
+
+function scanUsesV2Priority() {
+    return typeof isScanV2StrategyView === 'function' && isScanV2StrategyView();
+}
+
 var SCAN_SORT_MODES = ['system', 'sector', 'concept', 'event', 'win', 'avg', 'risk'];
 
 function normalizeScanSortMode(value) {
@@ -102,6 +110,15 @@ function scanCandidateRole(item) {
 }
 
 function scanCandidateQueue(item) {
+    if (scanUsesV2Priority() && item && item.v2_priority_group) {
+        return {
+            key: item.v2_priority_group,
+            label: item.v2_priority_label || 'V2状态',
+            detail: item.v2_priority_detail || '按 V2 状态模型整理名单。',
+            tone: item.v2_priority_tone || 'muted',
+            priority: scanNumericValue(item, 'v2_queue_priority', 0)
+        };
+    }
     var role = scanCandidateRole(item);
     var kind = role && role.kind;
     if (kind === 'opportunity_candidate') {
@@ -154,20 +171,20 @@ function scanSystemRecommendation() {
     if (scanType === 'risk') {
         return {
             title: '先处理风险验证',
-            detail: '按风险分、板块风险和事件新近度排序。',
+            detail: '按 V2 风控状态、风险分、板块风险和事件新近度排序。',
             mode: 'risk'
         };
     }
     if (scanType === 'bottom_div') {
         return {
             title: '先看修复是否成形',
-            detail: '按确认分、低风险和共振强度排序。',
+            detail: '按 V2 修复/研究状态、确认分、低风险和共振强度排序。',
             mode: 'repair'
         };
     }
     return {
         title: '先看可参与候选',
-        detail: '按综合分、确认分、低风险和行业/概念共振排序。',
+        detail: '按 V2 许可状态、综合分、确认分、低风险和行业/概念共振排序。',
         mode: 'opportunity'
     };
 }
@@ -188,6 +205,9 @@ function renderScanRecommendation() {
 }
 
 function scanSystemRankScore(item) {
+    if (scanUsesV2Priority() && item && item.v2_priority_score != null) {
+        return scanV2PriorityScore(item);
+    }
     var scanType = scanPoolTypeFromItem(item);
     var roleScore = scanCandidateRole(item).score || 0;
     var composite = scanCompositeScore(item);
@@ -225,6 +245,7 @@ function compareScanResults(a, b) {
     if (sort === 'system') {
         return scanStrategyRank(b) - scanStrategyRank(a)
             || scanCandidateQueue(b).priority - scanCandidateQueue(a).priority
+            || (scanUsesV2Priority() ? scanV2PriorityScore(b) - scanV2PriorityScore(a) : 0)
             || scanSystemRankScore(b) - scanSystemRankScore(a)
             || String(scanEventDate(b)).localeCompare(String(scanEventDate(a)))
             || scanCompositeScore(b) - scanCompositeScore(a);

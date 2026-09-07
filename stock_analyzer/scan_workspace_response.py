@@ -1,5 +1,6 @@
 """Response shaping for the scan workspace API."""
 
+from stock_analyzer.c_signal_v2 import apply_c_signal_v2_priority
 from stock_analyzer.scan_snapshot import display_snapshot_day
 from stock_analyzer.scan_snapshot_meta import build_snapshot_meta
 from stock_analyzer.scan_strategy_health import build_strategy_health
@@ -7,11 +8,19 @@ from stock_analyzer.scan_workspace_history_compare import rank_value
 from stock_analyzer.versioning import build_strategy_meta
 
 
+def v2_priority_value(result):
+    try:
+        return float(result.get("v2_priority_score"))
+    except (TypeError, ValueError):
+        return rank_value(result)
+
+
 def sort_scan_results(results):
     return sorted(
         results,
         key=lambda item: (
             1 if item.get("strategy_status") == "current" else 0,
+            v2_priority_value(item),
             rank_value(item),
             str(item.get("event_date") or item.get("date") or ""),
             str(item.get("code") or ""),
@@ -22,6 +31,7 @@ def sort_scan_results(results):
 
 def trim_workspace_pools(pools, max_items):
     """Sort pools, preserve full counts, and cap the displayed result payload."""
+    apply_c_signal_v2_priority(pools)
     for pool in pools.values():
         results = sort_scan_results(pool["results"])
         pool["count"] = len(results)
