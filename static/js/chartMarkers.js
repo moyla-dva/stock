@@ -1,10 +1,15 @@
 function getModeMarkPoints(data) {
+    data = data || {};
+    if (typeof isScanV2StrategyView === 'function' && isScanV2StrategyView() && Array.isArray(data.mark_points_v2)) {
+        return data.mark_points_v2;
+    }
     return data.mark_points_composite || [];
 }
 
 function chartSymbolFor(category) {
     if (category === 'entry') return 'triangle';
     if (category === 'exit') return 'triangle';
+    if (category === 'candidate') return 'pin';
     if (category === 'risk') return 'diamond';
     if (category === 'top') return 'diamond';
     if (category === 'bottom') return 'circle';
@@ -14,6 +19,7 @@ function chartSymbolFor(category) {
 function chartSymbolSizeFor(category) {
     if (category === 'risk' || category === 'top') return 24;
     if (category === 'bottom') return 22;
+    if (category === 'candidate') return 24;
     if (category === 'observe') return 12;
     return 32;
 }
@@ -23,12 +29,14 @@ function compactChartSymbolSizeFor(category) {
     if (category === 'exit') return 18;
     if (category === 'risk' || category === 'top') return 16;
     if (category === 'bottom') return 13;
+    if (category === 'candidate') return 15;
     return 9;
 }
 
 function chartSymbolOffsetFor(category) {
     if (category === 'entry') return [0, 16];
     if (category === 'exit') return [0, -16];
+    if (category === 'candidate') return [0, 14];
     if (category === 'risk' || category === 'top') return [0, -13];
     if (category === 'bottom') return [0, 14];
     return [0, 8];
@@ -87,6 +95,7 @@ function pointDisplayPriority(point, indexes, totalDays) {
         risk: 82,
         top: 78,
         entry: 70,
+        candidate: 62,
         bottom: 54,
         observe: 35
     }[category] || 40;

@@ -2,10 +2,59 @@
 
 from dataclasses import dataclass
 
+from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
 from stock_analyzer.c_signal_v2 import c_signal_v2_mark_fields
 
 
 SIGNAL_DEFINITIONS = {
+    "v2_bottom_research": {
+        "label": "C研",
+        "name": "V2底部研究",
+        "detail": "底部观察事实",
+        "color": "#3b82f6",
+        "category": "bottom",
+        "order": 12,
+    },
+    "v2_structure_candidate": {
+        "label": "C候",
+        "name": "V2结构候选",
+        "detail": "分型/矩形结构",
+        "color": "#64748b",
+        "category": "candidate",
+        "order": 14,
+    },
+    "v2_attack_day": {
+        "label": "C爆",
+        "name": "V2攻击日",
+        "detail": "攻击日触发",
+        "color": "#0f9f6e",
+        "category": "entry",
+        "order": 16,
+    },
+    "v2_ignition": {
+        "label": "C爆",
+        "name": "V2起爆触发",
+        "detail": "起爆点触发",
+        "color": "#059669",
+        "category": "entry",
+        "order": 18,
+    },
+    "v2_bearish_new_low": {
+        "label": "C研",
+        "name": "V2阴包阳新低",
+        "detail": "极端观察",
+        "color": "#2563eb",
+        "category": "bottom",
+        "order": 22,
+    },
+    "v2_top_fractal_risk": {
+        "label": "C风",
+        "name": "V2顶分型风控",
+        "detail": "顶分型风险",
+        "color": "#b7791f",
+        "category": "risk",
+        "order": 42,
+    },
     "composite_pullback": {
         "label": "C回",
         "name": "综合回踩",
@@ -199,6 +248,53 @@ def _event(key, group, row, coord_price, reason="", value=""):
     )
 
 
+def _fact_event(key, group, date, coord_price, price, reason="", value=""):
+    return SignalEvent(
+        key=key,
+        group=group,
+        date=str(date),
+        coord_price=float(coord_price),
+        price=float(price),
+        reason=str(reason or ""),
+        value=str(value or reason or ""),
+    )
+
+
+def _row_by_date(df_display):
+    rows = {}
+    for _, row in df_display.iterrows():
+        rows[_date_for(row)] = row
+    return rows
+
+
+def _dedupe_append(events, seen, event):
+    key = (event.key, event.date)
+    if key in seen:
+        return
+    seen.add(key)
+    events.append(event)
+
+
+def _as_float(value, default=None):
+    try:
+        if value is None:
+            return default
+        number = float(value)
+        return number if number == number else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _low_coord(row):
+    low = _as_float(row.get("low"), _as_float(row.get("close"), 0.0))
+    return low * 0.98
+
+
+def _high_coord(row):
+    high = _as_float(row.get("high"), _as_float(row.get("close"), 0.0))
+    return high * 1.02
+
+
 def build_old_signal_events(df_display):
     events = []
     for idx, row in df_display.iterrows():
@@ -230,7 +326,120 @@ def build_old_signal_events(df_display):
                 reason="MACD 底背离观察",
                 value="底背离",
             ))
-    return events
+    return sorted(events, key=lambda event: (event.date, event.definition["order"]))
+
+
+def build_v2_signal_events(df_display):
+    """Build independent V2 chart events from the V2 fact layer.
+
+    These points are intentionally separate from legacy composite events. They
+    express observable V2 facts and permissions, not a replacement for the
+    existing scan trigger until later backtests approve that migration.
+    """
+    events = []
+    if df_display is None or df_display.empty or "date" not in df_display.columns:
+        return events
+
+    seen = set()
+    rows_by_date = _row_by_date(df_display)
+    previous_rectangle_available = False
+    last_burst_idx = -10
+
+    for idx in range(len(df_display)):
+        frame = df_display.iloc[:idx + 1]
+        latest = frame.iloc[-1]
+        facts = build_c_signal_v2_facts(frame)
+        setup = facts.get("setup") or {}
+        structure = facts.get("structure") or {}
+        trigger = facts.get("trigger") or {}
+        fractals = structure.get("fractals") if isinstance(structure.get("fractals"), dict) else {}
+        rectangle = structure.get("rectangle") if isinstance(structure.get("rectangle"), dict) else {}
+        ignition = trigger.get("ignition") if isinstance(trigger.get("ignition"), dict) else {}
+
+        if setup.get("bottom_divergence"):
+            _dedupe_append(events, seen, _event(
+                "v2_bottom_research",
+                "v2",
+                latest,
+                _low_coord(latest),
+                reason="底背离进入 V2 研究观察",
+                value="底部研究",
+            ))
+
+        if trigger.get("bearish_engulfing_new_low"):
+            _dedupe_append(events, seen, _event(
+                "v2_bearish_new_low",
+                "v2",
+                latest,
+                _low_coord(latest),
+                reason=trigger.get("summary") or "阴包阳创新低",
+                value="极端观察",
+            ))
+
+        latest_bottom = fractals.get("latest_bottom") if isinstance(fractals.get("latest_bottom"), dict) else None
+        if latest_bottom and fractals.get("double_bottom_higher_low"):
+            bottom_row = rows_by_date.get(latest_bottom.get("date"))
+            if bottom_row is not None:
+                _dedupe_append(events, seen, _fact_event(
+                    "v2_structure_candidate",
+                    "v2",
+                    latest_bottom.get("date"),
+                    latest_bottom.get("price"),
+                    bottom_row.get("close"),
+                    reason="双底分型低点抬高",
+                    value="结构候选",
+                ))
+
+        latest_top = fractals.get("latest_top") if isinstance(fractals.get("latest_top"), dict) else None
+        risk = facts.get("risk") if isinstance(facts.get("risk"), dict) else {}
+        if latest_top and (fractals.get("top_lower_high") or (risk.get("risk_heat_score") or 0) >= 2):
+            top_row = rows_by_date.get(latest_top.get("date"))
+            if top_row is not None:
+                _dedupe_append(events, seen, _fact_event(
+                    "v2_top_fractal_risk",
+                    "v2",
+                    latest_top.get("date"),
+                    latest_top.get("price"),
+                    top_row.get("close"),
+                    reason="顶分型确认",
+                    value="顶部风险",
+                ))
+
+        rectangle_available = bool(rectangle.get("available"))
+        if rectangle_available and not previous_rectangle_available:
+            _dedupe_append(events, seen, _event(
+                "v2_structure_candidate",
+                "v2",
+                latest,
+                _low_coord(latest),
+                reason=rectangle.get("summary") or "矩形边界可跟踪",
+                value="矩形候选",
+            ))
+        previous_rectangle_available = rectangle_available
+
+        can_emit_burst = idx - last_burst_idx > 3
+        if can_emit_burst and ignition.get("triggered") and trigger.get("attack_day"):
+            _dedupe_append(events, seen, _event(
+                "v2_ignition",
+                "v2",
+                latest,
+                latest.get("low"),
+                reason=trigger.get("summary") or "起爆点触发",
+                value=f"起爆 {ignition.get('trigger_price')}",
+            ))
+            last_burst_idx = idx
+        elif can_emit_burst and trigger.get("attack_day"):
+            _dedupe_append(events, seen, _event(
+                "v2_attack_day",
+                "v2",
+                latest,
+                latest.get("low"),
+                reason=trigger.get("summary") or "攻击日触发",
+                value="攻击日",
+            ))
+            last_burst_idx = idx
+
+    return sorted(events, key=lambda event: (event.date, event.definition["order"]))
 
 
 def build_new_signal_events(df_display):

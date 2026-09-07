@@ -1619,6 +1619,7 @@ class ProjectSmokeTest(unittest.TestCase):
             "mark_points_new",
             "mark_points_opt",
             "mark_points_composite",
+            "mark_points_v2",
             "stats_old",
             "stats_new",
             "stats_opt",
@@ -1639,6 +1640,7 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIn("confirm", payload["score_summary"])
         self.assertIn("risk", payload["score_summary"])
         self.assertEqual(payload["signal_definitions"]["composite_pullback"]["label"], "C回")
+        self.assertEqual(payload["signal_definitions"]["v2_structure_candidate"]["label"], "C候")
 
     def test_serializer_does_not_hide_old_pullback_when_base_b_lacks_divergence(self):
         frame = self._minimal_signal_frame()
@@ -1739,6 +1741,37 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(top["signalKey"], "composite_top_divergence")
         self.assertEqual(top["signalCategory"], "top")
         self.assertEqual(top["v2Signal"], "C风")
+
+    def test_serializer_outputs_independent_v2_marks(self):
+        rows = 14
+        frame = self._minimal_signal_frame(rows=rows)
+        frame["open"] = [10.0, 10.1, 10.2, 10.15, 9.8, 9.2, 9.4, 9.7, 10.0, 9.55, 9.9, 10.1, 10.45, 10.62]
+        frame["high"] = [10.1, 10.25, 10.4, 10.5, 10.3, 10.2, 10.3, 10.5, 10.6, 10.55, 10.55, 10.45, 10.6, 10.95]
+        frame["low"] = [9.8, 9.7, 9.6, 9.5, 9.3, 9.0, 9.2, 9.4, 9.5, 9.25, 9.45, 9.55, 9.6, 10.55]
+        frame["close"] = [10.0, 10.15, 10.25, 9.9, 9.5, 9.3, 9.6, 10.0, 10.35, 9.7, 10.2, 10.35, 10.45, 10.85]
+        frame["volume"] = [1000] * 13 + [1800]
+        frame["vol_ma20"] = [1000] * rows
+        frame["ma20"] = [9.7] * rows
+        frame["ma20_up"] = [True] * rows
+        frame["trend_ok"] = [True] * rows
+        frame["williams_r_cross_bull"] = [False] * 13 + [True]
+
+        payload = analysis_frame_to_chart_payload(frame)
+
+        v2_keys = [point["signalKey"] for point in payload["mark_points_v2"]]
+        composite_keys = [point["signalKey"] for point in payload["mark_points_composite"]]
+        v2_dates = [point["date"] for point in payload["mark_points_v2"]]
+        self.assertIn("v2_structure_candidate", v2_keys)
+        self.assertIn("v2_ignition", v2_keys)
+        self.assertNotIn("v2_ignition", composite_keys)
+        self.assertEqual(v2_dates, sorted(v2_dates))
+        ignition = next(point for point in payload["mark_points_v2"] if point["signalKey"] == "v2_ignition")
+        structure = next(point for point in payload["mark_points_v2"] if point["signalKey"] == "v2_structure_candidate")
+        self.assertEqual(ignition["v2Signal"], "C爆")
+        self.assertTrue(ignition["requiresTradePlan"])
+        self.assertEqual(structure["v2Signal"], "C候")
+        self.assertFalse(structure["requiresTradePlan"])
+        self.assertIn("v2", payload["event_stats"])
 
     def test_serializer_eventizes_legacy_opt_marks(self):
         frame = self._minimal_signal_frame()

@@ -201,7 +201,7 @@ function updateChartHeader(data, dates) {
 }
 
 function updateChartStats(data) {
-    var compositeCount = (data.mark_points_composite || []).length;
+    var compositeCount = getModeMarkPoints(data).length;
     setText('stat-composite', compositeCount);
 
     var stats = data.stats_composite;

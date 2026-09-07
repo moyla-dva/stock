@@ -6,6 +6,7 @@ from stock_analyzer.events import (
     build_new_signal_events,
     build_old_signal_events,
     build_opt_signal_events,
+    build_v2_signal_events,
     event_to_mark_point,
     signal_definitions_payload,
 )
@@ -77,6 +78,7 @@ def analysis_frame_to_chart_payload(df_display):
     new_events = build_new_signal_events(df_display)
     opt_events = build_opt_signal_events(df_display)
     composite_events = build_composite_signal_events(df_display)
+    v2_events = build_v2_signal_events(df_display)
 
     mark_points = [event_to_mark_point(event) for event in old_events]
     mark_points_new = [event_to_mark_point(event) for event in new_events]
@@ -85,6 +87,10 @@ def analysis_frame_to_chart_payload(df_display):
     mark_points_composite = [
         event_to_mark_point(event)
         for event in composite_events
+    ]
+    mark_points_v2 = [
+        event_to_mark_point(event)
+        for event in v2_events
     ]
 
     old_b_col = "old_is_entry" if "old_is_entry" in df_display.columns else "is_b_point"
@@ -128,6 +134,7 @@ def analysis_frame_to_chart_payload(df_display):
         "mark_points_new": mark_points_new,
         "mark_points_opt": mark_points_opt,
         "mark_points_composite": mark_points_composite,
+        "mark_points_v2": mark_points_v2,
         "stats_old": stats_old,
         "stats_new": stats_new,
         "stats_opt": stats_opt,
@@ -137,6 +144,7 @@ def analysis_frame_to_chart_payload(df_display):
             "new": evaluate_signal_events(df_display, new_events),
             "opt": evaluate_signal_events(df_display, opt_events),
             "composite": evaluate_signal_events(df_display, composite_events),
+            "v2": evaluate_signal_events(df_display, v2_events),
         },
         "score_summary": latest_score_summary(df_display),
         "signal_definitions": signal_definitions_payload(),

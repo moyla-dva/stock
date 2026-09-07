@@ -469,3 +469,23 @@
 - `node --check static/js/scanStrategyCompare.js`：通过。
 - `venv/bin/python -m compileall stock_analyzer/c_signal_v2_facts.py stock_analyzer/c_signal_v2.py stock_analyzer/scan_explainer.py`：通过。
 - API 抽查：单股 `600063` 返回 `c_signal_v2_phase_2_3` facts；当前状态为 `C候 / structure_candidate / watch_only`，候选工作台旧快照仍为 `phase_2_1`，需重扫后带完整 facts。
+
+## Codex 执行记录（2026-09-07 17:48 CST）
+
+### C_SIGNAL_V2_PHASE_2_4 已完成
+
+- `stock_analyzer/events.py`：新增 `build_v2_signal_events()`，从 V2 facts 直接生成图面事件，解决 V2 点位仍沿用旧 C composite 事件的问题。
+- `stock_analyzer/c_signal_v2.py`：补充 V2 独立事件语义映射：`v2_bottom_research / v2_structure_candidate / v2_attack_day / v2_ignition / v2_bearish_new_low / v2_top_fractal_risk`。
+- `stock_analyzer/serializers.py`：新增 `mark_points_v2` 与 `event_stats.v2`，旧 `mark_points_composite` 保持原样。
+- 前端图表：`V2` 视角读取 `mark_points_v2`，`旧C` 视角读取 `mark_points_composite`；顶部信号数跟随当前视角。
+- V2 图面新增独立 `C研 / C候 / C爆 / C风` 点位，其中普通分型保留在 facts，图面 `C候` 主要展示双底抬高/矩形候选；`C候` 不生成交易计划，`C爆` 只表示触发事实并要求后续交易计划校验。
+- 文档：`docs/c-signal-v2-design.md` 增补 Phase 2-4，明确本阶段只完成单股图面事件源分离，未升级扫描策略版本。
+
+### 验证
+
+- 新增序列化单测：验证 `mark_points_v2` 独立输出 `v2_structure_candidate` 与 `v2_ignition`，且旧 `mark_points_composite` 不被污染。
+- 已通过窄测：`test_serializer_outputs_existing_chart_payload_contract`、`test_serializer_outputs_independent_v2_marks`、`test_serializer_outputs_composite_entry_and_risk_marks`、`test_c_signal_v2_facts_detect_structure_and_trigger_without_trade_permission`。
+- `node --check static/js/chartMarkers.js static/js/chartView.js static/js/scanStrategyCompare.js`：通过。
+- `venv/bin/python -m compileall stock_analyzer/events.py stock_analyzer/serializers.py stock_analyzer/c_signal_v2.py stock_analyzer/c_signal_v2_facts.py`：通过。
+- `venv/bin/python -m unittest discover -s tests`：148 tests OK。
+- API 抽查 `600063`：旧综合点 `22` 个，V2 独立点 `90` 个；V2 keys 为 `v2_attack_day / v2_bearish_new_low / v2_bottom_research / v2_ignition / v2_structure_candidate / v2_top_fractal_risk`，日期顺序稳定。
