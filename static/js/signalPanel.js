@@ -13,7 +13,11 @@ function getPointMeta(point) {
         category: point.signalCategory || 'observe',
         order: point.signalOrder || 999
     };
-    return Object.assign({}, fallback, signalMeta[key] || {});
+    var meta = Object.assign({}, fallback, signalMeta[key] || {});
+    if (typeof scanPointStrategyMeta === 'function') {
+        return scanPointStrategyMeta(point, meta);
+    }
+    return meta;
 }
 
 function getPointKey(point) {

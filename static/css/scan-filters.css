@@ -104,6 +104,11 @@
     background: #edf2eb;
 }
 
+.scan-strategy-toggle--analysis {
+    height: 34px;
+    min-width: 162px;
+}
+
 .scan-strategy-toggle span {
     padding: 0 7px;
     color: var(--muted);
@@ -123,6 +128,10 @@
     cursor: pointer;
     font-size: 12px;
     font-weight: 900;
+}
+
+.scan-strategy-toggle--analysis button {
+    height: 26px;
 }
 
 .scan-strategy-toggle button.active {

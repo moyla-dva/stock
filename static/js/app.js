@@ -53,6 +53,28 @@ function setActiveScanChartFocus(item) {
         date: item.event_date || item.date || '',
         dataDate: item.data_date || item.date || '',
         price: item.price == null ? null : Number(item.price),
+        signal: item.signal || '',
+        signal_label: item.signal_label || '',
+        signal_name: item.signal_name || '',
+        signal_key: item.signal_key || '',
+        v2_signal: item.v2_signal || '',
+        v2_signal_name: item.v2_signal_name || '',
+        v2_state: item.v2_state || '',
+        v2_state_label: item.v2_state_label || '',
+        v2_role: item.v2_role || '',
+        v2_role_label: item.v2_role_label || '',
+        v2_tone: item.v2_tone || '',
+        trade_intent_label: item.trade_intent_label || '',
+        requires_trade_plan: item.requires_trade_plan,
+        requires_stop_loss: item.requires_stop_loss,
+        final_score: item.final_score,
+        rank_score: item.rank_score,
+        risk_score: item.risk_score,
+        confirm_score: item.confirm_score,
+        sector_score: item.sector_score,
+        concept_score: item.concept_score,
+        _scan_type: item._scan_type || item.scan_type || '',
+        scan_type: item.scan_type || item._scan_type || '',
         signalLabel: signalText || item.signal_label || item.signal || '扫描',
         signalName: '',
         reason: item.reason || '',
@@ -262,6 +284,9 @@ window.onload = function() {
     }
     if (typeof loadDataSourceStatus === 'function') {
         loadDataSourceStatus();
+    }
+    if (typeof renderScanStrategyViewToggle === 'function') {
+        renderScanStrategyViewToggle();
     }
     analyzeStock();
 };

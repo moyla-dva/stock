@@ -4,6 +4,24 @@ function normalizeScanStrategyView(value) {
     return SCAN_STRATEGY_VIEW_MODES.indexOf(value) >= 0 ? value : 'v2';
 }
 
+function scanFirstText(item, keys) {
+    item = item || {};
+    for (var i = 0; i < keys.length; i++) {
+        var value = item[keys[i]];
+        if (value != null && String(value).trim()) {
+            return String(value).trim();
+        }
+    }
+    return '';
+}
+
+function scanBooleanField(item, snakeKey, camelKey) {
+    item = item || {};
+    if (item[snakeKey] != null) return Boolean(item[snakeKey]);
+    if (item[camelKey] != null) return Boolean(item[camelKey]);
+    return false;
+}
+
 function getScanStrategyView() {
     return normalizeScanStrategyView(scanWorkspaceState.strategyView);
 }
@@ -18,13 +36,19 @@ function isScanLegacyStrategyView() {
 
 function scanLegacySignalText(item) {
     item = item || {};
-    return ((item.signal_label || item.signal || '-') + ' ' + (item.signal_name || '')).trim();
+    var label = scanFirstText(item, ['signal_label', 'signalLabel', 'signalCode', 'signal']) || '-';
+    var name = scanFirstText(item, ['signal_name']);
+    if (!name && (item.signalKey || item.signalLabel || item.signalCode)) {
+        name = scanFirstText(item, ['name']);
+    }
+    return (label + ' ' + name).trim();
 }
 
 function scanV2SignalText(item) {
     item = item || {};
-    if (!item.v2_signal) return scanLegacySignalText(item);
-    return (item.v2_signal + ' ' + (item.v2_signal_name || '')).trim();
+    var signal = scanFirstText(item, ['v2_signal', 'v2Signal']);
+    if (!signal) return scanLegacySignalText(item);
+    return (signal + ' ' + scanFirstText(item, ['v2_signal_name', 'v2SignalName'])).trim();
 }
 
 function scanDisplaySignalText(item) {
@@ -33,17 +57,18 @@ function scanDisplaySignalText(item) {
 
 function scanV2CandidateRole(item) {
     item = item || {};
-    if (!item.v2_role_label) return null;
-    var role = item.v2_role || 'candidate';
-    var requiresPlan = Boolean(item.requires_trade_plan);
-    var requiresStop = Boolean(item.requires_stop_loss);
+    var roleLabel = scanFirstText(item, ['v2_role_label', 'v2RoleLabel']);
+    if (!roleLabel) return null;
+    var role = scanFirstText(item, ['v2_role', 'v2Role']) || 'candidate';
+    var requiresPlan = scanBooleanField(item, 'requires_trade_plan', 'requiresTradePlan');
+    var requiresStop = scanBooleanField(item, 'requires_stop_loss', 'requiresStopLoss');
     return {
         kind: 'v2_' + role,
-        label: item.v2_role_label,
-        tone: item.v2_tone || 'muted',
+        label: roleLabel,
+        tone: scanFirstText(item, ['v2_tone', 'v2Tone']) || 'muted',
         score: role === 'entry' ? 90 : (role === 'risk' ? 80 : (role === 'watch' ? 48 : 36)),
-        detail: item.v2_detail || item.v2_state_label || 'V2 语义定位',
-        action: item.trade_intent_label || (requiresPlan ? '进入交易计划校验。' : '先观察，不直接交易。'),
+        detail: scanFirstText(item, ['v2_detail', 'v2Detail', 'v2_state_label', 'v2StateLabel']) || 'V2 语义定位',
+        action: scanFirstText(item, ['trade_intent_label', 'tradeIntentLabel']) || (requiresPlan ? '进入交易计划校验。' : '先观察，不直接交易。'),
         requiresPlan: requiresPlan,
         requiresStop: requiresStop
     };
@@ -58,10 +83,45 @@ function scanV2DecisionVerdict(item, explanation) {
     return {
         tone: role.tone,
         title: role.label + ' · ' + scanV2SignalText(item),
-        detail: (item.v2_detail || (explanation && explanation.summary) || item.reason || '等待更多结构确认')
+        detail: (scanFirstText(item, ['v2_detail', 'v2Detail']) || (explanation && explanation.summary) || item.reason || '等待更多结构确认')
             + ' · ' + planText + ' / ' + stopText,
-        action: item.trade_intent_label || role.action
+        action: scanFirstText(item, ['trade_intent_label', 'tradeIntentLabel']) || role.action
     };
+}
+
+function scanV2PointCategory(item, fallbackCategory) {
+    var role = scanFirstText(item, ['v2_role', 'v2Role']);
+    if (role === 'entry') return 'entry';
+    if (role === 'risk') return 'risk';
+    return fallbackCategory || 'observe';
+}
+
+function scanPointStrategyMeta(point, meta) {
+    point = point || {};
+    meta = meta || {};
+    if (!isScanV2StrategyView()) return meta;
+    var signal = scanFirstText(point, ['v2_signal', 'v2Signal']);
+    if (!signal) return meta;
+    return Object.assign({}, meta, {
+        label: signal,
+        name: scanFirstText(point, ['v2_signal_name', 'v2SignalName']) || meta.name || '',
+        detail: scanFirstText(point, ['v2_detail', 'v2Detail']) || meta.detail || '',
+        category: scanV2PointCategory(point, meta.category)
+    });
+}
+
+function refreshActiveScanChartFocusStrategyView() {
+    if (!activeScanChartFocus) return;
+    activeScanChartFocus.signalLabel = scanDisplaySignalText(activeScanChartFocus)
+        || activeScanChartFocus.signalLabel
+        || '扫描';
+    activeScanChartFocus.signalName = '';
+    if (typeof scanCandidateRole === 'function') {
+        var role = scanCandidateRole(activeScanChartFocus);
+        activeScanChartFocus.roleLabel = role ? role.label : '';
+        activeScanChartFocus.roleAction = role ? role.action : '';
+        activeScanChartFocus.roleTone = role ? role.tone : '';
+    }
 }
 
 function scanLegacyViewExplanation(item) {
@@ -80,23 +140,27 @@ function scanLegacyViewExplanation(item) {
 }
 
 function renderScanStrategyViewToggle() {
-    var node = document.getElementById('scan-strategy-view-toggle');
-    if (!node) return;
     var view = getScanStrategyView();
-    node.querySelectorAll('[data-scan-strategy-view]').forEach(function(button) {
-        var active = button.dataset.scanStrategyView === view;
-        button.classList.toggle('active', active);
-        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    document.querySelectorAll('[data-scan-strategy-toggle], #scan-strategy-view-toggle').forEach(function(node) {
+        node.querySelectorAll('[data-scan-strategy-view]').forEach(function(button) {
+            var active = button.dataset.scanStrategyView === view;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        var label = node.querySelector('span');
+        if (label) {
+            label.textContent = view === 'v2' ? 'V2语义' : '旧C字段';
+        }
     });
-    var label = document.getElementById('scan-strategy-view-current');
-    if (label) {
-        label.textContent = view === 'v2' ? 'V2语义' : '旧C字段';
-    }
 }
 
 function setScanStrategyView(view) {
     scanWorkspaceState.strategyView = normalizeScanStrategyView(view);
     renderScanStrategyViewToggle();
+    refreshActiveScanChartFocusStrategyView();
+    if (lastData && typeof renderChart === 'function') {
+        renderChart(lastAnalysisData || lastData);
+    }
     if (typeof renderActiveScanPool === 'function') {
         renderActiveScanPool();
     }
@@ -115,6 +179,8 @@ window.isScanLegacyStrategyView = isScanLegacyStrategyView;
 window.scanDisplaySignalText = scanDisplaySignalText;
 window.scanV2CandidateRole = scanV2CandidateRole;
 window.scanV2DecisionVerdict = scanV2DecisionVerdict;
+window.scanPointStrategyMeta = scanPointStrategyMeta;
+window.refreshActiveScanChartFocusStrategyView = refreshActiveScanChartFocusStrategyView;
 window.scanLegacyViewExplanation = scanLegacyViewExplanation;
 window.renderScanStrategyViewToggle = renderScanStrategyViewToggle;
 window.setScanStrategyView = setScanStrategyView;

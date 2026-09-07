@@ -343,3 +343,20 @@
 - `venv/bin/python -m unittest discover -s tests`：140 tests OK。
 - `venv/bin/python -m compileall stock_analyzer/scan_snapshot.py`：通过。
 - `git diff --check`：通过。
+
+## Codex 执行记录（2026-09-07 10:45 CST）
+
+### 单股确认页旧C/V2视角同步已完成
+
+- `templates/index.html`：单股确认页 K 线工具栏新增同款 `旧C / V2` 切换器，与候选池共享 `scanWorkspaceState.strategyView`。
+- `static/js/scanStrategyCompare.js`：扩展为同时适配候选结果 snake_case 字段和图表 mark point camelCase 字段，统一输出旧C/V2展示文本、角色和图表事件 meta。
+- `static/js/signalPanel.js`、`chartMarkers.js`：图例、事件流、确认摘要、最终确认台和图面 mark point 按当前视角读取 signal meta；V2 视角显示 `C研/C修/C回/C突/C风`，旧C视角恢复旧字段名称。
+- `static/js/app.js`：扫描候选联动到单股确认时缓存 V2 兼容字段；切换视角后同步刷新扫描定位文案和单股决策承接。
+
+### 验证
+
+- 浏览器实测 `http://127.0.0.1:5009/`：单股页默认 `V2`，事件流显示 `C研 底部研究`；切到 `旧C` 后同一事件显示 `C底 综合底背离`；回候选池保持旧C状态，候选首卡显示 `C突 综合突破 / 参与候选`；再从候选池切回 `V2` 后单股页同步恢复。
+- 浏览器控制台错误：0。
+- `node --check static/js/app.js static/js/scanStrategyCompare.js static/js/signalPanel.js static/js/chartMarkers.js static/js/chartOptions.js`：通过。
+- `venv/bin/python -m unittest discover -s tests`：140 tests OK。
+- `git diff --check`：通过。

@@ -36,7 +36,7 @@ function chartSymbolOffsetFor(category) {
 
 function styleChartPoint(point, view) {
     var meta = getPointMeta(point);
-    var category = point.signalCategory || meta.category || 'observe';
+    var category = meta.category || point.signalCategory || 'observe';
     var compact = view === 'full';
     var styled = Object.assign({}, point);
     styled.symbol = chartSymbolFor(category);
