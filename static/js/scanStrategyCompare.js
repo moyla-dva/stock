@@ -175,7 +175,7 @@ function scanStrategyDeltaItems(item) {
         var modelSignalText = scanV2StateSignalText(model) || v2Text || legacyText || '暂无信号';
         var modelPlanText = model.requires_trade_plan || model.requiresTradePlan ? '需要交易计划' : '不生成入场计划';
         var modelStopText = model.requires_stop_loss || model.requiresStopLoss ? '需要入场止损价' : '不要求入场止损价';
-        return [
+        var items = [
             {
                 label: '信号映射',
                 value: (legacyText && legacyText !== modelSignalText)
@@ -186,6 +186,11 @@ function scanStrategyDeltaItems(item) {
             { label: '执行含义', value: (model.next_action || model.trade_intent_label || '按 V2 状态模型处理') + ' · ' + modelPlanText + ' / ' + modelStopText },
             { label: '指标口径', value: '已接入 V2 事实/许可状态模型，旧C事件仍保留为迁移来源' }
         ];
+        var factsText = scanV2FactsText(model);
+        if (factsText) {
+            items.splice(2, 0, { label: '事实层', value: factsText });
+        }
+        return items;
     }
 
     return [
@@ -199,6 +204,33 @@ function scanStrategyDeltaItems(item) {
         { label: '执行含义', value: action + ' · ' + planText + ' / ' + stopText },
         { label: '指标口径', value: '沿用当前策略指标与评分，尚未启用 V2 独立阈值' }
     ];
+}
+
+function scanV2FactsText(model) {
+    var facts = model && model.facts ? model.facts : null;
+    if (!facts || facts.source !== 'c_signal_v2_phase_2_3') return '';
+    var structure = facts.structure || {};
+    var fractals = structure.fractals || {};
+    var rectangle = structure.rectangle || {};
+    var trigger = facts.trigger || {};
+    var ignition = trigger.ignition || {};
+    var scores = facts.v2_scores || {};
+    var fragments = [];
+    if (fractals.double_bottom_higher_low) {
+        fragments.push('双底抬高');
+    } else if (fractals.latest_bottom) {
+        fragments.push('底分型');
+    }
+    if (rectangle.available) {
+        fragments.push('矩形' + (rectangle.width_pct != null ? rectangle.width_pct + '%' : ''));
+    }
+    if (trigger.attack_day) fragments.push('攻击日');
+    if (ignition.triggered) fragments.push('起爆' + (ignition.trigger_price != null ? ignition.trigger_price : ''));
+    var scoreText = '研究' + (scores.research_score != null ? scores.research_score : '-')
+        + ' / 结构' + (scores.structure_score != null ? scores.structure_score : '-')
+        + ' / 触发' + (scores.trigger_quality != null ? scores.trigger_quality : '-')
+        + ' / 风险' + (scores.execution_risk != null ? scores.execution_risk : '-');
+    return (fragments.length ? fragments.join(' · ') + ' · ' : '') + scoreText;
 }
 
 function scanPointStrategyMeta(point, meta) {
@@ -292,6 +324,7 @@ window.scanV2CandidateRole = scanV2CandidateRole;
 window.scanV2DecisionVerdict = scanV2DecisionVerdict;
 window.scanV2PointChartLabel = scanV2PointChartLabel;
 window.scanStrategyDeltaItems = scanStrategyDeltaItems;
+window.scanV2FactsText = scanV2FactsText;
 window.scanPointStrategyMeta = scanPointStrategyMeta;
 window.refreshActiveScanChartFocusStrategyView = refreshActiveScanChartFocusStrategyView;
 window.scanLegacyViewExplanation = scanLegacyViewExplanation;

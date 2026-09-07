@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
 from stock_analyzer.market_permission import build_stock_trade_permission
 from stock_analyzer.technical_structures import build_technical_structures
 
@@ -260,7 +261,7 @@ def _v2_state_contract(signal_key, *, state, state_label, permission, permission
 
 
 def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
-    """Build the Phase 2.1 V2 state model from current facts.
+    """Build the V2 state model from current facts.
 
     This does not replace the legacy strategy trigger yet. It creates a stable
     fact -> state -> permission -> action contract so later V2 trigger modules
@@ -288,7 +289,9 @@ def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
 
     permission_payload = build_stock_trade_permission(df_display, context=context)
     structures = build_technical_structures(df_display)
-    scores = {
+    clock = structures.get("williams_clock", {})
+    facts = build_c_signal_v2_facts(df_display, clock=clock)
+    scores = facts.get("scores") or {
         "setup": _as_int(latest.get("composite_setup_score")),
         "confirm": _as_int(latest.get("composite_confirm_score")),
         "risk": _as_int(latest.get("composite_risk_score")),
@@ -297,44 +300,10 @@ def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
     exit_type = str(latest.get("composite_exit_type") or latest.get("composite_risk_type") or "").strip()
     has_entry = _as_bool(latest.get("composite_entry"))
     has_exit = _as_bool(latest.get("composite_exit"))
-    has_risk = _as_bool(latest.get("composite_risk")) or _as_bool(latest.get("composite_risk_warn"))
     has_bottom = _as_bool(latest.get("is_bottom_divergence"))
-    clock = structures.get("williams_clock", {})
-
-    right_side = structures.get("right_side", {})
-    facts = {
-        "trend": {
-            "above_ma20": right_side.get("above_ma20"),
-            "ma20_up": right_side.get("ma20_up"),
-            "trend_ok": right_side.get("trend_ok"),
-            "williams_r": _as_float(latest.get("williams_r")),
-            "williams_r_center_side": latest.get("williams_r_center_side"),
-            "williams_r_cross_bull": _as_bool(latest.get("williams_r_cross_bull")),
-            "williams_r_cross_bear": _as_bool(latest.get("williams_r_cross_bear")),
-            "bull_power_dominant": _as_bool(latest.get("bull_power_dominant")),
-            "bear_power_dominant": _as_bool(latest.get("bear_power_dominant")),
-        },
-        "setup": {
-            "repair_impulse": _as_bool(latest.get("composite_repair_impulse")),
-            "repair_confirm": _as_bool(latest.get("composite_repair_confirm")),
-            "pullback_setup": _as_bool(latest.get("composite_pullback_setup")),
-            "breakout_setup": _as_bool(latest.get("composite_breakout_setup")),
-            "prior_breakout": _as_bool(latest.get("composite_prior_breakout")),
-            "bottom_divergence": has_bottom,
-        },
-        "risk": {
-            "risk_score": scores["risk"],
-            "risk_break_score": _as_int(latest.get("composite_risk_break_score")),
-            "risk_heat_score": _as_int(latest.get("composite_risk_heat_score")),
-            "has_risk": has_risk,
-            "has_exit": has_exit,
-        },
-        "clock": {
-            "state": clock.get("state"),
-            "state_label": clock.get("state_label"),
-            "action_label": clock.get("action_label"),
-        },
-    }
+    structure = facts.get("structure") or {}
+    trigger = facts.get("trigger") or {}
+    ignition = trigger.get("ignition") if isinstance(trigger.get("ignition"), dict) else {}
 
     if has_exit or permission_payload.get("mode") == "risk_control" or scores["risk"] >= 4:
         risk_key = "composite_exit"
@@ -391,6 +360,16 @@ def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
             reason="价格靠近突破语境，但尚未进入可执行触发",
             next_action="等待明确突破触发，再交给交易计划",
         )
+    elif trigger.get("attack_day") or ignition.get("triggered"):
+        contract = _v2_state_contract(
+            "",
+            state="trigger_observed",
+            state_label="触发事实出现",
+            permission="watch_only",
+            permission_label="只观察",
+            reason=trigger.get("summary") or "出现攻击日或起爆点事实",
+            next_action="先核对结构边界、止损和收益风险比，不直接追入",
+        )
     elif facts["setup"]["pullback_setup"]:
         contract = _v2_state_contract(
             "",
@@ -400,6 +379,16 @@ def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
             permission_label="只观察",
             reason="价格回到可观察支撑语境，但还缺执行许可",
             next_action="等待回踩触发和风险下降",
+        )
+    elif structure.get("candidate"):
+        contract = _v2_state_contract(
+            "",
+            state="structure_candidate",
+            state_label="结构候选",
+            permission="watch_only",
+            permission_label="只观察",
+            reason=structure.get("summary") or "出现 V2 结构事实",
+            next_action="等待明确触发，再进入交易计划校验",
         )
     elif has_bottom:
         contract = _v2_state_contract(
@@ -434,7 +423,7 @@ def build_c_signal_v2_state(df_display, *, event_key=None, context=None):
 
     return {
         "version": 1,
-        "source": "c_signal_v2_phase_2_1",
+        "source": "c_signal_v2_phase_2_3",
         "latest_date": _format_date(latest.get("date")),
         **contract,
         "scores": scores,

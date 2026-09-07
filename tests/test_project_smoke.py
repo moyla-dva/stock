@@ -11,6 +11,7 @@ from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.backtest import evaluate_signal_events
 from stock_analyzer.board_market_refresh import refresh_board_market_cache
 from stock_analyzer.c_signal_v2 import build_c_signal_v2_state, c_signal_v2_fields
+from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
 from stock_analyzer.catalog import (
     FALLBACK_STOCK_CODES,
     get_cached_stock_profile,
@@ -866,6 +867,63 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(state["signal_name"], "止损风控")
         self.assertFalse(state["requires_trade_plan"])
         self.assertFalse(state["requires_stop_loss"])
+
+    def test_c_signal_v2_facts_detect_structure_and_trigger_without_trade_permission(self):
+        rows = 14
+        frame = self._minimal_signal_frame(rows=rows)
+        frame["open"] = [10.0, 10.1, 10.2, 10.15, 9.8, 9.2, 9.4, 9.7, 10.0, 9.55, 9.9, 10.1, 10.45, 10.62]
+        frame["high"] = [10.1, 10.25, 10.4, 10.5, 10.3, 10.2, 10.3, 10.5, 10.6, 10.55, 10.55, 10.45, 10.6, 10.95]
+        frame["low"] = [9.8, 9.7, 9.6, 9.5, 9.3, 9.0, 9.2, 9.4, 9.5, 9.25, 9.45, 9.55, 9.6, 10.55]
+        frame["close"] = [10.0, 10.15, 10.25, 9.9, 9.5, 9.3, 9.6, 10.0, 10.35, 9.7, 10.2, 10.35, 10.45, 10.85]
+        frame["volume"] = [1000] * 13 + [1800]
+        frame["vol_ma20"] = [1000] * rows
+        frame["ma20"] = [9.7] * rows
+        frame["ma20_up"] = [True] * rows
+        frame["trend_ok"] = [True] * rows
+        frame["williams_r_cross_bull"] = [False] * 13 + [True]
+        frame["composite_risk_score"] = [0] * rows
+        frame["composite_risk_break_score"] = [0] * rows
+        frame["composite_risk_heat_score"] = [0] * rows
+
+        facts = build_c_signal_v2_facts(frame)
+
+        self.assertEqual(facts["source"], "c_signal_v2_phase_2_3")
+        self.assertTrue(facts["structure"]["fractals"]["double_bottom_higher_low"])
+        self.assertTrue(facts["structure"]["rectangle"]["available"])
+        self.assertEqual(facts["structure"]["rectangle"]["c_point"], 9.0)
+        self.assertTrue(facts["trigger"]["attack_day"])
+        self.assertTrue(facts["trigger"]["ignition"]["triggered"])
+        self.assertGreaterEqual(facts["v2_scores"]["structure_score"], 65)
+        self.assertGreaterEqual(facts["v2_scores"]["trigger_quality"], 75)
+
+    def test_c_signal_v2_state_model_exposes_phase_2_3_facts_as_structure_candidate(self):
+        rows = 14
+        frame = self._minimal_signal_frame(rows=rows)
+        frame["open"] = [10.0, 10.1, 10.2, 10.15, 9.8, 9.2, 9.4, 9.7, 10.0, 9.55, 9.9, 10.1, 10.45, 10.62]
+        frame["high"] = [10.1, 10.25, 10.4, 10.5, 10.3, 10.2, 10.3, 10.5, 10.6, 10.55, 10.55, 10.45, 10.6, 10.95]
+        frame["low"] = [9.8, 9.7, 9.6, 9.5, 9.3, 9.0, 9.2, 9.4, 9.5, 9.25, 9.45, 9.55, 9.6, 10.55]
+        frame["close"] = [10.0, 10.15, 10.25, 9.9, 9.5, 9.3, 9.6, 10.0, 10.35, 9.7, 10.2, 10.35, 10.45, 10.85]
+        frame["volume"] = [1000] * 13 + [1800]
+        frame["vol_ma20"] = [1000] * rows
+        frame["ma20"] = [9.7] * rows
+        frame["ma20_up"] = [True] * rows
+        frame["trend_ok"] = [True] * rows
+        frame["williams_r_cross_bull"] = [False] * 13 + [True]
+        frame["composite_setup_score"] = [0] * rows
+        frame["composite_confirm_score"] = [0] * rows
+        frame["composite_risk_score"] = [0] * rows
+        frame["composite_risk_break_score"] = [0] * rows
+        frame["composite_risk_heat_score"] = [0] * rows
+
+        state = build_c_signal_v2_state(frame)
+
+        self.assertEqual(state["source"], "c_signal_v2_phase_2_3")
+        self.assertEqual(state["state"], "trigger_observed")
+        self.assertEqual(state["signal"], "C候")
+        self.assertEqual(state["permission"], "watch_only")
+        self.assertFalse(state["requires_trade_plan"])
+        self.assertTrue(state["facts"]["structure"]["candidate"])
+        self.assertTrue(state["facts"]["trigger"]["ignition"]["triggered"])
 
     @patch("app.get_stock_profile", return_value={"name": "示例股票", "sector": "半导体"})
     @patch("app.fetch_and_process_data", return_value={

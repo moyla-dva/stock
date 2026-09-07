@@ -214,6 +214,49 @@ def _v2_signal_driver(result):
     }
 
 
+def _v2_fact_diagnostic(result):
+    state_model = result.get("v2_state_model") or {}
+    facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
+    if not facts or facts.get("source") != "c_signal_v2_phase_2_3":
+        return None
+
+    structure = facts.get("structure") if isinstance(facts.get("structure"), dict) else {}
+    trigger = facts.get("trigger") if isinstance(facts.get("trigger"), dict) else {}
+    scores = facts.get("v2_scores") if isinstance(facts.get("v2_scores"), dict) else {}
+    if not structure and not trigger and not scores:
+        return None
+
+    fragments = []
+    fractals = structure.get("fractals") if isinstance(structure.get("fractals"), dict) else {}
+    rectangle = structure.get("rectangle") if isinstance(structure.get("rectangle"), dict) else {}
+    ignition = trigger.get("ignition") if isinstance(trigger.get("ignition"), dict) else {}
+    if fractals.get("double_bottom_higher_low"):
+        fragments.append("双底抬高")
+    elif fractals.get("latest_bottom"):
+        fragments.append("底分型")
+    if rectangle.get("available"):
+        fragments.append(f"矩形宽度 {_text(rectangle.get('width_pct'))}%")
+    if trigger.get("attack_day"):
+        fragments.append("攻击日")
+    if ignition.get("triggered"):
+        fragments.append(f"起爆 {_text(ignition.get('trigger_price'))}")
+    if not fragments:
+        fragments.append(structure.get("summary") or trigger.get("summary") or "事实仍在观察")
+
+    score_text = (
+        f"研究 {_text(scores.get('research_score'))}"
+        f" / 结构 {_text(scores.get('structure_score'))}"
+        f" / 触发 {_text(scores.get('trigger_quality'))}"
+        f" / 风险 {_text(scores.get('execution_risk'))}"
+    )
+    tone = "positive" if trigger.get("attack_day") or ignition.get("triggered") else ("warning" if structure.get("candidate") else "muted")
+    return {
+        "label": "V2事实",
+        "value": f"{' · '.join(fragments)} · {score_text}",
+        "tone": tone,
+    }
+
+
 def build_score_badges(result):
     risk = classify_risk_score(result.get("risk_score"))
     sector = classify_sector_score(result.get("sector_score"))
@@ -315,6 +358,7 @@ def build_scan_explanation(result):
         drivers.insert(0, v2_driver)
     diagnostic_drivers = [
         item for item in (
+            _v2_fact_diagnostic(result),
             _breakout_diagnostic(result),
             _risk_split_diagnostic(result),
             _direction_diagnostic(result),

@@ -448,3 +448,24 @@
 - `git diff --check`：通过。
 - API 抽查：参与候选前排为 `trade_ready`，修复观察前排为 `repair_watch`，风险验证前排为 `risk_control`。
 - 页面抽查：`http://127.0.0.1:5009/` 已展示 2026-09-07 最新快照，V2 候选摘要显示 `可执行计划 80 · 修复观察 39`，首卡为 `可执行计划 / C突 / 突破入场`。
+
+## Codex 执行记录（2026-09-07 16:57 CST）
+
+### C_SIGNAL_V2_PHASE_2_3 已完成
+
+- `stock_analyzer/c_signal_v2_facts.py`：新增 V2 事实层构建器，独立输出 `trend / setup / risk / structure / trigger / v2_scores`。
+- 结构事实：实现 5 根 K 线威廉分型、2 根 K 线确认滞后、直接包含关系中心 K 线排除、双底分型低点抬高识别。
+- 矩形事实：输出近 20 日上沿、下沿、中轴、宽度、突破价、C 点/失效价。
+- 触发事实：输出攻击日、阳包阴、突破昨日高点、放量/波幅扩张、阴包阳创新低，以及起爆点 `今日开盘 + (昨日最高 - 昨日收盘) * N`。
+- `build_c_signal_v2_state()`：改为读取统一 facts；当只有结构/触发事实、没有旧入场许可时，只进入 `C候 / watch_only`，不生成入场计划。
+- 新扫描候选解释与单股 V2 差异诊断：新增事实层摘要，展示双底、矩形、攻击日/起爆点和分层事实分；旧快照需重扫后才会带完整 facts。
+- 文档：`docs/c-signal-v2-design.md` 增补 Phase 2-3 落地状态与边界，明确事实不是买点，仍未接管旧触发器。
+
+### 验证
+
+- 新增事实层单测：验证双底抬高、矩形 C 点、攻击日、起爆点和 V2 状态模型事实透传。
+- 已通过窄测：`test_c_signal_v2_facts_detect_structure_and_trigger_without_trade_permission`、`test_c_signal_v2_state_model_exposes_phase_2_3_facts_as_structure_candidate`、原 V2 入场/风险状态测试。
+- `venv/bin/python -m unittest discover -s tests`：147 tests OK。
+- `node --check static/js/scanStrategyCompare.js`：通过。
+- `venv/bin/python -m compileall stock_analyzer/c_signal_v2_facts.py stock_analyzer/c_signal_v2.py stock_analyzer/scan_explainer.py`：通过。
+- API 抽查：单股 `600063` 返回 `c_signal_v2_phase_2_3` facts；当前状态为 `C候 / structure_candidate / watch_only`，候选工作台旧快照仍为 `phase_2_1`，需重扫后带完整 facts。
