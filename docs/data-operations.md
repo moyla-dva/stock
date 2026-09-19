@@ -95,3 +95,14 @@ POST /api/profile_relations/evidence
 - `/api/concept_graph` 和 `/api/concept_graph/edges` 继续保留。
 - 派生边来自股票画像中的成员重叠，只能说明共现关系，不能直接生成交易结论。
 - 在 `/api/data_sources` 中标记为 `experimental`，不计入核心数据源可用率。
+
+## Daily History Cache Scripts（2026-09-19 起的数据脚本入口）
+
+本地日线缓存（`.cache/history`）现使用 canonical 键 `{code}_{start}_{adjust}.csv`（不再把结束日编进文件名）。每日增量与修复使用以下脚本：
+
+- `scripts/append_daily_quotes_to_history_cache.py --data-date YYYY-MM-DD`：用腾讯批量报价补最新一根日线。内置护栏：断档检测（与上一根间隔超过 1 个工作日拒绝，`--allow-gap` 显式放行）、收盘跳变校验（默认 35%，`--max-close-jump-pct` 可调）。
+- `scripts/backfill_daily_history_cache.py`：错过多个交易日的区间回补（腾讯 K 线直连）。
+- `scripts/rebuild_scan_snapshots_from_history_cache.py`：从历史缓存离线重建全市场快照（多进程，`--codes-from-cache --force-current`）。
+- `scripts/cleanup_legacy_history_cache.py`：canonical 全部落位后清理旧命名缓存（默认 dry-run，`--apply` 删除；只删 canonical 数据不落后于 legacy 的文件）。
+
+**qfq 基准漂移风险**：append 注入的是未复权报价、backfill 回补段按"当前"qfq 基准抓取——若区间内发生除权，拼接点会与旧缓存跳变。脚本已做涨跌停幅度校验拦截明显跳变，但除权导致的均线/矩形轻微失真需下次全量重取自然修正。

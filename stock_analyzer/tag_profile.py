@@ -73,13 +73,6 @@ def _build_flags(concepts, groups):
         + len(groups["manual"]["tags"])
         + len(groups["event_driven"]["tags"])
     )
-    if len(concepts) > 8:
-        flags.append({
-            "key": "concept_overload",
-            "severity": "warning",
-            "label": "概念过多",
-            "detail": "原始概念标签较多，不能直接等同于主营或当前交易依据。",
-        })
     if weak_count >= 2:
         flags.append({
             "key": "weak_tag_noise",

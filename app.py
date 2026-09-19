@@ -34,7 +34,6 @@ from stock_analyzer.scan_cache import prune_scan_cache, scan_cache_status
 from stock_analyzer.scan_history import list_scan_history
 from stock_analyzer.scan_jobs import ScanJobManager
 from stock_analyzer.scan_workspace_cache import clear_scan_workspace_cache
-from stock_analyzer.scanner import scan_events_for_type
 from stock_analyzer.scan_snapshot import (
     build_scan_snapshot,
     is_current_strategy_snapshot,

@@ -30,12 +30,12 @@ flowchart LR
 
     subgraph compute["计算与结构层"]
         indicators["指标计算"]
-        strategy["综合策略 C观/C回/C突"]
+        strategy["V2 事实层/状态机 C研/C候/C修/C回/C突/C爆/C风"]
         scanner["策略扫描器"]
         breadth["真实宽度计算"]
         structure["板块/概念结构聚合"]
         resonance["候选共振评分"]
-        tradePlan["交易权限与交易计划"]
+        tradePlan["交易权限与交易计划（单股页与候选池共用 V2 许可契约）"]
         replay["回放/校准"]
     end
 

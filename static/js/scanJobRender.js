@@ -155,8 +155,13 @@ function renderScanJob(job) {
     if (!job) return;
     var config = getScanConfig(job.scan_type);
     renderScanJobSummary(job);
-    applyRunningScanJobToWorkspace(job);
-    renderScanWorkspace();
+    var poolReplaced = applyRunningScanJobToWorkspace(job);
+    // 运行中任务的轮询只更新进度面板；只有池被实际替换或进入终态才全量重建工作台，
+    // 否则 900ms 一次的 6000 行 DOM 重建会让扫描期间页面明显卡顿。
+    var isRunningState = job.status === 'queued' || job.status === 'running' || job.status === 'cancelling';
+    if (!isRunningState || poolReplaced) {
+        renderScanWorkspace();
+    }
     if (job.status === 'queued') {
         setScanStatus('任务排队');
     } else if (job.status === 'running') {

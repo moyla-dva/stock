@@ -32,7 +32,7 @@
 
 - 主线、主线拆解、市场决策、`mainline_id` 筛选等旧契约已从当前产品面移除。
 - `bottom_div` 保留为内部兼容扫描类型，不再作为候选池一级 tab。
-- 同步批扫 `/api/scan_batch` 已退役，统一使用后台扫描任务 `/api/scan_jobs`。
+- 同步批扫 `/api/scan_batch` 已退役（API 返回 410），统一使用后台扫描任务 `/api/scan_jobs`；`scripts/scan_batch.py` 与 `scripts/scan_uptrend_divergence.py` 为退役遗留脚本，依赖旧 C 图面字段，不再可用。
 - 概念/板块关系图谱保留为实验性内部能力，不进入核心数据健康判断。
 - 画像证据编辑器从候选详情中移除，候选详情只读展示画像质量。
 - 回放校准、历史快照、刷新策略和缓存治理统一留在数据后台。

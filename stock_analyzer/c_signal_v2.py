@@ -22,13 +22,6 @@ def _as_int(value, default=0):
     return default if number is None else int(number)
 
 
-def _as_bool(value):
-    try:
-        return bool(value)
-    except (TypeError, ValueError):
-        return False
-
-
 def _format_date(value):
     if hasattr(value, "strftime"):
         return value.strftime("%Y-%m-%d")

@@ -138,7 +138,7 @@ function setActiveScanFilterLoadMeta(meta) {
 }
 
 function applyRunningScanJobToWorkspace(job) {
-    if (!job) return;
+    if (!job) return false;
     var scanType = setActiveScanType(job.scan_type);
     if (job.refresh_policy === 'force') {
         var config = getScanConfig(scanType);
@@ -148,7 +148,7 @@ function applyRunningScanJobToWorkspace(job) {
                 title: existingPool.title || config.title,
                 count: job.matched || existingPool.count || 0
             });
-            return;
+            return false;
         }
         scanWorkspaceState.pools[scanType] = {
             title: config.title,
@@ -158,7 +158,9 @@ function applyRunningScanJobToWorkspace(job) {
             has_more: false,
             results: job.results
         };
+        return true;
     }
+    return false;
 }
 
 function applyScanWorkspacePayload(workspace) {

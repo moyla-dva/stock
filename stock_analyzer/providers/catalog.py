@@ -5,11 +5,6 @@ import akshare as ak
 from stock_analyzer.providers.tdx_client import fetch_tdx_stock_codes
 
 
-NAME_ITEMS = ("股票简称", "简称")
-SECTOR_ITEMS = ("行业", "所属行业", "所属板块", "板块")
-CONCEPT_ITEMS = ("概念题材", "所属概念", "概念板块", "题材概念")
-
-
 def _clean_text(value):
     if value is None:
         return ""
@@ -17,20 +12,6 @@ def _clean_text(value):
     if text.lower() in {"nan", "none"}:
         return ""
     return text
-
-
-def _info_value(df_info, item_names):
-    if df_info is None or df_info.empty:
-        return ""
-    if "item" not in df_info.columns or "value" not in df_info.columns:
-        return ""
-
-    items = df_info["item"].astype(str)
-    for item_name in item_names:
-        rows = df_info[items == item_name]
-        if not rows.empty:
-            return _clean_text(rows["value"].values[0])
-    return ""
 
 
 def _first_row_value(df_info, column_names):

@@ -32,10 +32,6 @@ function fetchAnalysisTimeframes(code, period) {
     return requestJson('/api/analyze/timeframes?' + params.toString());
 }
 
-function fetchStockList() {
-    return requestJson('/api/stock_list');
-}
-
 function fetchScanWorkspace(snapshotDay, forceRefresh, limit, options) {
     options = options || {};
     var params = new URLSearchParams();
@@ -210,6 +206,3 @@ function cancelScanJob(jobId) {
     });
 }
 
-function scanBatch() {
-    return Promise.reject(new Error('同步批扫已下线，请使用后台扫描任务'));
-}

@@ -1,6 +1,8 @@
 """History index for local scan snapshots."""
 
 import json
+import os
+import uuid
 
 from stock_analyzer import scan_snapshot
 from stock_analyzer.scanner import SCAN_CONFIG, normalize_scan_type
@@ -97,7 +99,7 @@ def _write_cached_history(index_path, payload, fingerprint, normalized_scan_type
     }
     try:
         index_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = index_path.with_suffix(".tmp")
+        tmp_path = index_path.with_name(f"{index_path.name}.{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp")
         with tmp_path.open("w", encoding="utf-8") as handle:
             json.dump(cache_payload, handle, ensure_ascii=False, separators=(",", ":"))
         tmp_path.replace(index_path)

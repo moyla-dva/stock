@@ -1142,3 +1142,14 @@
 - **稳健性**：`catalog_concepts` 刷新加 80% 覆盖率护栏（半成品不再覆盖完整概念缓存，保留时打印告警）；`api.js` 请求 90s 超时（AbortSignal.timeout，防挂起卡死 UI，超时报"请求超时: URL"）。
 - **测试卫生**：`test_frontend_analysis_store` 无 node 时 skip；新增 `test_v2_setup_breakout_trigger_requires_fresh_breakout_bar`（合并 K 吸收抑制突破触发的负向回归）；`scan_batch.py`/`scan_uptrend_divergence.py` 的硬编码代理 env 从模块顶层移入 `main()`（不再污染测试进程环境）。
 - **验证：240 tests OK**（+1）、compileall、`node --check api.js` 通过。已知影响：latest 模式全量响应的 `replay_calibration.method` 现为 `deferred`（历史回看不受影响）；历史快照中观察类风险池行的 V2 状态显示为"只观察"。
+
+- [2026-09-19 22:40] ZCode：**认领轮询渲染性能修复 + legacy 缓存清理脚本 + 死代码清理批次 + 文档同步**。范围：`static/js/scanJobs.js`/`scanJobRender.js`（运行中任务只更新进度，不做全量工作台重建）、新增 `scripts/cleanup_legacy_history_cache.py`（canonical 落位后清理旧命名缓存，带 --dry-run，周一重刷后才执行）、删除 review 已 grep 确认的死代码（后端 contracts 数据类/wait_job/UP_CATEGORIES 等 + 前端 scanBoardMarket/死分支/CSS）、`docs/data-flow.md`/`data-operations.md`/`c-signal-v2-design.md` 版本与口径同步。边界：不改策略语义、宏观否决双份收敛留待单独批次。
+
+## ZCode 完成记录：轮询性能 + 死代码清理 + 文档同步（2026-09-19 晚，第三批）
+
+- **轮询性能**：`renderScanJob` 运行中（queued/running/cancelling）只更新任务进度面板，仅当池被实际替换或进入终态才全量重建工作台——消除 900ms 一次的 6000 行 DOM 重建；`applyRunningScanJobToWorkspace` 返回是否替换了池。
+- **新增 `scripts/cleanup_legacy_history_cache.py`**：canonical 落位后回收旧命名日线缓存。只删"同 code+start+adjust 的 canonical 存在且 latest_date 不落后"的 legacy 文件；默认 dry-run，`--apply` 删除。已对现有 88,150 个文件 dry-run 验证：当前全部正确保留（canonical 尚未生成），周一全量重刷后执行 `--apply`。
+- **死代码清理（全部经 grep 复核）**：后端删 `contracts.py` 三个无人引用数据类、`backtest.UP_CATEGORIES`、`facts._truthy_indices`、contracts 两个死函数、`providers/catalog._info_value`+三常量、`c_signal_v2._as_bool`、`tag_profile` 不可达 concept_overload 分支、`data_fetcher` 死导入、`app.py` 死导入；`scan_history` 索引 tmp 改唯一名（与快照同类修复）。前端删 `scanBoardMarket.js` 整文件+模板引用、`api.js` 死函数、`scanResults` 队列分组死分支、`scanStrategyCompare` 死 localStorage 写。
+- **评审误报纠正**：`wait_job`/`shutdown` 实际被测试与重建脚本使用（保留）；`scan-insights.css` 含在用的 `.scan-side-view` 等（整板删除结论有误，保留）；compact 键的 pop+重赋值流非纯死代码（保留）。
+- **文档同步**：`data-flow.md` V2 标签与交易计划流向、`c-signal-v2-design.md` 版本演进说明（09.09.2→09.19.1→09.19.2 待重刷）、`data-operations.md` 新增四个数据脚本用法与 qfq 漂移风险、README 标注退役脚本状态。
+- **验证：240 tests OK**、全部 JS `node --check` 通过、compileall + `import app` 通过。

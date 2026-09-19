@@ -841,7 +841,7 @@ P25 待修正：
 docs/c-signal-v2-coupling-audit.md
 ```
 
-当前 `2026.09.09.2` 快照重刷状态：
+当前快照重刷状态（版本演进：2026.09.09.2 → 2026.09.19.1 突破/破位口径修正 → 2026.09.19.2 待重刷生效，含周线 MACD 完整周修正）：
 
 - 已新增离线重建脚本 `scripts/rebuild_scan_snapshots_from_history_cache.py`，直接复用本地日线缓存和旧快照里的名称/行业/概念，避免全市场重刷逐只联网；
 - 截至 2026-09-14 收盘复核，本地最新工作台口径为 `2026-09-14`：当前策略快照 5499，旧策略快照 0；
@@ -1284,7 +1284,7 @@ docs/c-signal-v2-event-coverage-audit.md       （已删除）
 - 新增 V2 事件 `v2_repair_watch`，用于 bottom_div 池独立展示 `C修`；
 - bottom_div 池命中 `v2_repair_watch` 时阶段显示为“修复观察”；
 - `C修` 明确 `requires_trade_plan = false`、`requires_stop_loss = false`，不生成入场计划；
-- 策略版本升级为 `2026.09.09.2`，新扫描会识别 P19 语义。
+- 策略版本升级为 `2026.09.09.2`（P19 语义）；后续版本演进见文首版本说明。
 
 边界：
 

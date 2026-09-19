@@ -6,7 +6,6 @@ from collections import defaultdict
 from stock_analyzer.events import event_date_key
 
 
-UP_CATEGORIES = {"entry", "bottom", "observe"}
 DOWN_CATEGORIES = {"risk", "exit", "top"}
 ENTRY_MODEL_EVENT_CLOSE = "event_close"
 ENTRY_MODEL_NEXT_OPEN = "next_open"

@@ -264,19 +264,6 @@ V2_CAMEL_KEYS = {
 }
 
 
-def is_native_v2_signal_key(event_key):
-    return str(event_key or "").startswith("v2_")
-
-
 def v2_signal_fields(event_key):
     """Return native V2 semantic fields."""
     return deepcopy(V2_SIGNAL_CONTRACTS.get(event_key, DEFAULT_V2_SIGNAL_CONTRACT))
-
-
-def v2_signal_mark_fields(event_key):
-    """Return camelCase native V2 fields for chart mark point payloads."""
-    fields = v2_signal_fields(event_key)
-    return {
-        camel_key: fields[snake_key]
-        for snake_key, camel_key in V2_CAMEL_KEYS.items()
-    }

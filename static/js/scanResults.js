@@ -18,18 +18,6 @@ function createScanResultGroupHeader(status, count) {
     return header;
 }
 
-function createScanResultQueueHeader(queue, count) {
-    var header = document.createElement('div');
-    header.className = 'scan-result-group scan-result-group--queue scan-result-group--' + (queue.tone || 'muted');
-    var title = document.createElement('strong');
-    title.textContent = queue.label;
-    var meta = document.createElement('span');
-    meta.textContent = '当前名单 ' + count + ' 只 · ' + queue.detail;
-    header.appendChild(title);
-    header.appendChild(meta);
-    return header;
-}
-
 function createScanResultLoadMore(meta) {
     var footer = document.createElement('div');
     footer.className = 'scan-load-more';
@@ -119,12 +107,10 @@ function renderScanResultSummary(meta) {
 
 function renderScanResults(list, results, variant, meta) {
     meta = meta || {};
-    var queueMetaByKey = {};
     var queueCounts = {};
     (results || []).forEach(function(item) {
         var queue = typeof scanCandidateQueue === 'function' ? scanCandidateQueue(item) : null;
         if (!queue) return;
-        queueMetaByKey[queue.key] = queue;
         queueCounts[queue.label] = (queueCounts[queue.label] || 0) + 1;
     });
     meta.queueCounts = queueCounts;
@@ -141,21 +127,16 @@ function renderScanResults(list, results, variant, meta) {
         return;
     }
     // System order is score-descending; queue grouping would split that order.
-    var useQueueGroups = false;
     var groupCounts = results.reduce(function(counts, item) {
-        var key = useQueueGroups ? scanCandidateQueue(item).key : scanResultStrategyStatus(item);
+        var key = scanResultStrategyStatus(item);
         counts[key] = (counts[key] || 0) + 1;
         return counts;
     }, {});
     var previousGroup = null;
     results.forEach(function(item, index) {
-        var groupKey = useQueueGroups ? scanCandidateQueue(item).key : scanResultStrategyStatus(item);
+        var groupKey = scanResultStrategyStatus(item);
         if (groupKey !== previousGroup) {
-            if (useQueueGroups) {
-                list.appendChild(createScanResultQueueHeader(queueMetaByKey[groupKey] || scanCandidateQueue(item), groupCounts[groupKey] || 0));
-            } else {
-                list.appendChild(createScanResultGroupHeader(groupKey, groupCounts[groupKey] || 0));
-            }
+            list.appendChild(createScanResultGroupHeader(groupKey, groupCounts[groupKey] || 0));
             previousGroup = groupKey;
         }
         list.appendChild(createStockCard(item, variant, index));

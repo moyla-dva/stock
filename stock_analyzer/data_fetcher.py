@@ -11,7 +11,6 @@ import pandas as pd
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.providers.stock_history import (
     DEFAULT_STOCK_HISTORY_PROVIDER,
-    _fetch_tx_history_direct,
     market_symbol_for_tx,
 )
 

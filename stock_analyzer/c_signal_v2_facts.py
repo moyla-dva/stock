@@ -983,13 +983,6 @@ def build_target_structure_facts(df_display, rectangle=None, macro_rectangle=Non
     }
 
 
-def _truthy_indices(df_display, column):
-    if df_display is None or df_display.empty or column not in df_display.columns:
-        return []
-    mask = df_display[column].apply(_as_bool)
-    return list(df_display[mask].index)
-
-
 def _pos_for_index(df_display, index):
     try:
         return int(df_display.index.get_loc(index))

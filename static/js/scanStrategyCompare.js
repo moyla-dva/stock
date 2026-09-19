@@ -598,11 +598,6 @@ function renderScanStrategyViewToggle() {
 
 function setScanStrategyView(view) {
     scanWorkspaceState.strategyView = normalizeScanStrategyView(view);
-    try {
-        window.localStorage.setItem(SCAN_STRATEGY_VIEW_STORAGE_KEY, scanWorkspaceState.strategyView);
-    } catch (error) {
-        // localStorage can be unavailable under private mode or file protocol
-    }
     renderScanStrategyViewToggle();
     refreshActiveScanChartFocusStrategyView();
     var chartData = analysisStore.getCurrentChartData();
