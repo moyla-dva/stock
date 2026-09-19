@@ -34,6 +34,7 @@ from stock_analyzer.c_signal_v2_facts import (
     build_target_structure_facts,
     build_trigger_facts,
     build_williams_fractal_facts,
+    _unfilled_gap_targets,
 )
 from stock_analyzer.catalog import (
     FALLBACK_STOCK_CODES,
@@ -2100,6 +2101,66 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(trigger["gap_fill"]["gap_down_pct"], -3.92)
         self.assertTrue(trigger["gap_fill"]["filled_previous_close"])
         self.assertEqual(trigger["gap_fill"]["stop_price"], 9.7)
+
+    def _weekly_close_frame(self, business_days):
+        closes = [10.0 + (0.3 if (index // 5) % 2 else -0.3) for index in range(business_days)]
+        return pd.DataFrame({
+            "date": pd.bdate_range("2024-01-01", periods=business_days),
+            "open": closes,
+            "high": [value + 0.1 for value in closes],
+            "low": [value - 0.1 for value in closes],
+            "close": closes,
+        })
+
+    def test_macro_tide_weekly_macd_excludes_forming_week(self):
+        # 截到最后一个完整交易周之前的周三，形成中周不得参与判定。
+        frame = self._weekly_close_frame(427).iloc[:-4]
+        self.assertEqual(frame["date"].iloc[-1].dayofweek, 2)
+
+        macro = build_macro_tide_facts(frame)
+        weekly = macro["weekly_macd"]
+
+        self.assertTrue(weekly["available"])
+        dated = frame[["date", "close"]].copy()
+        completed = dated.set_index("date")["close"].resample("W-FRI").last().dropna().to_frame("close").iloc[:-1]
+        including_forming = dated.set_index("date")["close"].resample("W-FRI").last().dropna().to_frame("close")
+        dif_completed, dea_completed, hist_completed = calculate_macd(completed)
+        dif_all, dea_all, hist_all = calculate_macd(including_forming)
+        self.assertAlmostEqual(weekly["hist"], round(float(hist_completed.iloc[-1]), 4), places=6)
+        self.assertAlmostEqual(weekly["previous_hist"], round(float(hist_completed.iloc[-2]), 4), places=6)
+        self.assertGreater(abs(weekly["hist"] - float(hist_all.iloc[-1])), 0.01)
+
+    def test_macro_tide_weekly_macd_requires_sixty_completed_weeks(self):
+        short_frame = self._weekly_close_frame(290)  # 58 个完整周
+        macro_short = build_macro_tide_facts(short_frame)
+        self.assertFalse(macro_short["weekly_macd"]["available"])
+        self.assertEqual(macro_short["weekly_macd"]["permission"], "unknown")
+
+        boundary_frame = self._weekly_close_frame(300)  # 60 个完整周，最后一根为周五
+        macro_boundary = build_macro_tide_facts(boundary_frame)
+        self.assertTrue(macro_boundary["weekly_macd"]["available"])
+
+    def test_unfilled_gap_targets_skip_nan_rows_without_false_fill(self):
+        frame = pd.DataFrame({
+            "date": pd.date_range("2026-01-01", periods=5, freq="D"),
+            "open": [10.0, 10.0, 9.0, 9.05, 9.2],
+            "high": [10.5, 10.2, 9.2, float("nan"), 9.4],
+            "low": [9.8, 9.9, 8.8, 8.9, 9.0],
+            "close": [10.1, 10.0, 9.0, 9.1, 9.2],
+        })
+
+        targets = _unfilled_gap_targets(frame, 9.0, lookback=250)
+
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0]["price"], 9.2)
+
+        filled_frame = frame.copy()
+        filled_frame.loc[3, "high"] = 9.95
+        self.assertEqual(_unfilled_gap_targets(filled_frame, 9.0, lookback=250), [])
+
+        all_nan_after = frame.copy()
+        all_nan_after.loc[3:, "high"] = float("nan")
+        self.assertEqual(len(_unfilled_gap_targets(all_nan_after, 9.0, lookback=250)), 1)
 
     def test_c_signal_v2_state_model_promotes_independent_facts_to_attack_plan(self):
         frame = self._v2_trigger_frame()

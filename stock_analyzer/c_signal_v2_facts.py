@@ -7,6 +7,7 @@ layers can reuse the same truth without re-parsing legacy scores.
 
 import math
 
+import numpy as np
 import pandas as pd
 
 from stock_analyzer.indicators import calculate_macd
@@ -255,12 +256,13 @@ def _normalize_kline_inclusion_frame(df_display, lookback=80):
             "summary": "缺少高低点数据，无法处理 K 线包含关系。",
         }
 
-    window = df_display.tail(lookback).copy() if lookback else df_display.copy()
+    window = df_display.tail(lookback) if lookback else df_display
     normalized = []
     containment_count = 0
     dropped_count = 0
 
-    for index, row in window.iterrows():
+    # to_dict("records") 与 iterrows 的逐行取值语义一致，但避免每行构建 Series。
+    for index, row in zip(window.index, window.to_dict("records")):
         source = _source_from_row(index, row)
         if source is None:
             dropped_count += 1
@@ -299,9 +301,10 @@ def _normalize_kline_inclusion_frame(df_display, lookback=80):
     }
 
 
-def build_normalized_bar_facts(df_display, lookback=80):
+def build_normalized_bar_facts(df_display, lookback=80, normalization=None):
     """Build structure bars after K-line inclusion handling."""
-    normalization = _normalize_kline_inclusion_frame(df_display, lookback=lookback)
+    if normalization is None:
+        normalization = _normalize_kline_inclusion_frame(df_display, lookback=lookback)
     return {
         "available": normalization["available"],
         "lookback": int(lookback or normalization["original_count"]),
@@ -516,7 +519,12 @@ def build_macro_tide_facts(df_display):
         dated = dated.dropna(subset=["date", "close"]).sort_values("date")
         if len(dated) >= 80:
             weekly = dated.set_index("date")["close"].resample("W-FRI").last().dropna().to_frame("close")
-            if len(weekly) >= 20:
+            # 形成中的周不参与判定：最新交易日尚未走完其所在周时，剔除该周，
+            # 避免周中 hist 反复翻转导致 bearish_cross_down 误报；EMA 暖机需要约
+            # 3×slow 根样本，门槛取 60 根完整周（约 14 个月）。
+            if len(weekly) and pd.notna(dated["date"].iloc[-1]) and dated["date"].iloc[-1].normalize() < weekly.index[-1]:
+                weekly = weekly.iloc[:-1]
+            if len(weekly) >= 60:
                 dif, dea, hist = calculate_macd(weekly)
                 latest_hist = _as_float(hist.iloc[-1])
                 previous_hist = _as_float(hist.iloc[-2]) if len(hist) >= 2 else None
@@ -776,29 +784,40 @@ def _unfilled_gap_targets(window, reference_price, lookback=250):
         or not {"high", "low"}.issubset(window.columns)
     ):
         return []
-    scan = window.tail(lookback + 1).copy()
+    scan = window.tail(lookback + 1)
+    highs = pd.to_numeric(scan["high"], errors="coerce").to_numpy(dtype="float64")
+    lows = pd.to_numeric(scan["low"], errors="coerce").to_numpy(dtype="float64")
+    dates = scan["date"].tolist() if "date" in scan.columns else [None] * len(scan)
+    total = len(scan)
+
+    # suffix_max[pos] = highs[pos:] 的跳过 NaN 最大值；全 NaN 时为 -inf（等价 pandas .max() → NaN 比较 False）。
+    suffix_max = np.full(total, -np.inf)
+    running = -np.inf
+    for pos in range(total - 1, -1, -1):
+        value = highs[pos]
+        if not np.isnan(value) and value > running:
+            running = value
+        suffix_max[pos] = running
+
     targets = []
-    for pos in range(1, len(scan) - 1):
-        previous = scan.iloc[pos - 1]
-        current = scan.iloc[pos]
-        previous_low = _as_float(previous.get("low"))
-        gap_day_high = _as_float(current.get("high"))
+    for pos in range(1, total - 1):
+        previous_low = None if np.isnan(lows[pos - 1]) else float(lows[pos - 1])
+        gap_day_high = None if np.isnan(highs[pos]) else float(highs[pos])
         if previous_low is None or gap_day_high is None or gap_day_high >= previous_low:
             continue
         if gap_day_high <= reference_price:
             continue
-        after_gap_highs = scan.iloc[pos + 1:]["high"].apply(_as_float)
-        filled = bool(not after_gap_highs.empty and after_gap_highs.max() >= previous_low)
+        filled = suffix_max[pos + 1] >= previous_low
         if filled:
             continue
         targets.append(_target_payload(
             "unfilled_gap_lower",
             "上方缺口下沿",
             gap_day_high,
-            date=current.get("date"),
+            date=dates[pos],
             lookback=lookback,
             priority=10,
-            age_bars=len(scan) - 1 - pos,
+            age_bars=total - 1 - pos,
         ))
     targets.sort(key=lambda item: (item["priority"], item["price"] or 0))
     return targets[:3]
@@ -1325,7 +1344,7 @@ def build_exit_gate_facts(df_display, *, fractals=None, target_structure=None):
     }
 
 
-def build_williams_fractal_facts(df_display, lookback=80):
+def build_williams_fractal_facts(df_display, lookback=80, normalization_param=None):
     """Detect confirmed five-bar Williams fractals.
 
     The latest two bars are excluded because a five-bar fractal needs two bars
@@ -1351,7 +1370,7 @@ def build_williams_fractal_facts(df_display, lookback=80):
             "summary": "缺少高低点数据，无法计算威廉分型。",
         }
 
-    normalization = _normalize_kline_inclusion_frame(df_display, lookback=lookback)
+    normalization = _normalize_kline_inclusion_frame(df_display, lookback=lookback) if normalization_param is None else normalization_param
     window = normalization["frame"]
     if len(window) < 5:
         return {
@@ -2585,8 +2604,9 @@ def build_c_signal_v2_facts(df_display, *, clock=None):
             "v2_scores": {"research_score": 0, "structure_score": 0, "trigger_quality": 0, "execution_risk": 0},
         }
 
-    normalized_bars = build_normalized_bar_facts(df_display)
-    fractals = build_williams_fractal_facts(df_display)
+    structure_normalization = _normalize_kline_inclusion_frame(df_display, lookback=80)
+    normalized_bars = build_normalized_bar_facts(df_display, normalization=structure_normalization)
+    fractals = build_williams_fractal_facts(df_display, normalization_param=structure_normalization)
     rectangle_candidates = build_rectangle_candidate_facts(df_display)
     active_rectangle = rectangle_candidates.get("active_rectangle") if isinstance(rectangle_candidates, dict) else None
     rectangle = active_rectangle if isinstance(active_rectangle, dict) else build_rectangle_facts(df_display)

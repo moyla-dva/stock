@@ -1125,3 +1125,10 @@
 
 - [2026-09-19 21:30] ZCode：**全仓 code review 完成并落库（用户已确认提交）**。9 组并行评审覆盖全部 stock_analyzer/、web 层、前端 JS、模板、tests、scripts、docs 对照；修复两批共 33 文件（扫描入池缺口 breakout/pullback_allowed、force 扫描清空列表、日线缓存键重构+盘中半日 bar 过期判定+原子写、TDX 分页 offset 与线程锁、事件日期口径 event_date_key、trade_plan C爆 执行约束、single-flight 构建锁、scan_jobs TOCTOU 与轮询拷贝、数据源 TTL、回补脚本断档/跳变护栏、详情快路径、EVENT_WEIGHTS 补权）。**验证：236 tests OK**（+24 新增回归）、compileall、node --check 通过。本轮提交为评审基线，后续改动以此为准。
 - [2026-09-19 21:30] ZCode：**认领 P1-7 事件轻量 facts 与 P1-9 周线 MACD 修正**。计划修改 `stock_analyzer/c_signal_v2_facts.py`、`stock_analyzer/events.py` 及相关测试：事件重放循环跳过事件层不消费的重计算（macro_tide/legacy_experience 等，以实测 profile 为准），周线 MACD 改用已收盘完整周并提高样本门槛。边界：不改扫描入池语义、不改 Plan Gate、单股页完整 facts 不变；**不 bump 版本**——周线口径属语义变化，待下次数据刷新时由用户决定是否 bump + 重刷（9-10 评审批次同例）。
+
+## ZCode 完成记录：P1-7 事实层性能优化 + P1-9 周线 MACD 完整周修正（2026-09-19 晚）
+
+- **P1-7（纯性能，语义零变化）**：实测 profile 显示事件重放成本大头不在 macro_tide（仅 1.6ms）而在矩形候选的 13 次 K 线包含归一化（28.6ms）与缺口目标 O(N²) 扫描（11.7ms）。改法：`_normalize_kline_inclusion_frame` 的 `iterrows` 换成 `to_dict("records")`（逐行取值语义一致）；`_unfilled_gap_targets` 改 numpy 后缀最大值 O(N)（全 NaN 时 `-inf` 与 pandas `.max()→NaN` 比较语义等价）；`build_c_signal_v2_facts` 共享一次 80 根归一化给结构条与威廉分型（新增可选 `normalization` 参数，向后兼容）。**差分验证：3 只真实股票 facts 输出逐字节零差异**。效果：单次 facts 48.2→37.2ms，事件循环(60根) ~3.0s→2.25s，全市场扫描/快照重建约省 2.5 分钟。
+- **P1-9（语义变化，已确认方向）**：`build_macro_tide_facts` 周线 MACD 只用已收盘完整周（最新交易日所在周未走完则剔除，周五收盘周计入），样本门槛 20→60 根完整周（约 14 个月，覆盖 EMA 暖机）。影响：周中判定不再随未收盘周翻转；上市 4-14 个月的次新股周线门从可能 forbidden 变为 unknown（警告不拦截，方向保守）。**未 bump 版本**——待下次数据重刷时一并 bump + 全量重建（同 9-10 评审批次先例）。
+- 新增回归测试 3 个：`test_macro_tide_weekly_macd_excludes_forming_week`、`test_macro_tide_weekly_macd_requires_sixty_completed_weeks`、`test_unfilled_gap_targets_skip_nan_rows_without_false_fill`。
+- **验证：239 tests OK**（+3），compileall 通过；本批改动仅 `c_signal_v2_facts.py` + `tests/test_project_smoke.py`，未触碰扫描入池/Plan Gate/前端。
