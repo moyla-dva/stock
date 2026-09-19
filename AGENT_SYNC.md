@@ -1171,3 +1171,13 @@
 - **UI 验收（IAB 实测 1440 宽）**：工作台显示策略 2026.09.19.2、候选 120/2288、前排全部 C突 可交易（慧谷新材/金域医学/盛美上海…）；30 张卡片程序化几何校验 **0 内容越界**（历史重叠 bug 类回归通过）；详情面板 V2 闸门七区块（许可/Plan/目标/止损/宏观/Exit/交易计划）完整渲染；次新股（301683）宏观正确显示"样本不足→待核"。（注：IAB 对该用户页签的截图表面捕获超时，视觉核对以 DOM 几何校验替代，结论可靠。）
 - **宏观否决收敛完成**：MA60/MA250/周线 MACD 入场判定收敛为 `market_permission.evaluate_macro_entry_blocks` 唯一实现；`c_signal_v2._v2_macro_entry_gate` 与 `_v2_macro_veto_permission` 改为消费共享核心 + 各自形状适配（label/tone/reason 保持原样）。删除前逐字 diff 确认两份拷贝核心判定一致，且 `_v2_entry_attempt` 各分支必带 entry_type（共享核心的空类型 elif 分支不改变 c_signal_v2 路径行为）。
 - **验证：240 tests OK**（含宏观否决/环境许可全部用例）；live 抽查 000166 状态输出正常。
+
+- [2026-09-20 00:40] ZCode：**认领四项产品决策落地（用户确认按推荐方案执行）**：① 补回"修复观察"第三池 tab（前端休眠分支复活）；② 宏观样本不足分层——入场路径上 MA250/周线/MA60 无法计算时不否决但不可执行，复用 trigger_plan_waiting 待核语义并带宏观原因（**语义变化，bump 2026.09.20.1 + 当天重刷**）；④ 工作台加入场口径切换（event_close/next_open，缓存键已支持）。仓位轻量输入随后单独一批。边界：不改 Plan Gate 数学、不改入池键集合。
+
+## ZCode 完成记录：四项产品决策落地第一批（2026-09-20 凌晨）
+
+- **①修复观察 tab 复活**：SCAN_POOL_TYPES 恢复三池，模板加 `scan-pool-bottom-div` tab；UI 实测三 tab 显示 2288/1047/972。
+- **②宏观样本不足→待核（语义变化，版本 2026.09.20.1 + 全量重刷 5499/5499, 208s）**：`build_c_signal_v2_permission` 在 Plan Gate 通过后、放行前检查宏观警告（入场路径的警告⟺样本不足）——存在则返回 `watch_only / trigger_plan_waiting / 宏观样本待核`，can_open=False，plan_status 保留 ready 供参考。全池验证：9 个 C突 中 2 个降级待核（MA250/周线缺样本），196 个 C回 保留（MA60 仅需 60 日），301683 慧谷新材 API 实测 `watch_only/待核/plan ready`。8 个旧测试的"晋升"意图用 `@patch(evaluate_macro_entry_blocks→样本充足)` 保留，另新增 `test_c_signal_v2_state_model_defers_execution_when_macro_sample_insufficient` 真语义回归。
+- **④入场口径切换**：工作台筛选区新增"入场口径 信号日收盘/次日开盘"按钮组（localStorage 持久化，`setScanEntryModel`），fetchScanWorkspace/fetchScanCandidates 透传 `entry_model`（后端缓存键本就区分口径）。UI 实测按钮组渲染正常。
+- **验证：241 tests OK**（+1）；服务已重启，工作台 healthy。
+- **下一批**：③仓位轻量本地输入（本金/风险偏好 → /api/analyze 透传 → _position_plan 激活）。

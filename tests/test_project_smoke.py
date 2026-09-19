@@ -1997,6 +1997,15 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(recovery["stop_price"], 10.4)
         self.assertTrue(facts["structure"]["trigger_observed"])
 
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_c_signal_v2_state_model_treats_bear_trap_breakout_as_new_breakout_plan(self):
         frame = self._minimal_signal_frame(rows=16)
         frame["open"] = [10.8] * 13 + [10.6, 10.75, 11.0]
@@ -2187,6 +2196,27 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertTrue(absorbed["breakout_setup"])
         self.assertFalse(absorbed["breakout_trigger"])
 
+    def test_c_signal_v2_state_model_defers_execution_when_macro_sample_insufficient(self):
+        frame = self._v2_trigger_frame()
+
+        state = build_c_signal_v2_state(frame, context={"target_price": 15.0})
+
+        self.assertEqual(state["state"], "trigger_plan_waiting")
+        self.assertEqual(state["permission"], "watch_only")
+        self.assertEqual(state["v2_permission_model"]["plan_status"], "ready")
+        self.assertFalse(state["v2_permission_model"]["can_open"])
+        self.assertIn("样本不足", state["v2_permission_model"]["reason"])
+        self.assertIn("MA250", state["v2_permission_model"]["reason"])
+
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_c_signal_v2_state_model_promotes_independent_facts_to_attack_plan(self):
         frame = self._v2_trigger_frame()
 
@@ -2238,6 +2268,15 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(permission["permission"], "forbidden")
         self.assertIn("MA60 上行", " / ".join(permission["block_reasons"]))
 
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_c_signal_v2_state_model_promotes_breakout_through_unified_trade_gate(self):
         frame = self._v2_legacy_entry_frame("breakout")
 
@@ -2263,6 +2302,15 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIn("extended_return", plan_gate["execution_risk_flags"])
         self.assertIn("ma20_extended", plan_gate["execution_risk_flags"])
 
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_c_signal_v2_state_model_promotes_pullback_through_unified_trade_gate(self):
         frame = self._v2_legacy_entry_frame("pullback")
 
@@ -2344,6 +2392,15 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(state["candidate_substate"], "reversal_confirmed")
         self.assertEqual(state["candidate_display_label"], "触")
 
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_c_signal_v2_state_model_uses_upper_resistance_for_attack_target(self):
         frame = self._v2_trigger_frame_with_upper_target()
 

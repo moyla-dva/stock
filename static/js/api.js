@@ -40,6 +40,7 @@ function fetchScanWorkspace(snapshotDay, forceRefresh, limit, options) {
     if (limit) params.set('limit', limit);
     if (options.lite) params.set('lite', '1');
     if (options.activeType) params.set('active_type', options.activeType);
+    if (options.entryModel) params.set('entry_model', options.entryModel);
     if (options.includeReplay === false) params.set('include_replay', '0');
     if (options.includeReplay === true) params.set('include_replay', '1');
     var query = params.toString();
@@ -60,6 +61,7 @@ function fetchScanCandidates(options) {
     if (options.eventDate) params.set('event_date', options.eventDate);
     if (options.limit) params.set('limit', options.limit);
     if (options.offset) params.set('offset', options.offset);
+    if (options.entryModel) params.set('entry_model', options.entryModel);
     if (options.lite) params.set('lite', '1');
     if (options.detail) params.set('detail', '1');
     if (options.compact === false) params.set('compact', '0');

@@ -696,6 +696,24 @@ def build_c_signal_v2_permission(facts, latest, *, event_key=None, context=None)
                 required_confirmations=_unique_text(gate_required_confirmations),
                 plan_gate=plan_gate,
             )
+        if macro_entry_gate.get("warnings"):
+            # 宏观"样本不足"不等于通过：计划本身可校验，但长周期防线缺样本时
+            # 不放行为可执行，降为待核（有数据后的下一次重扫自然解除）。
+            macro_warnings = _unique_text(macro_entry_gate.get("warnings"))
+            return _permission_contract(
+                mode="trigger_plan_waiting",
+                mode_label="宏观待核",
+                permission="watch_only",
+                permission_label="只观察",
+                signal_key="",
+                state="trigger_plan_waiting",
+                state_label="宏观样本待核",
+                reason="；".join(macro_warnings),
+                next_action="待长周期样本补齐后重新扫描确认；此前不标记为可执行",
+                can_open=False,
+                required_confirmations=_unique_text(list(macro_warnings) + ["仓位风险预算"]),
+                plan_gate=plan_gate,
+            )
         return _permission_contract(
             mode="trigger_plan_required",
             mode_label=entry_attempt.get("mode_label") or "触发待计划",
@@ -707,7 +725,7 @@ def build_c_signal_v2_permission(facts, latest, *, event_key=None, context=None)
             reason=entry_attempt.get("reason") or "V2 入场触发通过交易闸门",
             next_action=entry_attempt.get("next_action") or "核对结构止损、收益风险比和仓位",
             can_open=True,
-            required_confirmations=_unique_text((macro_entry_gate.get("warnings") or []) + ["仓位风险预算"]),
+            required_confirmations=_unique_text(["仓位风险预算"]),
             plan_gate=plan_gate,
         )
 

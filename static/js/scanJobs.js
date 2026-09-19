@@ -55,7 +55,8 @@ async function loadScanWorkspace(activeType, snapshotDay, forceRefresh, limitOve
         setScanStatus(requestedSnapshotDay ? '读取历史结果' : '读取本地结果');
         var workspace = await fetchScanWorkspace(requestedSnapshotDay, forceRefresh, limit, {
             lite: true,
-            activeType: scanWorkspaceState.activeType
+            activeType: scanWorkspaceState.activeType,
+            entryModel: scanWorkspaceState.entryModel
         });
         if (workspace.error) throw new Error(workspace.error);
         renderScanWorkspace(workspace);

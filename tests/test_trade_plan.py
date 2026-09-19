@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -53,6 +54,15 @@ def _v2_entry_then_crash_frame(rows=25):
 
 
 class TradePlanTest(unittest.TestCase):
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_permission_allows_execution_only_after_trigger(self):
         frame = _v2_breakout_frame()
 
@@ -93,6 +103,15 @@ class TradePlanTest(unittest.TestCase):
         self.assertFalse(plan["permission"]["can_open"])
         self.assertIn("风险", plan["status_label"])
 
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_trade_plan_adds_stop_and_r_multiple_for_ready_setup(self):
         frame = _v2_breakout_frame()
 
@@ -105,6 +124,15 @@ class TradePlanTest(unittest.TestCase):
         self.assertNotIn("mainline_context", plan)
         self.assertIn("每一笔加仓单独管理止损", plan["position"]["rules"])
 
+    @patch(
+        "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
+        new=lambda *args, **kwargs: {
+            "block_reasons": [],
+            "warnings": [],
+            "macro_available": True,
+            "macro_summary": "",
+        },
+    )
     def test_trade_plan_calculates_position_from_account_risk(self):
         frame = _v2_breakout_frame()
 

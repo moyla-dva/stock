@@ -525,8 +525,38 @@ function renderScanReasonFilters(poolResults) {
     });
 }
 
+function setScanEntryModel(entryModel) {
+    var normalized = SCAN_ENTRY_MODELS.some(function (item) { return item.value === entryModel; })
+        ? entryModel
+        : 'event_close';
+    if (scanWorkspaceState.entryModel === normalized) return;
+    scanWorkspaceState.entryModel = normalized;
+    try {
+        window.localStorage.setItem(SCAN_ENTRY_MODEL_STORAGE_KEY, normalized);
+    } catch (error) {
+        // localStorage 不可用（隐私模式）时仅本次会话生效
+    }
+    var buttons = document.querySelectorAll('#scan-entry-model-toggle [data-scan-entry-model]');
+    buttons.forEach(function (button) {
+        var active = button.getAttribute('data-scan-entry-model') === normalized;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    renderScanWorkspace();
+}
+
+function renderScanEntryModelToggle() {
+    var buttons = document.querySelectorAll('#scan-entry-model-toggle [data-scan-entry-model]');
+    buttons.forEach(function (button) {
+        var active = button.getAttribute('data-scan-entry-model') === scanWorkspaceState.entryModel;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+}
+
 function renderScanFilters(poolResults, sectorStats) {
     var filters = scanWorkspaceState.filters;
+    renderScanEntryModelToggle();
     var search = document.getElementById('scan-search');
     var manualView = getScanManualViewState(filters);
 

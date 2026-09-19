@@ -324,6 +324,10 @@
                         <span>风险验证</span>
                         <strong id="scan-count-risk">0</strong>
                     </button>
+                    <button class="scan-pool-tab" id="scan-pool-bottom-div" onclick="setScanPool('bottom_div')">
+                        <span>修复观察</span>
+                        <strong id="scan-count-bottom-div">0</strong>
+                    </button>
                 </div>
 
                 <section class="scan-filter-panel" aria-label="候选筛选">
@@ -342,6 +346,11 @@
                             <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
                         </div>
                         <div class="strategy-scope-note strategy-scope-note--scan" data-scan-strategy-scope>V2语义层对比 · 指标/评分沿用当前策略</div>
+                    </div>
+                    <div class="scan-strategy-toggle" id="scan-entry-model-toggle" role="group" aria-label="回放入场口径">
+                        <span>入场口径</span>
+                        <button type="button" data-scan-entry-model="event_close" class="active" aria-pressed="true" onclick="setScanEntryModel('event_close')">信号日收盘</button>
+                        <button type="button" data-scan-entry-model="next_open" aria-pressed="false" onclick="setScanEntryModel('next_open')">次日开盘</button>
                     </div>
                     <div class="scan-reason-filter" id="scan-reason-filter" aria-label="V2原因筛选"></div>
                     <div class="scan-candidate-context" id="scan-candidate-context" aria-label="当前名单上下文">

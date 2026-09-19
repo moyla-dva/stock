@@ -1,4 +1,4 @@
-var SCAN_POOL_TYPES = ['opportunity', 'risk'];
+var SCAN_POOL_TYPES = ['opportunity', 'risk', 'bottom_div'];
 var SCAN_SIDE_VIEWS = ['detail'];
 var SCAN_RESULT_PAGE_SIZE = 120;
 var SCAN_RESULT_MAX_LIMIT = 6000;
@@ -9,8 +9,24 @@ function readStoredScanStrategyView() {
     return 'v2';
 }
 
+var SCAN_ENTRY_MODEL_STORAGE_KEY = 'scanEntryModel';
+var SCAN_ENTRY_MODELS = [
+    { value: 'event_close', label: '信号日收盘入场' },
+    { value: 'next_open', label: '次日开盘入场' }
+];
+
+function readStoredScanEntryModel() {
+    try {
+        var stored = window.localStorage.getItem(SCAN_ENTRY_MODEL_STORAGE_KEY);
+        return SCAN_ENTRY_MODELS.some(function (item) { return item.value === stored; }) ? stored : 'event_close';
+    } catch (error) {
+        return 'event_close';
+    }
+}
+
 var scanWorkspaceState = {
     activeType: 'opportunity',
+    entryModel: readStoredScanEntryModel(),
     strategyView: readStoredScanStrategyView(),
     refreshPolicy: 'auto',
     sideView: 'detail',
@@ -78,8 +94,8 @@ function getScanConfig(scanType) {
         return {
             title: '修复观察',
             action: '更新修复观察',
-            tabId: '',
-            countId: '',
+            tabId: 'scan-pool-bottom-div',
+            countId: 'scan-count-bottom-div',
             variant: 'bottom',
             unit: '只修复线索'
         };

@@ -3,8 +3,8 @@
 DATA_START_DATE = "2025-04-29"
 DATA_ADJUST = "qfq"
 
-SCAN_STRATEGY_VERSION = "2026.09.19.2"
-SCAN_STRATEGY_LABEL = "C信号V2 P1-P12 + P19 修复观察 + 突破/破位/周线口径修正"
+SCAN_STRATEGY_VERSION = "2026.09.20.1"
+SCAN_STRATEGY_LABEL = "C信号V2 P1-P12 + P19 修复观察 + 突破/破位/周线口径修正 + 宏观样本待核"
 SCAN_STRATEGY_NOTES = (
     "日线和分钟线统一使用前复权口径",
     "V2 独立许可接管扫描入池，旧 C 信号保留为对照证据",
