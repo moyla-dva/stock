@@ -22,9 +22,15 @@ function renderScanSelection() {
 
     var state = document.createElement('div');
     state.className = 'scan-selected-status scan-selected-status--' + (previewing ? 'preview' : 'selected');
-    state.textContent = previewing
-        ? '临时预览 · 未固定'
-        : '当前选中 · 等待图表确认';
+    if (item._detail_loading) {
+        state.textContent = '当前选中 · 正在加载完整详情';
+    } else if (item._detail_error) {
+        state.textContent = '当前选中 · ' + item._detail_error;
+    } else {
+        state.textContent = previewing
+            ? '临时预览 · 未固定'
+            : '当前选中 · 等待图表确认';
+    }
     detail.appendChild(state);
 
     var title = document.createElement('div');
@@ -68,6 +74,8 @@ function renderScanSelection() {
 
     var explanation = buildScanExplanation(item);
     detail.appendChild(renderScanDecisionVerdict(item, explanation));
+    var v2GateSection = renderScanV2GateSection(item);
+    if (v2GateSection) detail.appendChild(v2GateSection);
     var tradePlanSection = renderScanTradePlanSection(item);
     if (tradePlanSection) detail.appendChild(tradePlanSection);
     detail.appendChild(renderScanBasisSection(item, explanation, conceptText));

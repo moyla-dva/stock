@@ -74,8 +74,16 @@ class ScanHistoryTest(unittest.TestCase):
                 write_scan_snapshot(second, start_date="2025-04-29", snapshot_day="2026-05-02")
 
                 history = list_scan_history(start_date="2025-04-29")
+                with patch(
+                    "stock_analyzer.scan_history.read_scan_snapshot_file",
+                    side_effect=AssertionError("cache miss"),
+                ):
+                    cached = list_scan_history(start_date="2025-04-29")
 
         self.assertEqual(history["count"], 2)
+        self.assertFalse(history["cache_meta"]["hit"])
+        self.assertTrue(cached["cache_meta"]["hit"])
+        self.assertEqual(cached["count"], 2)
         self.assertEqual(history["items"][0]["snapshot_day"], "20260502")
         self.assertEqual(history["items"][0]["display_day"], "2026-05-02")
         self.assertEqual(history["items"][0]["pool_counts"]["opportunity"]["count"], 1)

@@ -63,6 +63,9 @@ class ScanJobManager:
         codes = list(codes or [])
         plan_summary = dict(plan_summary or {})
         scope = plan_summary.get("scope") or "market"
+        job_id = uuid.uuid4().hex[:12]
+        now = _now_text()
+        strategy_meta = plan_summary.get("strategy_meta") if isinstance(plan_summary.get("strategy_meta"), dict) else {}
         with self._lock:
             active_job = self._active_job_for_unlocked(scan_type, scope)
             if active_job is not None:
@@ -71,52 +74,48 @@ class ScanJobManager:
                 copy["duplicate_note"] = "已有同类扫描任务运行，已接管当前任务"
                 return copy
 
-        job_id = uuid.uuid4().hex[:12]
-        now = _now_text()
-        strategy_meta = plan_summary.get("strategy_meta") if isinstance(plan_summary.get("strategy_meta"), dict) else {}
-        job = {
-            "id": job_id,
-            "status": "queued",
-            "scan_type": scan_type,
-            "refresh_policy": refresh_policy,
-            "scope": scope,
-            "code_source": plan_summary.get("code_source") or "market",
-            "strategy_version": strategy_meta.get("strategy_version") or plan_summary.get("strategy_version") or "",
-            "strategy_label": strategy_meta.get("strategy_label") or plan_summary.get("strategy_label") or "",
-            "requested_count": int(plan_summary.get("requested_count", len(codes))),
-            "eligible_count": int(plan_summary.get("eligible_count", len(codes))),
-            "queued_count": len(codes),
-            "skipped_count": int(plan_summary.get("skipped_count", 0)),
-            "cache_hit_count": int(plan_summary.get("cache_hit_count", 0)),
-            "missing_count": int(plan_summary.get("missing_count", 0)),
-            "stale_count": int(plan_summary.get("stale_count", 0)),
-            "legacy_strategy_count": int(plan_summary.get("legacy_strategy_count", 0)),
-            "missing_type_count": int(plan_summary.get("missing_type_count", 0)),
-            "invalid_count": int(plan_summary.get("invalid_count", 0)),
-            "total": len(codes),
-            "batch_size": int(plan_summary.get("batch_size") or self.batch_size or 1),
-            "batch_count": int(plan_summary.get("batch_count") or ((len(codes) + self.batch_size - 1) // self.batch_size if codes else 0)),
-            "current_batch_index": 0,
-            "batch_delay_seconds": float(plan_summary.get("batch_delay_seconds", self.batch_delay) or 0),
-            "request_delay_seconds": float(plan_summary.get("request_delay_seconds", self.request_delay) or 0),
-            "resume_supported": bool(plan_summary.get("resume_supported")),
-            "resume_note": plan_summary.get("resume_note") or "",
-            "restart_interrupted": False,
-            "recovery_hint": plan_summary.get("recovery_hint") or "",
-            "completed": 0,
-            "matched": 0,
-            "failed": 0,
-            "progress": 0,
-            "current_code": "",
-            "results": [],
-            "error": None,
-            "cancel_requested": False,
-            "created_at": now,
-            "started_at": None,
-            "updated_at": now,
-            "finished_at": None,
-        }
-        with self._lock:
+            job = {
+                "id": job_id,
+                "status": "queued",
+                "scan_type": scan_type,
+                "refresh_policy": refresh_policy,
+                "scope": scope,
+                "code_source": plan_summary.get("code_source") or "market",
+                "strategy_version": strategy_meta.get("strategy_version") or plan_summary.get("strategy_version") or "",
+                "strategy_label": strategy_meta.get("strategy_label") or plan_summary.get("strategy_label") or "",
+                "requested_count": int(plan_summary.get("requested_count", len(codes))),
+                "eligible_count": int(plan_summary.get("eligible_count", len(codes))),
+                "queued_count": len(codes),
+                "skipped_count": int(plan_summary.get("skipped_count", 0)),
+                "cache_hit_count": int(plan_summary.get("cache_hit_count", 0)),
+                "missing_count": int(plan_summary.get("missing_count", 0)),
+                "stale_count": int(plan_summary.get("stale_count", 0)),
+                "legacy_strategy_count": int(plan_summary.get("legacy_strategy_count", 0)),
+                "missing_type_count": int(plan_summary.get("missing_type_count", 0)),
+                "invalid_count": int(plan_summary.get("invalid_count", 0)),
+                "total": len(codes),
+                "batch_size": int(plan_summary.get("batch_size") or self.batch_size or 1),
+                "batch_count": int(plan_summary.get("batch_count") or ((len(codes) + self.batch_size - 1) // self.batch_size if codes else 0)),
+                "current_batch_index": 0,
+                "batch_delay_seconds": float(plan_summary.get("batch_delay_seconds", self.batch_delay) or 0),
+                "request_delay_seconds": float(plan_summary.get("request_delay_seconds", self.request_delay) or 0),
+                "resume_supported": bool(plan_summary.get("resume_supported")),
+                "resume_note": plan_summary.get("resume_note") or "",
+                "restart_interrupted": False,
+                "recovery_hint": plan_summary.get("recovery_hint") or "",
+                "completed": 0,
+                "matched": 0,
+                "failed": 0,
+                "progress": 0,
+                "current_code": "",
+                "results": [],
+                "error": None,
+                "cancel_requested": False,
+                "created_at": now,
+                "started_at": None,
+                "updated_at": now,
+                "finished_at": None,
+            }
             self._jobs[job_id] = job
             self._persist_jobs_unlocked()
 
@@ -141,12 +140,12 @@ class ScanJobManager:
             return job
         return None
 
-    def get_job(self, job_id):
+    def get_job(self, job_id, include_results=True):
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return None
-            return self._copy_job(job)
+            return self._copy_job(job, include_results=include_results)
 
     def cancel_job(self, job_id):
         with self._lock:
@@ -256,7 +255,7 @@ class ScanJobManager:
             job["updated_at"] = _now_text()
             total = job.get("total") or 0
             job["progress"] = 100 if total == 0 else int((job["completed"] / total) * 100)
-            if job["completed"] % self.persist_every == 0 or result:
+            if job["completed"] % self.persist_every == 0:
                 self._persist_jobs_unlocked()
             return self._copy_job(job)
 
@@ -293,8 +292,7 @@ class ScanJobManager:
                         return
                     try:
                         result = future.result()
-                    except Exception as exc:
-                        self._update_job(job_id, error=str(exc))
+                    except Exception:
                         self._append_result(job_id, failed=True, current_code=code)
                         continue
                     self._append_result(job_id, result=result, current_code=code)
@@ -423,8 +421,12 @@ class ScanJobManager:
         for item in jobs:
             if not isinstance(item, dict):
                 continue
+            original_status = item.get("status") or "failed"
             normalized = self._normalize_job(item)
-            changed = changed or normalized.get("status") == "interrupted"
+            changed = changed or (
+                normalized.get("status") == "interrupted"
+                and original_status in {"queued", "running", "cancelling"}
+            )
             self._jobs[normalized["id"]] = normalized
         if changed:
             self._persist_jobs_unlocked()
@@ -441,10 +443,20 @@ class ScanJobManager:
         payload = {
             "version": 1,
             "updated_at": _now_text(),
-            "jobs": [self._copy_job(job) for job in jobs],
+            # results stay session-only: persisting them made jobs.json grow
+            # quadratically on full-market scans (264MB observed); counters in
+            # each job are enough for the history list and resume hints.
+            "jobs": [self._copy_job(job, include_results=False) for job in jobs],
         }
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.history_path.with_suffix(".tmp")
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
-        tmp_path.replace(self.history_path)
+        tmp_path = self.history_path.parent / f"{self.history_path.name}.{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+            tmp_path.replace(self.history_path)
+        except OSError:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass

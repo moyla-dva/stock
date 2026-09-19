@@ -3,9 +3,6 @@ var chartSignalView = 'focus';
 var workspaceView = 'candidates';
 var deskView = 'scan';
 var inspectorView = 'overview';
-var lastData = null;
-var lastAnalysisData = null;
-var activeChartPeriod = 'daily';
 var pendingFocusDate = null;
 var activeScanChartFocus = null;
 var activeInspectorSignalDate = null;
@@ -65,6 +62,16 @@ function setActiveScanChartFocus(item) {
         v2_role_label: item.v2_role_label || '',
         v2_tone: item.v2_tone || '',
         v2_state_model: item.v2_state_model || null,
+        v2_permission: item.v2_permission || '',
+        v2_queue: item.v2_queue || '',
+        v2_queue_label: item.v2_queue_label || '',
+        candidate_substate: item.candidate_substate || '',
+        candidate_substate_label: item.candidate_substate_label || '',
+        candidate_display_label: item.candidate_display_label || '',
+        candidate_confirmation_price: item.candidate_confirmation_price,
+        candidate_invalidation_price: item.candidate_invalidation_price,
+        candidate_missing_confirmations: Array.isArray(item.candidate_missing_confirmations) ? item.candidate_missing_confirmations.slice(0) : [],
+        candidate_trigger_plan: item.candidate_trigger_plan || item.candidateTriggerPlan || null,
         trade_intent_label: item.trade_intent_label || '',
         requires_trade_plan: item.requires_trade_plan,
         requires_stop_loss: item.requires_stop_loss,
@@ -220,8 +227,9 @@ function handleKeyPress(event) {
 function setSignalMode(mode) {
     signalMode = 'composite';
     updateModeState();
-    if (lastData) {
-        renderChart(lastData);
+    var data = analysisStore.getRootData() || analysisStore.getViewData();
+    if (data) {
+        renderChart(data);
     }
 }
 
@@ -235,17 +243,23 @@ function analyzeStock(options) {
 
     var btn = document.getElementById('btn-analyze');
     btn.disabled = true;
+    var analysisRequest = analysisStore.beginAnalysis(code);
     setDeskStatus('分析中');
     setChartState('加载数据');
 
     return analyzeStockData(code)
         .then(function(data) {
+            if (!analysisStore.isAnalysisRequestCurrent(analysisRequest)) {
+                return;
+            }
             if (data.error) {
+                analysisStore.failAnalysis(analysisRequest, data.error);
                 setDeskStatus('分析失败');
                 setChartState('返回错误');
                 alert('错误: ' + data.error);
                 return;
             }
+            analysisStore.completeAnalysis(analysisRequest, data);
             renderChart(data);
             if (pendingFocusDate && typeof focusSignal === 'function') {
                 var focused = focusSignal(pendingFocusDate);
@@ -258,12 +272,17 @@ function analyzeStock(options) {
             setDeskStatus('已更新');
         })
         .catch(function(err) {
+            if (!analysisStore.failAnalysis(analysisRequest, err)) {
+                return;
+            }
             setDeskStatus('请求失败');
             setChartState('请求失败');
             alert('请求失败: ' + err.message);
         })
         .finally(function() {
-            btn.disabled = false;
+            if (analysisStore.isAnalysisRequestCurrent(analysisRequest) || !analysisStore.isAnalysisLoading()) {
+                btn.disabled = false;
+            }
         });
 }
 

@@ -3,14 +3,22 @@ var SCAN_SIDE_VIEWS = ['detail'];
 var SCAN_RESULT_PAGE_SIZE = 120;
 var SCAN_RESULT_MAX_LIMIT = 6000;
 
+var SCAN_STRATEGY_VIEW_STORAGE_KEY = 'scanStrategyView';
+
+function readStoredScanStrategyView() {
+    return 'v2';
+}
+
 var scanWorkspaceState = {
     activeType: 'opportunity',
-    strategyView: 'v2',
+    strategyView: readStoredScanStrategyView(),
     refreshPolicy: 'auto',
     sideView: 'detail',
     resultLimit: SCAN_RESULT_PAGE_SIZE,
     workspaceMaxItems: SCAN_RESULT_PAGE_SIZE,
     loadingMoreResults: false,
+    loadingCandidateDetail: false,
+    candidateDetailRequestKey: '',
     filteredCandidateLoads: {},
     selectedResult: null,
     previewResult: null,
@@ -43,6 +51,7 @@ var scanWorkspaceState = {
         query: '',
         sector: '',
         concept: '',
+        reason: '',
         sort: 'system'
     }
 };
@@ -140,6 +149,7 @@ function hasActiveScanFilters() {
         normalizeFilterText(filters.query || '')
         || filters.sector
         || filters.concept
+        || filters.reason
     );
 }
 

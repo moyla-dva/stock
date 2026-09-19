@@ -13,6 +13,13 @@ function analyzeStockData(code) {
     return requestJson('/api/analyze?code=' + encodeURIComponent(code));
 }
 
+function fetchAnalysisTimeframes(code, period) {
+    var params = new URLSearchParams();
+    params.set('code', code);
+    if (period) params.set('period', period);
+    return requestJson('/api/analyze/timeframes?' + params.toString());
+}
+
 function fetchStockList() {
     return requestJson('/api/stock_list');
 }
@@ -24,6 +31,7 @@ function fetchScanWorkspace(snapshotDay, forceRefresh, limit, options) {
     if (forceRefresh) params.set('refresh', '1');
     if (limit) params.set('limit', limit);
     if (options.lite) params.set('lite', '1');
+    if (options.activeType) params.set('active_type', options.activeType);
     if (options.includeReplay === false) params.set('include_replay', '0');
     if (options.includeReplay === true) params.set('include_replay', '1');
     var query = params.toString();
@@ -38,13 +46,30 @@ function fetchScanCandidates(options) {
     if (options.forceRefresh) params.set('refresh', '1');
     if (options.sector) params.set('sector', options.sector);
     if (options.concept) params.set('concept', options.concept);
+    if (options.code) params.set('code', options.code);
     if (options.query) params.set('query', options.query);
+    if (options.reason) params.set('reason', options.reason);
+    if (options.eventDate) params.set('event_date', options.eventDate);
     if (options.limit) params.set('limit', options.limit);
     if (options.offset) params.set('offset', options.offset);
     if (options.lite) params.set('lite', '1');
+    if (options.detail) params.set('detail', '1');
+    if (options.compact === false) params.set('compact', '0');
     if (options.includeReplay === false) params.set('include_replay', '0');
     if (options.includeReplay === true) params.set('include_replay', '1');
     return requestJson('/api/scan_workspace/candidates?' + params.toString());
+}
+
+function fetchScanCandidateDetail(options) {
+    options = options || {};
+    return fetchScanCandidates(Object.assign({}, options, {
+        limit: 1,
+        offset: 0,
+        lite: true,
+        detail: true,
+        compact: false,
+        includeReplay: false
+    }));
 }
 
 function fetchScanHistory(limit) {

@@ -4,6 +4,8 @@ import math
 
 import pandas as pd
 
+from stock_analyzer.c_signal_v2_facts import build_v2_risk_facts
+
 
 def _as_float(value, default=None):
     try:
@@ -182,7 +184,7 @@ def build_technical_structures(df_display):
     ma20_up = _as_bool(latest.get("ma20_up"))
     trend_ok = _as_bool(latest.get("trend_ok"))
     above_ma20 = bool(close is not None and ma20 is not None and close >= ma20)
-    risk_score = int(_as_float(latest.get("composite_risk_score"), 0) or 0)
+    risk_score = int(_as_float(build_v2_risk_facts(df_display).get("risk_score"), 0) or 0)
 
     return {
         "version": 1,

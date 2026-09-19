@@ -128,6 +128,7 @@ def fetch_stock_minute_history(
     days=90,
     adjust="qfq",
     use_cache=False,
+    cache_only=False,
     use_disable_proxies=False,
     logger=None,
     verbose=False,
@@ -148,6 +149,10 @@ def fetch_stock_minute_history(
         cached = read_cached_minute_history(code, period, cache_start_text, cache_end_text, adjust=adjust, logger=logger)
         if cached is not None and not cached.empty:
             return cached
+    if cache_only:
+        if logger:
+            logger.info(f"分时缓存未命中，跳过实时拉取: {code}_{period}")
+        return None
 
     if use_disable_proxies:
         disable_proxies()

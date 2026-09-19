@@ -112,12 +112,17 @@ function buildChartOption(data, dates, markPoints, defaultStart, scanFocus) {
                         formatter: function(param) {
                             var point = param.data || {};
                             var meta = getPointMeta(point);
+                            var role = typeof chartMarkerRole === 'function' ? chartMarkerRole(point, meta) : '';
+                            var roleLabel = typeof chartMarkerRoleLabel === 'function' ? chartMarkerRoleLabel(role, point, meta) : '';
                             var date = point.date || (point.coord && point.coord[0]) || '';
                             var reason = point.reason || point.value || meta.detail || '';
+                            var source = meta.displaySource ? '<br/>原始事实: ' + meta.displaySource : '';
                             return '<div class="chart-tooltip-date">' + date + '</div>' +
+                                (roleLabel ? roleLabel + '<br/>' : '') +
                                 meta.label + ' ' + meta.name + '<br/>' +
                                 '收盘: ' + formatPrice(point.price) + '<br/>' +
-                                reason;
+                                reason +
+                                source;
                         }
                     }
                 }

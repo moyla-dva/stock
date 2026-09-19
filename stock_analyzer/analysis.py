@@ -17,7 +17,6 @@ from stock_analyzer.indicators import (
 )
 from stock_analyzer.normalizer import normalize_price_frame
 from stock_analyzer.signals import add_signal_columns
-from stock_analyzer.strategy import add_composite_strategy_columns
 from stock_analyzer.versioning import DATA_ADJUST
 
 
@@ -66,7 +65,7 @@ def prepare_analysis_frame(df, fill_initial_ma20=False):
     df_display = df.copy()
     df_display.reset_index(drop=True, inplace=True)
     df_display = add_signal_columns(df_display)
-    return add_composite_strategy_columns(df_display)
+    return df_display
 
 
 def build_analysis_frame(

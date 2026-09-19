@@ -148,6 +148,99 @@ class ScanJobsTest(unittest.TestCase):
         self.assertEqual(reused["queued_count"], 1)
         self.assertEqual(finished["status"], "completed")
 
+    def test_scan_job_manager_reuses_concurrent_duplicate_start_requests(self):
+        entered = threading.Event()
+        release = threading.Event()
+        start = threading.Barrier(4)
+        uuid_lock = threading.Lock()
+        uuid_counter = [0]
+        results = []
+        errors = []
+
+        class FakeUuid:
+            def __init__(self, value):
+                self.hex = value
+
+        def fake_uuid4():
+            start.wait(timeout=2)
+            with uuid_lock:
+                uuid_counter[0] += 1
+                return FakeUuid(f"{uuid_counter[0]:032x}")
+
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            entered.set()
+            release.wait(timeout=2)
+            return None
+
+        manager = ScanJobManager(
+            max_jobs=1,
+            max_workers=1,
+            batch_size=1,
+            batch_delay=0,
+            request_delay=0,
+            history_path=None,
+        )
+        try:
+            def worker():
+                try:
+                    results.append(
+                        manager.start_job(
+                            ["600063"],
+                            "opportunity",
+                            scan_one,
+                            plan_summary={"scope": "market"},
+                        )
+                    )
+                except Exception as exc:
+                    errors.append(exc)
+
+            with patch("stock_analyzer.scan_jobs.uuid.uuid4", side_effect=fake_uuid4):
+                threads = [threading.Thread(target=worker) for _ in range(4)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+
+            self.assertTrue(entered.wait(timeout=1))
+            release.set()
+            finished = manager.wait_job(results[0]["id"], timeout=3)
+        finally:
+            release.set()
+            manager.shutdown(wait=True)
+
+        self.assertFalse(errors)
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len({item["id"] for item in results}), 1)
+        self.assertEqual(sum(1 for item in results if item.get("duplicate_reused")), 3)
+        self.assertEqual(finished["status"], "completed")
+
+    def test_scan_job_manager_keeps_partial_failures_out_of_job_error(self):
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            if code == "000001":
+                raise RuntimeError("provider timeout")
+            return {"code": code, "scan_type": scan_type, "signal_key": "demo"}
+
+        with TemporaryDirectory() as tmp_dir:
+            manager = ScanJobManager(
+                max_jobs=1,
+                max_workers=2,
+                batch_size=2,
+                batch_delay=0,
+                request_delay=0,
+                history_path=Path(tmp_dir) / "jobs.json",
+            )
+            try:
+                started = manager.start_job(["000001", "600063"], "opportunity", scan_one)
+                finished = manager.wait_job(started["id"], timeout=3)
+            finally:
+                manager.shutdown(wait=True)
+
+        self.assertEqual(finished["status"], "completed")
+        self.assertEqual(finished["completed"], 2)
+        self.assertEqual(finished["failed"], 1)
+        self.assertEqual(finished["matched"], 1)
+        self.assertIsNone(finished["error"])
+
     def test_scan_job_manager_reports_running_eta_metrics(self):
         with TemporaryDirectory() as tmp_dir:
             manager = ScanJobManager(
@@ -222,6 +315,120 @@ class ScanJobsTest(unittest.TestCase):
         self.assertEqual(history[0]["id"], started["id"])
         self.assertEqual(history[0]["results"], [])
 
+    def test_scan_job_manager_persists_history_without_results(self):
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            return {"code": code, "scan_type": scan_type, "signal_key": "demo"}
+
+        with TemporaryDirectory() as tmp_dir:
+            history_path = Path(tmp_dir) / "jobs.json"
+            manager = ScanJobManager(
+                max_jobs=1,
+                max_workers=1,
+                batch_size=1,
+                batch_delay=0,
+                request_delay=0,
+                history_path=history_path,
+            )
+            try:
+                started = manager.start_job(["600063", "000001", "000002"], "opportunity", scan_one)
+                manager.wait_job(started["id"], timeout=3)
+            finally:
+                manager.shutdown(wait=True)
+
+            persisted = json.loads(history_path.read_text(encoding="utf-8"))
+
+        job = persisted["jobs"][0]
+        self.assertEqual(job["id"], started["id"])
+        self.assertEqual(job["matched"], 3)
+        self.assertEqual(job["results"], [])
+
+    def test_scan_job_manager_can_copy_job_without_results(self):
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            return {"code": code, "scan_type": scan_type, "signal_key": "demo"}
+
+        with TemporaryDirectory() as tmp_dir:
+            manager = ScanJobManager(
+                max_jobs=1,
+                max_workers=1,
+                batch_size=1,
+                batch_delay=0,
+                request_delay=0,
+                history_path=Path(tmp_dir) / "jobs.json",
+            )
+            try:
+                started = manager.start_job(["600063"], "opportunity", scan_one)
+                manager.wait_job(started["id"], timeout=3)
+                compact = manager.get_job(started["id"], include_results=False)
+                full = manager.get_job(started["id"], include_results=True)
+            finally:
+                manager.shutdown(wait=True)
+
+        self.assertEqual(compact["matched"], 1)
+        self.assertEqual(compact["results"], [])
+        self.assertEqual(full["results"][0]["code"], "600063")
+
+    def test_scan_job_manager_throttles_result_persistence(self):
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            return {"code": code, "scan_type": scan_type, "signal_key": "demo"}
+
+        with TemporaryDirectory() as tmp_dir:
+            manager = ScanJobManager(
+                max_jobs=1,
+                max_workers=1,
+                batch_size=1,
+                batch_delay=0,
+                request_delay=0,
+                persist_every=25,
+                history_path=Path(tmp_dir) / "jobs.json",
+            )
+            try:
+                with patch.object(manager, "_persist_jobs_unlocked", wraps=manager._persist_jobs_unlocked) as spy:
+                    started = manager.start_job(["600063", "000001", "000002"], "opportunity", scan_one)
+                    manager.wait_job(started["id"], timeout=3)
+            finally:
+                manager.shutdown(wait=True)
+
+        # queued + started + completed；命中结果不再逐条触发持久化
+        self.assertEqual(spy.call_count, 3)
+
+    @patch("app.check_stock_signal")
+    def test_scan_jobs_api_detail_omits_results_unless_requested(self, mock_check):
+        mock_check.return_value = {
+            "code": "600063",
+            "scan_type": "opportunity",
+            "signal_key": "demo",
+        }
+
+        with TemporaryDirectory() as tmp_dir:
+            manager = ScanJobManager(
+                max_jobs=1,
+                max_workers=1,
+                batch_size=1,
+                batch_delay=0,
+                request_delay=0,
+                history_path=Path(tmp_dir) / "jobs.json",
+            )
+            try:
+                with patch("app.scan_job_manager", manager):
+                    client = app.app.test_client()
+                    response = client.post("/api/scan_jobs", json={
+                        "codes": ["600063"],
+                        "scan_type": "opportunity",
+                        "refresh_policy": "force",
+                    })
+                    payload = response.get_json()
+                    manager.wait_job(payload["id"], timeout=3)
+                    default_detail = client.get(f"/api/scan_jobs/{payload['id']}").get_json()
+                    full_detail = client.get(f"/api/scan_jobs/{payload['id']}?include_results=1").get_json()
+            finally:
+                manager.shutdown(wait=True)
+
+        self.assertEqual(default_detail["matched"], 1)
+        self.assertEqual(default_detail["results"], [])
+        self.assertTrue(default_detail["results_omitted"])
+        self.assertEqual(full_detail["results"][0]["code"], "600063")
+        self.assertNotIn("results_omitted", full_detail)
+
     def test_scan_job_manager_marks_running_history_interrupted(self):
         with TemporaryDirectory() as tmp_dir:
             history_path = Path(tmp_dir) / "jobs.json"
@@ -263,6 +470,50 @@ class ScanJobsTest(unittest.TestCase):
         self.assertEqual(restored["error"], "服务重启，任务中断")
         self.assertTrue(restored["restart_interrupted"])
         self.assertIn("重新启动", restored["recovery_hint"])
+
+    def test_scan_job_manager_does_not_rewrite_already_interrupted_history(self):
+        with TemporaryDirectory() as tmp_dir:
+            history_path = Path(tmp_dir) / "jobs.json"
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            original = json.dumps({
+                "version": 1,
+                "updated_at": "2026-09-15T10:00:00",
+                "jobs": [{
+                    "id": "job123",
+                    "status": "interrupted",
+                    "scan_type": "opportunity",
+                    "refresh_policy": "cache",
+                    "total": 10,
+                    "completed": 4,
+                    "matched": 1,
+                    "failed": 0,
+                    "progress": 40,
+                    "results": [{"code": "600063"}],
+                    "error": "服务重启，任务中断",
+                    "restart_interrupted": True,
+                    "created_at": "2026-05-11T09:30:00",
+                    "started_at": "2026-05-11T09:30:01",
+                    "updated_at": "2026-05-11T09:31:00",
+                    "finished_at": "2026-05-11T09:31:00",
+                }],
+            }, ensure_ascii=False)
+            history_path.write_text(original, encoding="utf-8")
+
+            manager = ScanJobManager(
+                max_jobs=1,
+                max_workers=1,
+                batch_size=1,
+                batch_delay=0,
+                request_delay=0,
+                history_path=history_path,
+            )
+            try:
+                restored = manager.get_job("job123")
+            finally:
+                manager.shutdown(wait=True)
+
+            self.assertEqual(restored["status"], "interrupted")
+            self.assertEqual(history_path.read_text(encoding="utf-8"), original)
 
     @patch("app.check_stock_signal")
     def test_scan_jobs_api_runs_background_scan(self, mock_check):

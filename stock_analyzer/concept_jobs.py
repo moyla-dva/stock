@@ -40,29 +40,29 @@ class ConceptRefreshJobManager:
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
 
     def start_job(self, refresh_func, max_concepts=None):
-        active = self.current_job()
-        if active and active.get("status") not in TERMINAL_STATUSES:
-            return active
-
         job_id = uuid.uuid4().hex[:12]
         now = _now_text()
-        job = {
-            "id": job_id,
-            "status": "queued",
-            "total": 0,
-            "completed": 0,
-            "progress": 0,
-            "current_concept": "",
-            "stock_count": 0,
-            "concept_count": 0,
-            "max_concepts": max_concepts,
-            "error": None,
-            "created_at": now,
-            "started_at": None,
-            "updated_at": now,
-            "finished_at": None,
-        }
         with self._lock:
+            active = self._current_job_unlocked()
+            if active and active.get("status") not in TERMINAL_STATUSES:
+                return self._copy_job(active)
+
+            job = {
+                "id": job_id,
+                "status": "queued",
+                "total": 0,
+                "completed": 0,
+                "progress": 0,
+                "current_concept": "",
+                "stock_count": 0,
+                "concept_count": 0,
+                "max_concepts": max_concepts,
+                "error": None,
+                "created_at": now,
+                "started_at": None,
+                "updated_at": now,
+                "finished_at": None,
+            }
             self._jobs[job_id] = job
             self._persist_jobs_unlocked()
 
@@ -80,14 +80,19 @@ class ConceptRefreshJobManager:
 
     def current_job(self):
         with self._lock:
-            if not self._jobs:
+            job = self._current_job_unlocked()
+            if job is None:
                 return None
-            job = sorted(
-                self._jobs.values(),
-                key=lambda item: item.get("created_at") or "",
-                reverse=True,
-            )[0]
             return self._copy_job(job)
+
+    def _current_job_unlocked(self):
+        if not self._jobs:
+            return None
+        return sorted(
+            self._jobs.values(),
+            key=lambda item: item.get("created_at") or "",
+            reverse=True,
+        )[0]
 
     def list_jobs(self, limit=20):
         with self._lock:
@@ -234,7 +239,14 @@ class ConceptRefreshJobManager:
             "jobs": [self._copy_job(job) for job in jobs],
         }
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.history_path.with_suffix(".tmp")
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
-        tmp_path.replace(self.history_path)
+        tmp_path = self.history_path.parent / f"{self.history_path.name}.{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+            tmp_path.replace(self.history_path)
+        except OSError:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass

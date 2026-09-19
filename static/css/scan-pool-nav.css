@@ -51,7 +51,7 @@
 .market-results-head {
     min-height: 78px;
     display: grid;
-    grid-template-columns: minmax(170px, 0.55fr) minmax(260px, 1fr) minmax(280px, 0.78fr);
+    grid-template-columns: minmax(170px, 0.55fr) minmax(260px, 1fr);
     align-items: center;
     gap: 12px;
     padding: 12px 14px;
@@ -59,6 +59,10 @@
     background:
         linear-gradient(90deg, rgba(0, 125, 111, 0.08), transparent 42%),
         #fbfcf8;
+}
+
+.scan-filter-side .scan-pool-tabs {
+    margin: 0;
 }
 
 .market-results-pane .scan-pool-tabs {
@@ -167,25 +171,6 @@
     transform: none;
 }
 
-.market-results-tools {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(260px, 1fr);
-    gap: 10px;
-    align-items: center;
-}
-
-.market-results-tools .scan-pool-tabs {
-    grid-column: 1;
-    width: 100%;
-    max-width: 420px;
-    justify-self: end;
-}
-
-body[data-workspace="data"] .market-results-tools {
-    display: none;
-}
-
 body[data-workspace="data"] .candidate-desk-brief {
     display: none;
 }
@@ -194,15 +179,6 @@ body[data-workspace="data"] .candidate-desk-brief {
     .market-results-head {
         grid-template-columns: 1fr;
         gap: 10px;
-    }
-
-    .market-results-tools {
-        grid-template-columns: 1fr;
-    }
-
-    .market-results-tools .scan-pool-tabs {
-        max-width: none;
-        justify-self: stretch;
     }
 
     .candidate-desk-brief {

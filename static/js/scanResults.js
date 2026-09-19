@@ -140,10 +140,8 @@ function renderScanResults(list, results, variant, meta) {
         }
         return;
     }
-    var sortMode = typeof normalizeScanSortMode === 'function'
-        ? normalizeScanSortMode(scanWorkspaceState.filters.sort)
-        : (scanWorkspaceState.filters.sort || 'system');
-    var useQueueGroups = typeof scanCandidateQueue === 'function' && sortMode === 'system';
+    // System order is score-descending; queue grouping would split that order.
+    var useQueueGroups = false;
     var groupCounts = results.reduce(function(counts, item) {
         var key = useQueueGroups ? scanCandidateQueue(item).key : scanResultStrategyStatus(item);
         counts[key] = (counts[key] || 0) + 1;

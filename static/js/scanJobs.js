@@ -28,12 +28,17 @@ function resumeScanJob(job) {
 }
 
 function setScanPool(scanType) {
+    scanType = normalizeScanPoolType(scanType || scanWorkspaceState.activeType);
     if (typeof navigateScanWorkspace === 'function') {
         navigateScanWorkspace({workspace: 'candidates', activeType: scanType, sideView: 'detail'});
     } else {
         setActiveScanType(scanType);
         openScanWorkspace('candidates');
         renderScanWorkspace();
+    }
+    var pool = getScanPool(scanType);
+    if ((pool.count || 0) > 0 && !(pool.results || []).length) {
+        loadScanWorkspace(scanType, scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '', false);
     }
     enrichActiveScanProfiles();
 }
@@ -49,7 +54,8 @@ async function loadScanWorkspace(activeType, snapshotDay, forceRefresh, limitOve
     try {
         setScanStatus(requestedSnapshotDay ? '读取历史结果' : '读取本地结果');
         var workspace = await fetchScanWorkspace(requestedSnapshotDay, forceRefresh, limit, {
-            lite: true
+            lite: true,
+            activeType: scanWorkspaceState.activeType
         });
         if (workspace.error) throw new Error(workspace.error);
         renderScanWorkspace(workspace);
@@ -104,6 +110,7 @@ async function loadScanCandidatesForCurrentFilters(scanType, offset, limit) {
         sector: filters.sector || '',
         concept: filters.concept || '',
         query: filters.query || '',
+        reason: filters.reason || '',
         offset: offset || 0,
         limit: limit || SCAN_RESULT_PAGE_SIZE,
         lite: true

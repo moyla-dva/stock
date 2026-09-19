@@ -10,11 +10,31 @@ function scanV2PriorityScore(item) {
     return scanNumericValue(item, 'v2_priority_score', scanCompositeScore(item));
 }
 
+function scanSortScore(item) {
+    return scanUsesV2Priority() ? scanV2PriorityScore(item) : scanSystemRankScore(item);
+}
+
 function scanUsesV2Priority() {
     return typeof isScanV2StrategyView === 'function' && isScanV2StrategyView();
 }
 
-var SCAN_SORT_MODES = ['system', 'sector', 'concept', 'event', 'win', 'avg', 'risk'];
+var SCAN_SORT_MODES = ['system', 'sector', 'concept', 'event', 'risk'];
+var SCAN_REASON_FILTERS = [
+    {key: 'plan_ready', label: 'Plan ready', tone: 'positive', pools: ['opportunity']},
+    {key: 'plan_blocked', label: 'Plan blocked', tone: 'danger', pools: ['opportunity']},
+    {key: 'macro_veto', label: '宏观否决', tone: 'danger', pools: ['opportunity']},
+    {key: 'ma60', label: 'MA60未满足', tone: 'warning', pools: ['opportunity']},
+    {key: 'ma250', label: 'MA250下方', tone: 'danger', pools: ['opportunity']},
+    {key: 'rr', label: '2R不足', tone: 'danger', pools: ['opportunity']},
+    {key: 'chase', label: '追高', tone: 'warning', pools: ['opportunity']},
+    {key: 'heat', label: '过热', tone: 'warning', pools: ['opportunity', 'risk']},
+    {key: 'wide_stop', label: '止损过宽', tone: 'danger', pools: ['opportunity']},
+    {key: 'c_pullback', label: 'C回', tone: 'positive', pools: ['opportunity']},
+    {key: 'c_breakout', label: 'C突', tone: 'positive', pools: ['opportunity']},
+    {key: 'c_attack', label: 'C爆', tone: 'positive', pools: ['opportunity']},
+    {key: 'exit_scale_out', label: '减仓', tone: 'warning', pools: ['risk']},
+    {key: 'exit_sell', label: '卖出', tone: 'danger', pools: ['risk']}
+];
 
 function normalizeScanSortMode(value) {
     return SCAN_SORT_MODES.indexOf(value) >= 0 ? value : 'system';
@@ -26,6 +46,7 @@ function getScanManualViewState(filters) {
     var activeCount = 0;
     if (filters.sector) activeCount += 1;
     if (filters.concept) activeCount += 1;
+    if (filters.reason) activeCount += 1;
     if (sortMode !== 'system') activeCount += 1;
     return {
         sortMode: sortMode,
@@ -44,6 +65,114 @@ function getScanContextTheme() {
 
 function scanPoolTypeFromItem(item) {
     return item && (item._scan_type || item.scan_type) || scanWorkspaceState.activeType || 'opportunity';
+}
+
+function scanV2Model(item) {
+    return item && (item.v2_state_model || item.c_signal_v2_state) || {};
+}
+
+function scanV2PermissionModel(item) {
+    var model = scanV2Model(item);
+    var permission = model.v2_permission_model || model.v2PermissionModel || {};
+    return permission && typeof permission === 'object' ? permission : {};
+}
+
+function scanV2PlanGate(item) {
+    var permission = scanV2PermissionModel(item);
+    var gate = permission.plan_gate || permission.planGate || {};
+    return gate && typeof gate === 'object' ? gate : {};
+}
+
+function scanV2ExitGate(item) {
+    var model = scanV2Model(item);
+    var facts = model.facts || {};
+    var gate = facts.exit_gate || facts.exitGate || {};
+    return gate && typeof gate === 'object' ? gate : {};
+}
+
+function scanV2ReasonTexts(item) {
+    item = item || {};
+    var model = scanV2Model(item);
+    var permission = scanV2PermissionModel(item);
+    var gate = scanV2PlanGate(item);
+    var texts = [
+        item.reason,
+        item.v2_macro_veto_reason,
+        item.v2MacroVetoReason,
+        model.reason,
+        model.next_action || model.nextAction,
+        permission.reason,
+        permission.next_action || permission.nextAction,
+        gate.target_label || gate.targetLabel,
+        gate.target_source || gate.targetSource
+    ];
+    [item, model, permission, gate].forEach(function(container) {
+        if (!container || typeof container !== 'object') return;
+        [
+            'block_reasons',
+            'blockReasons',
+            'required_confirmations',
+            'requiredConfirmations',
+            'warnings',
+            'v2_environment_block_reasons',
+            'v2EnvironmentBlockReasons',
+            'v2_environment_warnings',
+            'v2EnvironmentWarnings'
+        ].forEach(function(key) {
+            var values = container[key] || [];
+            if (!Array.isArray(values)) values = values ? [values] : [];
+            texts = texts.concat(values);
+        });
+    });
+    return texts.filter(Boolean).map(String);
+}
+
+function scanV2ReasonBlob(item) {
+    return scanV2ReasonTexts(item).join(' ');
+}
+
+function scanTextContainsAny(text, phrases) {
+    return phrases.some(function(phrase) {
+        return text.indexOf(phrase) >= 0;
+    });
+}
+
+function scanReasonFilterOptionsForPool(scanType) {
+    scanType = scanType || scanWorkspaceState.activeType || 'opportunity';
+    return SCAN_REASON_FILTERS.filter(function(option) {
+        return !option.pools || option.pools.indexOf(scanType) >= 0;
+    });
+}
+
+function scanResultMatchesReasonFilter(item, reason) {
+    reason = String(reason || '').trim();
+    if (!reason) return true;
+    var model = scanV2Model(item);
+    var gate = scanV2PlanGate(item);
+    var exitGate = scanV2ExitGate(item);
+    var signal = scanFirstText(item || {}, ['v2_signal', 'v2Signal', 'signal_label', 'signal']) || model.signal || '';
+    var signalKey = item && item.signal_key || '';
+    var planStatus = gate.status || model.plan_status || model.planStatus || (item && item.v2_plan_status) || '';
+    var state = model.state || '';
+    var permission = model.permission || (item && item.v2_permission) || '';
+    var markerRole = exitGate.marker_role || exitGate.markerRole || '';
+    var text = scanV2ReasonBlob(item);
+
+    if (reason === 'plan_ready') return planStatus === 'ready' || (item && item.v2_priority_group === 'trade_ready');
+    if (reason === 'plan_blocked') return planStatus === 'blocked' || state === 'trigger_plan_blocked';
+    if (reason === 'macro_veto') return state === 'macro_veto_blocked' || text.indexOf('宏观否决') >= 0 || (permission === 'forbidden' && text.indexOf('大周期') >= 0);
+    if (reason === 'ma60') return scanTextContainsAny(text, ['MA60未', 'MA60 未', 'MA60下行', 'MA60 下行', '未满足MA60', '未满足 MA60', '未上行']);
+    if (reason === 'ma250') return scanTextContainsAny(text, ['MA250下方', 'MA250 下方', '低于MA250', '低于 MA250', '未站上MA250', '未站上 MA250', '年线下方', '跌破MA250', '跌破 MA250']);
+    if (reason === 'rr') return scanTextContainsAny(text, ['收益风险比低于', '收益风险比不足', '低于 2:1', '低于2:1', '2R不足', '不足2R', '未达2R', '未达到2R']);
+    if (reason === 'chase') return text.indexOf('追高') >= 0 || text.indexOf('距 MA20') >= 0 || text.indexOf('攻击日涨幅') >= 0;
+    if (reason === 'heat') return text.indexOf('过热') >= 0;
+    if (reason === 'wide_stop') return text.indexOf('止损距离超过') >= 0 || text.indexOf('止损过宽') >= 0;
+    if (reason === 'c_pullback') return signal === 'C回' || signalKey === 'v2_pullback';
+    if (reason === 'c_breakout') return signal === 'C突' || signalKey === 'v2_breakout' || signalKey === 'v2_bear_trap_recovery';
+    if (reason === 'c_attack') return signal === 'C爆' || signalKey === 'v2_attack_day' || signalKey === 'v2_ignition';
+    if (reason === 'exit_sell') return markerRole === 'sell';
+    if (reason === 'exit_scale_out') return markerRole === 'scale_out';
+    return true;
 }
 
 function scanCandidateRole(item) {
@@ -243,10 +372,9 @@ function scanSystemRankScore(item) {
 function compareScanResults(a, b) {
     var sort = normalizeScanSortMode(scanWorkspaceState.filters.sort);
     if (sort === 'system') {
-        return scanStrategyRank(b) - scanStrategyRank(a)
+        return scanSortScore(b) - scanSortScore(a)
             || scanCandidateQueue(b).priority - scanCandidateQueue(a).priority
-            || (scanUsesV2Priority() ? scanV2PriorityScore(b) - scanV2PriorityScore(a) : 0)
-            || scanSystemRankScore(b) - scanSystemRankScore(a)
+            || scanStrategyRank(b) - scanStrategyRank(a)
             || String(scanEventDate(b)).localeCompare(String(scanEventDate(a)))
             || scanCompositeScore(b) - scanCompositeScore(a);
     }
@@ -267,16 +395,6 @@ function compareScanResults(a, b) {
             || scanNumericValue(b, 'concept_score', 0) - scanNumericValue(a, 'concept_score', 0)
             || scanNumericValue(b, 'concept_market_score', 0) - scanNumericValue(a, 'concept_market_score', 0)
             || scanNumericValue(b, 'sector_score', 0) - scanNumericValue(a, 'sector_score', 0)
-            || scanCompositeScore(b) - scanCompositeScore(a);
-    }
-    if (sort === 'win') {
-        return scanStrategyRank(b) - scanStrategyRank(a)
-            || scanNumericValue(b, 'win_rate', -999) - scanNumericValue(a, 'win_rate', -999)
-            || scanCompositeScore(b) - scanCompositeScore(a);
-    }
-    if (sort === 'avg') {
-        return scanStrategyRank(b) - scanStrategyRank(a)
-            || scanNumericValue(b, 'avg_ret', -999) - scanNumericValue(a, 'avg_ret', -999)
             || scanCompositeScore(b) - scanCompositeScore(a);
     }
     if (sort === 'risk') {
@@ -302,6 +420,9 @@ function scanResultMatchesFilters(item) {
     if (filters.concept && scanConcepts(item).indexOf(filters.concept) < 0) {
         return false;
     }
+    if (filters.reason && !scanResultMatchesReasonFilter(item, filters.reason)) {
+        return false;
+    }
 
     var query = normalizeFilterText(filters.query);
     if (!query) return true;
@@ -313,7 +434,8 @@ function scanResultMatchesFilters(item) {
         item.signal_label,
         item.signal,
         item.signal_name,
-        item.reason
+        item.reason,
+        scanV2ReasonBlob(item)
     ].some(function(value) {
         return normalizeFilterText(value).indexOf(query) >= 0;
     });
@@ -366,111 +488,52 @@ function buildScanSectorStats(results) {
     });
 }
 
-function buildScanConceptStats(results) {
-    var stats = {};
-    (results || []).forEach(function(item) {
-        scanConcepts(item).forEach(function(concept) {
-            if (!stats[concept]) {
-                stats[concept] = {
-                    concept: concept,
-                    count: 0,
-                    totalRank: 0,
-                    totalConceptScore: 0,
-                    conceptScoreCount: 0,
-                    riskCount: 0,
-                    signalCount: 0,
-                    latestEvent: ''
-                };
-            }
-            stats[concept].count += 1;
-            stats[concept].totalRank += scanNumericValue(item, 'rank_score', 0);
-            if (item.concept_score != null) {
-                stats[concept].totalConceptScore += scanNumericValue(item, 'concept_score', 0);
-                stats[concept].conceptScoreCount += 1;
-            }
-            stats[concept].riskCount = Math.max(stats[concept].riskCount, scanNumericValue(item, 'concept_risk_count', 0));
-            stats[concept].signalCount = Math.max(stats[concept].signalCount, scanNumericValue(item, 'concept_signal_count', 0));
-            var eventDate = scanEventDate(item);
-            if (eventDate && eventDate > stats[concept].latestEvent) {
-                stats[concept].latestEvent = eventDate;
-            }
-        });
-    });
-    return Object.keys(stats).map(function(concept) {
-        var item = stats[concept];
-        item.avgRank = item.count ? item.totalRank / item.count : 0;
-        item.conceptScore = item.conceptScoreCount ? item.totalConceptScore / item.conceptScoreCount : 0;
-        return item;
-    }).sort(function(a, b) {
-        return b.conceptScore - a.conceptScore || b.count - a.count || b.avgRank - a.avgRank || a.concept.localeCompare(b.concept);
+function renderScanReasonFilters(poolResults) {
+    var container = document.getElementById('scan-reason-filter');
+    if (!container) return;
+    var filters = scanWorkspaceState.filters || {};
+    var options = scanReasonFilterOptionsForPool(scanWorkspaceState.activeType);
+    container.innerHTML = '';
+    if (!options.length || !scanUsesV2Priority()) {
+        container.hidden = true;
+        return;
+    }
+    container.hidden = false;
+
+    var label = document.createElement('span');
+    label.className = 'scan-reason-filter__label';
+    label.textContent = '原因';
+    container.appendChild(label);
+
+    var allButton = document.createElement('button');
+    allButton.type = 'button';
+    allButton.className = 'scan-reason-chip' + (!filters.reason ? ' active' : '');
+    allButton.textContent = '全部';
+    allButton.onclick = function() { setScanReasonFilter(''); };
+    container.appendChild(allButton);
+
+    options.forEach(function(option) {
+        var count = (poolResults || []).filter(function(item) {
+            return scanResultMatchesReasonFilter(item, option.key);
+        }).length;
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'scan-reason-chip scan-reason-chip--' + (option.tone || 'muted') + (filters.reason === option.key ? ' active' : '');
+        button.textContent = option.label + (count ? ' ' + count : '');
+        button.onclick = function() { setScanReasonFilter(option.key); };
+        container.appendChild(button);
     });
 }
 
 function renderScanFilters(poolResults, sectorStats) {
     var filters = scanWorkspaceState.filters;
     var search = document.getElementById('scan-search');
-    var sectorSelect = document.getElementById('scan-sector-filter');
-    var conceptSelect = document.getElementById('scan-concept-filter');
-    var sortSelect = document.getElementById('scan-sort-filter');
-    var advancedSummary = document.getElementById('scan-filter-advanced-summary');
-    var advanced = document.querySelector('.scan-filter-advanced');
-    var activePool = getScanPool(scanWorkspaceState.activeType);
-    var conceptStats = Array.isArray(activePool.concept_stats) && activePool.concept_stats.length
-        ? activePool.concept_stats
-        : buildScanConceptStats(poolResults || []);
     var manualView = getScanManualViewState(filters);
 
     filters.sort = manualView.sortMode;
-
     if (search && search.value !== filters.query) search.value = filters.query;
-    if (sectorSelect) {
-        sectorSelect.innerHTML = '';
-        var allOption = document.createElement('option');
-        allOption.value = '';
-        allOption.textContent = '全部行业';
-        sectorSelect.appendChild(allOption);
-        sectorStats.forEach(function(stat) {
-            var option = document.createElement('option');
-            option.value = stat.sector;
-            option.textContent = stat.sector + ' (' + stat.count + ')';
-            sectorSelect.appendChild(option);
-        });
-        sectorSelect.value = filters.sector;
-        if (sectorSelect.value !== filters.sector) {
-            filters.sector = '';
-            sectorSelect.value = '';
-        }
-    }
-    if (conceptSelect) {
-        conceptSelect.innerHTML = '';
-        var allConceptOption = document.createElement('option');
-        allConceptOption.value = '';
-        allConceptOption.textContent = '全部概念';
-        conceptSelect.appendChild(allConceptOption);
-        conceptStats.slice(0, 120).forEach(function(stat) {
-            var option = document.createElement('option');
-            option.value = stat.concept;
-            option.textContent = stat.concept + ' (' + stat.count + ')';
-            conceptSelect.appendChild(option);
-        });
-        conceptSelect.value = filters.concept;
-        if (conceptSelect.value !== filters.concept) {
-            filters.concept = '';
-            conceptSelect.value = '';
-        }
-    }
-    if (sortSelect && sortSelect.value !== manualView.sortMode) {
-        sortSelect.value = manualView.sortMode;
-    }
-    if (advancedSummary) {
-        advancedSummary.textContent = manualView.active
-            ? '手动查看 · ' + manualView.activeCount + '项'
-            : '手动查看';
-    }
-    if (advanced) {
-        advanced.open = manualView.active;
-    }
 
+    renderScanReasonFilters(poolResults || []);
     renderScanRecommendation();
 }
 
@@ -494,6 +557,11 @@ function setScanConceptFilter(value) {
     renderAfterScanFilterChange();
 }
 
+function setScanReasonFilter(value) {
+    scanWorkspaceState.filters.reason = value || '';
+    renderAfterScanFilterChange();
+}
+
 function setScanSort(value) {
     scanWorkspaceState.filters.sort = normalizeScanSortMode(value);
     renderAfterScanFilterChange();
@@ -503,6 +571,7 @@ function resetScanFilters() {
     scanWorkspaceState.filters.query = '';
     scanWorkspaceState.filters.sector = '';
     scanWorkspaceState.filters.concept = '';
+    scanWorkspaceState.filters.reason = '';
     scanWorkspaceState.filters.sort = 'system';
     renderAfterScanFilterChange();
 }

@@ -192,14 +192,6 @@ class ScanWorkspaceTest(unittest.TestCase):
     def test_collect_scan_workspace_reads_local_snapshots_by_pool(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame["composite_setup_score"] = [2] * 12
-        frame["composite_confirm_score"] = [3] * 12
-        frame["composite_risk_score"] = [0] * 12
-        frame["composite_watch"] = [False] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
-        frame.loc[10, "is_bottom_divergence"] = True
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
@@ -221,49 +213,32 @@ class ScanWorkspaceTest(unittest.TestCase):
         self.assertEqual(workspace["snapshot_meta"]["stored_legacy_snapshot_count"], 0)
         self.assertEqual(workspace["strategy_meta"]["strategy_version"], SCAN_STRATEGY_VERSION)
         self.assertEqual(workspace["snapshot_meta"]["health"], "healthy")
-        self.assertEqual(workspace["snapshot_meta"]["health_summary"], "快照可用")
-        self.assertIn("策略", workspace["snapshot_meta"]["health_detail"])
         self.assertEqual(workspace["strategy_health"]["health"], "warming")
-        self.assertEqual(workspace["strategy_health"]["current_strategy_result_count"], 2)
+        self.assertEqual(workspace["strategy_health"]["current_strategy_result_count"], 1)
         self.assertEqual(workspace["strategy_health"]["legacy_strategy_result_count"], 0)
         self.assertEqual(workspace["snapshot_meta"]["scanned_count"], 1)
         self.assertEqual(workspace["snapshot_meta"]["latest_snapshot_day"], "2026-05-10")
         self.assertEqual(workspace["pools"]["opportunity"]["count"], 1)
         self.assertEqual(workspace["pools"]["opportunity"]["current_strategy_count"], 1)
-        self.assertEqual(workspace["pools"]["opportunity"]["legacy_strategy_count"], 0)
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["name"], "示例股票")
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["sector"], "半导体")
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["strategy_status"], "current")
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["strategy_source_label"], "当前策略")
-        self.assertGreater(workspace["pools"]["opportunity"]["results"][0]["sector_score"], 0)
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["sector_signal_count"], 2)
-        self.assertEqual(workspace["pools"]["opportunity"]["concept_coverage"]["coverage_rate"], 0.0)
-        self.assertIn("sector_width_label", workspace["pools"]["opportunity"]["results"][0])
-        self.assertIn("opportunity_density", workspace["sector_overview"][0])
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["snapshot_day"], "2026-05-10")
-        explanation = workspace["pools"]["opportunity"]["results"][0]["explanation"]
-        self.assertEqual(explanation["version"], 1)
-        self.assertIn("板块", explanation["summary"])
-        self.assertIn("card_summary", explanation)
-        self.assertIn("view_model", workspace["pools"]["opportunity"]["results"][0])
-        self.assertIn("card_summary", workspace["pools"]["opportunity"]["results"][0]["view_model"])
-        self.assertIn("trade_plan", workspace["pools"]["opportunity"]["results"][0])
-        self.assertNotIn("mainline_context", workspace["pools"]["opportunity"]["results"][0])
-        self.assertNotIn("mainline_context", workspace["pools"]["opportunity"]["results"][0]["trade_plan"])
-        self.assertEqual(workspace["pools"]["opportunity"]["results"][0]["trade_plan"]["status"], "blocked")
-        self.assertIn("止损距离超过 8%", workspace["pools"]["opportunity"]["results"][0]["trade_plan"]["forbidden_reasons"])
+        result = workspace["pools"]["opportunity"]["results"][0]
+        self.assertEqual(result["name"], "示例股票")
+        self.assertEqual(result["sector"], "半导体")
+        self.assertEqual(result["strategy_status"], "current")
+        self.assertEqual(result["strategy_source_label"], "当前策略")
+        self.assertGreater(result["sector_score"], 0)
+        self.assertEqual(result["scan_admission_source"], "v2_state")
+        self.assertEqual(result["snapshot_day"], "2026-05-10")
+        self.assertIn("explanation", result)
+        self.assertIn("card_summary", result["explanation"])
+        self.assertIn("view_model", result)
+        self.assertIn("trade_plan", result)
+        self.assertNotIn("mainline_context", workspace)
         self.assertNotIn("market_decision", workspace)
-        self.assertNotIn("market_lines", workspace)
         self.assertNotIn("theme_lines", workspace)
-        self.assertNotIn("theme_clusters", workspace)
-        self.assertEqual([badge["label"] for badge in explanation["score_badges"][:4]], ["结构", "确认", "风险", "共振"])
-        self.assertEqual(workspace["pools"]["bottom_div"]["count"], 1)
+        self.assertEqual(workspace["pools"]["bottom_div"]["count"], 0)
         self.assertEqual(workspace["sector_overview"][0]["sector"], "半导体")
         self.assertEqual(workspace["sector_overview"][0]["opportunity_count"], 1)
-        self.assertEqual(workspace["sector_overview"][0]["bottom_div_count"], 1)
-        self.assertEqual(workspace["market_structure_meta"]["mode"], "candidate_validated")
-        self.assertEqual(workspace["sector_overview"][0]["structure_mode_label"], "候选验证")
-        self.assertIn("候选验证", workspace["sector_overview"][0]["structure_source_label"])
+        self.assertEqual(workspace["sector_overview"][0]["bottom_div_count"], 0)
 
     def test_collect_scan_workspace_sorts_system_results_by_v2_priority(self):
         breakout_snapshot = {
@@ -293,6 +268,24 @@ class ScanWorkspaceTest(unittest.TestCase):
                     "confirm_score": 4,
                     "risk_score": 0,
                     "rank_score": 45.0,
+                    "v2_plan_status": "ready",
+                    "v2_state_model": {
+                        "state": "entry_breakout",
+                        "state_label": "突破可交易",
+                        "permission": "breakout_allowed",
+                        "permission_label": "允许突破计划",
+                        "signal": "C突",
+                        "signal_name": "突破入场",
+                        "role": "entry",
+                        "role_label": "可交易",
+                        "tone": "positive",
+                        "requires_trade_plan": True,
+                        "requires_stop_loss": True,
+                        "v2_permission_model": {
+                            "plan_status": "ready",
+                            "plan_status_label": "计划可校验",
+                        },
+                    },
                 },
             },
         }
@@ -338,11 +331,21 @@ class ScanWorkspaceTest(unittest.TestCase):
                             include_replay=False,
                             include_market_universe=False,
                             include_market_breadth=False,
+                            board_market_reader=lambda board_type, name=None, index_code=None, max_age_days=None: {
+                                "type": "industry",
+                                "name": "半导体",
+                                "strength_score": 76,
+                                "trend_label": "强势",
+                                "ret_5": 3.2,
+                                "ret_20": 7.6,
+                                "latest_date": "2026-05-10",
+                            } if board_type == "industry" and name == "半导体" else None,
                         )
 
         results = workspace["pools"]["opportunity"]["results"]
         self.assertEqual([item["code"] for item in results], ["600063", "000001"])
         self.assertEqual(results[0]["v2_priority_group"], "trade_ready")
+        self.assertEqual(results[0]["v2_environment_permission"], "allowed")
         self.assertEqual(results[1]["v2_priority_group"], "repair_watch")
         self.assertGreater(results[0]["v2_priority_score"], results[1]["v2_priority_score"])
 
@@ -376,14 +379,6 @@ class ScanWorkspaceTest(unittest.TestCase):
     def test_collect_scan_workspace_builds_concept_overview_from_cached_profiles(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame["composite_setup_score"] = [2] * 12
-        frame["composite_confirm_score"] = [3] * 12
-        frame["composite_risk_score"] = [0] * 12
-        frame["composite_watch"] = [False] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
-        frame.loc[10, "is_bottom_divergence"] = True
 
         with TemporaryDirectory() as tmp_dir:
             cache_dir = Path(tmp_dir) / "catalog"
@@ -417,15 +412,14 @@ class ScanWorkspaceTest(unittest.TestCase):
         result = opportunity["results"][0]
         self.assertEqual(result["concepts"], ["存储芯片", "国企改革"])
         self.assertGreater(result["concept_score"], 0)
-        self.assertEqual(result["concept_signal_count"], 2)
+        self.assertEqual(result["concept_signal_count"], 1)
         self.assertEqual(result["concept_market_trend"], "强势")
         self.assertGreater(result["concept_market_boost"], 0)
-        self.assertIn("概指", [badge["label"] for badge in result["explanation"]["score_badges"]])
         self.assertEqual(opportunity["concept_coverage"]["covered_count"], 1)
         self.assertEqual(opportunity["concept_coverage"]["coverage_rate"], 100.0)
         self.assertEqual(workspace["concept_overview"][0]["concept"], "存储芯片")
         self.assertEqual(workspace["concept_overview"][0]["opportunity_count"], 1)
-        self.assertEqual(workspace["concept_overview"][0]["bottom_div_count"], 1)
+        self.assertEqual(workspace["concept_overview"][0]["bottom_div_count"], 0)
         self.assertIn("structure_score", workspace["concept_overview"][0])
         self.assertIn("structure_source_label", workspace["concept_overview"][0])
         self.assertNotIn("theme_lines", workspace)
@@ -708,9 +702,9 @@ class ScanWorkspaceTest(unittest.TestCase):
         opportunity = workspace["pools"]["opportunity"]["results"][0]
         self.assertEqual(overview["sector"], "半导体")
         self.assertEqual(overview["opportunity_count"], 2)
-        self.assertEqual(overview["risk_count"], 2)
+        self.assertEqual(overview["risk_count"], 0)
         self.assertEqual(opportunity["sector_opportunity_count"], 2)
-        self.assertEqual(opportunity["sector_risk_count"], 2)
+        self.assertEqual(opportunity["sector_risk_count"], 0)
         self.assertIn("final_score", opportunity)
         calibration = workspace["resonance_calibration"]
         self.assertEqual(calibration["method"], "signal_history_proxy")

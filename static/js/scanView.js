@@ -160,6 +160,9 @@ function renderActiveScanPool() {
     renderScanResults(list, visibleResults, config.variant, resultMeta);
     renderScanCandidateContext();
     renderScanSelection();
+    if (!scanWorkspaceState.previewResult && typeof loadScanCandidateDetailForSelection === 'function') {
+        loadScanCandidateDetailForSelection();
+    }
 }
 
 function renderScanDataWorkspace() {
@@ -254,7 +257,7 @@ function renderScanCandidateContext() {
     var manualView = typeof getScanManualViewState === 'function'
         ? getScanManualViewState(filters)
         : {active: false, activeCount: 0, sortMode: 'system'};
-    var hasManualRange = Boolean(filters.sector || filters.concept || filters.query);
+    var hasManualRange = Boolean(filters.sector || filters.concept || filters.query || filters.reason);
     var queueLabel = scanWorkspaceState.activeType === 'risk'
         ? '风险验证'
         : (scanWorkspaceState.activeType === 'bottom_div' ? '修复观察' : '参与名单');

@@ -1,8 +1,8 @@
 """Serializers that turn analysis frames into frontend payloads."""
 
 from stock_analyzer.backtest import evaluate_signal_events
+from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
 from stock_analyzer.events import (
-    build_composite_signal_events,
     build_new_signal_events,
     build_old_signal_events,
     build_opt_signal_events,
@@ -10,6 +10,53 @@ from stock_analyzer.events import (
     event_to_mark_point,
     signal_definitions_payload,
 )
+
+
+DEFAULT_V2_EVENT_LOOKBACK = 60
+
+
+def _fact_date(value):
+    if value is None:
+        return ""
+    return format_axis_date(value)
+
+
+def _bottom_fractal_dates(facts):
+    structure = facts.get("structure") if isinstance(facts, dict) else {}
+    fractals = structure.get("fractals") if isinstance(structure, dict) else {}
+    if not isinstance(fractals, dict):
+        return set()
+    candidates = list(fractals.get("recent_bottoms") or [])
+    latest = fractals.get("latest_bottom")
+    if isinstance(latest, dict):
+        candidates.append(latest)
+    output = set()
+    for bottom in candidates:
+        if not isinstance(bottom, dict):
+            continue
+        for key in ("date", "source_start_date", "source_end_date"):
+            date = _fact_date(bottom.get(key))
+            if date and date != "-":
+                output.add(date)
+    return output
+
+
+def _annotate_mark_point_display_context(mark_points, facts):
+    bottom_dates = _bottom_fractal_dates(facts)
+    if not bottom_dates:
+        return mark_points
+    output = []
+    for point in mark_points:
+        coord = point.get("coord") or []
+        point_date = point.get("date") or (coord[0] if coord else "")
+        marker_role = point.get("markerRole") or point.get("marker_role") or ""
+        signal = point.get("v2_signal") or point.get("signalLabel") or point.get("signalCode") or ""
+        if point_date in bottom_dates and marker_role in {"sell", "scale_out"} and signal in {"C风", "C盈"}:
+            point = dict(point)
+            point["same_day_bottom_candidate"] = True
+            point["display_context_hint"] = "break_with_bottom_fractal"
+        output.append(point)
+    return output
 
 
 def calc_signal_stats(df_display, signal_col, horizon=5, direction="up"):
@@ -26,17 +73,20 @@ def calc_signal_stats(df_display, signal_col, horizon=5, direction="up"):
     return {"count": int(mask.sum()), "win_rate": float(win_rate), "avg_ret": float(avg_ret), "horizon": horizon}
 
 
-def latest_score_summary(df_display):
+def latest_score_summary(df_display, *, facts=None):
     if df_display.empty:
         return {"date": "-", "setup": None, "confirm": None, "risk": None, "watch": False}
     latest = df_display.iloc[-1]
     date = format_axis_date(latest["date"])
+    facts = facts if isinstance(facts, dict) else build_c_signal_v2_facts(df_display)
+    scores = facts.get("scores") if isinstance(facts.get("scores"), dict) else {}
+    setup = facts.get("setup") if isinstance(facts.get("setup"), dict) else {}
     return {
         "date": date,
-        "setup": int(latest.get("composite_setup_score", 0)),
-        "confirm": int(latest.get("composite_confirm_score", 0)),
-        "risk": int(latest.get("composite_risk_score", 0)),
-        "watch": bool(latest.get("composite_watch", False)),
+        "setup": int(scores.get("setup") or 0),
+        "confirm": int(scores.get("confirm") or 0),
+        "risk": int(scores.get("risk") or 0),
+        "watch": bool(setup.get("pullback_setup") or setup.get("breakout_setup")),
     }
 
 
@@ -48,7 +98,14 @@ def format_axis_date(value):
     return value.strftime("%Y-%m-%d")
 
 
-def analysis_frame_to_chart_payload(df_display):
+def analysis_frame_to_chart_payload(
+    df_display,
+    *,
+    v2_event_lookback=DEFAULT_V2_EVENT_LOOKBACK,
+    v2_events=None,
+    facts=None,
+    include_legacy=False,
+):
     """Convert an analyzed DataFrame into the existing ECharts API payload."""
     dates = [format_axis_date(value) for value in df_display["date"]]
     k_data = df_display[["open", "close", "low", "high"]].values.tolist()
@@ -74,50 +131,18 @@ def analysis_frame_to_chart_payload(df_display):
         else []
     )
 
-    old_events = build_old_signal_events(df_display)
-    new_events = build_new_signal_events(df_display)
-    opt_events = build_opt_signal_events(df_display)
-    composite_events = build_composite_signal_events(df_display)
-    v2_events = build_v2_signal_events(df_display)
+    if v2_events is None:
+        v2_events = build_v2_signal_events(df_display, lookback=v2_event_lookback)
 
-    mark_points = [event_to_mark_point(event) for event in old_events]
-    mark_points_new = [event_to_mark_point(event) for event in new_events]
-    mark_points_opt = [event_to_mark_point(event) for event in opt_events]
+    facts = facts if isinstance(facts, dict) else build_c_signal_v2_facts(df_display)
 
-    mark_points_composite = [
-        event_to_mark_point(event)
-        for event in composite_events
-    ]
     mark_points_v2 = [
         event_to_mark_point(event)
         for event in v2_events
     ]
+    mark_points_v2 = _annotate_mark_point_display_context(mark_points_v2, facts)
 
-    old_b_col = "old_is_entry" if "old_is_entry" in df_display.columns else "is_b_point"
-    new_b_col = "new_is_entry" if "new_is_entry" in df_display.columns else "new_is_b_point"
-    opt_b_col = "opt_is_entry" if "opt_is_entry" in df_display.columns else "opt_is_b_point"
-    stats_old = {
-        "b": calc_signal_stats(df_display, old_b_col, direction="up"),
-        "s": None,
-    }
-    stats_new = {
-        "b": calc_signal_stats(df_display, new_b_col, direction="up"),
-        "s": None,
-    }
-    stats_opt = {
-        "b": calc_signal_stats(df_display, opt_b_col, direction="up"),
-        "s": None,
-    }
-    stats_composite = {
-        "b": calc_signal_stats(df_display, "composite_entry", direction="up")
-        if "composite_entry" in df_display.columns
-        else {"count": 0, "win_rate": None, "avg_ret": None, "horizon": 5},
-        "s": calc_signal_stats(df_display, "composite_exit", direction="down")
-        if "composite_exit" in df_display.columns
-        else {"count": 0, "win_rate": None, "avg_ret": None, "horizon": 5},
-    }
-
-    return {
+    payload = {
         "dates": dates,
         "k_data": k_data,
         "ma20_data": ma20_data,
@@ -129,23 +154,48 @@ def analysis_frame_to_chart_payload(df_display):
         "dif_data": dif_data,
         "dea_data": dea_data,
         "macd_data": macd_data,
-        "mark_points": mark_points,
-        "mark_points_old": mark_points,
-        "mark_points_new": mark_points_new,
-        "mark_points_opt": mark_points_opt,
-        "mark_points_composite": mark_points_composite,
+        "mark_points": mark_points_v2,
         "mark_points_v2": mark_points_v2,
-        "stats_old": stats_old,
-        "stats_new": stats_new,
-        "stats_opt": stats_opt,
-        "stats_composite": stats_composite,
+        "v2_event_lookback": v2_event_lookback,
         "event_stats": {
+            "v2": evaluate_signal_events(df_display, v2_events),
+        },
+        "score_summary": latest_score_summary(df_display, facts=facts),
+        "signal_definitions": signal_definitions_payload(),
+    }
+
+    if include_legacy:
+        old_events = build_old_signal_events(df_display)
+        new_events = build_new_signal_events(df_display)
+        opt_events = build_opt_signal_events(df_display)
+        mark_points_old = [event_to_mark_point(event) for event in old_events]
+        mark_points_new = [event_to_mark_point(event) for event in new_events]
+        mark_points_opt = [event_to_mark_point(event) for event in opt_events]
+        old_b_col = "old_is_entry" if "old_is_entry" in df_display.columns else "is_b_point"
+        new_b_col = "new_is_entry" if "new_is_entry" in df_display.columns else "new_is_b_point"
+        opt_b_col = "opt_is_entry" if "opt_is_entry" in df_display.columns else "opt_is_b_point"
+        payload.update({
+            "mark_points": mark_points_old,
+            "mark_points_old": mark_points_old,
+            "mark_points_new": mark_points_new,
+            "mark_points_opt": mark_points_opt,
+            "stats_old": {
+                "b": calc_signal_stats(df_display, old_b_col, direction="up"),
+                "s": None,
+            },
+            "stats_new": {
+                "b": calc_signal_stats(df_display, new_b_col, direction="up"),
+                "s": None,
+            },
+            "stats_opt": {
+                "b": calc_signal_stats(df_display, opt_b_col, direction="up"),
+                "s": None,
+            },
+        })
+        payload["event_stats"].update({
             "old": evaluate_signal_events(df_display, old_events),
             "new": evaluate_signal_events(df_display, new_events),
             "opt": evaluate_signal_events(df_display, opt_events),
-            "composite": evaluate_signal_events(df_display, composite_events),
-            "v2": evaluate_signal_events(df_display, v2_events),
-        },
-        "score_summary": latest_score_summary(df_display),
-        "signal_definitions": signal_definitions_payload(),
-    }
+        })
+
+    return payload

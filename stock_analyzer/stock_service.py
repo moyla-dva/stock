@@ -4,7 +4,6 @@
 import concurrent.futures
 
 from stock_analyzer.analysis import build_analysis_frame
-from stock_analyzer.c_signal_v2 import build_c_signal_v2_state
 from stock_analyzer.catalog import (
     get_stock_concept_cache_status,
     get_stock_profile,
@@ -15,11 +14,11 @@ from stock_analyzer.multi_timeframe import build_multi_timeframe_payload
 from stock_analyzer.scan_explainer import attach_scan_explanation
 from stock_analyzer.serializers import analysis_frame_to_chart_payload
 from stock_analyzer.tag_profile import attach_stock_tag_profile
-from stock_analyzer.trade_plan import build_trade_plan
+from stock_analyzer.v2_analysis_context import build_v2_analysis_context
 from stock_analyzer.versioning import DATA_START_DATE
 
 
-def fetch_and_process_data(code, logger=None, verbose=True):
+def fetch_and_process_data(code, logger=None, verbose=True, include_legacy_chart=False):
     normalized = normalize_code(code) or code
     df_display = build_analysis_frame(
         code,
@@ -31,18 +30,66 @@ def fetch_and_process_data(code, logger=None, verbose=True):
     )
     if df_display is None or df_display.empty:
         return None
-    payload = analysis_frame_to_chart_payload(df_display)
+    v2_context = build_v2_analysis_context(df_display, include_trade_plan=True)
+    v2_facts = v2_context.get("facts")
+    v2_events = v2_context.get("events")
+    payload = analysis_frame_to_chart_payload(
+        df_display,
+        v2_events=v2_events,
+        facts=v2_facts,
+        include_legacy=include_legacy_chart,
+    )
     payload["stock_code"] = normalized
-    payload["c_signal_v2_state"] = build_c_signal_v2_state(df_display)
-    payload["trade_plan"] = build_trade_plan(df_display)
+    payload["c_signal_v2_state"] = v2_context.get("state")
+    payload["trade_plan"] = v2_context.get("trade_plan")
     payload["multi_timeframes"] = build_multi_timeframe_payload(
         normalized,
         df_display,
         logger=logger,
         verbose=verbose,
+        allow_fetch=False,
+        daily_score_summary=payload.get("score_summary") or v2_context.get("score_summary"),
+        daily_recent_events=v2_events,
     )
     profile = get_stock_profile(normalized, require_sector=False)
     attach_stock_tag_profile(payload, profile={**profile, "code": normalized})
+    return payload
+
+
+def fetch_multi_timeframe_data(code, logger=None, verbose=True, period=None, force_refresh=False):
+    """Return deferred 60m/4h chart payloads for the single-stock page."""
+    normalized = normalize_code(code) or code
+    df_display = build_analysis_frame(
+        code,
+        start_date=DATA_START_DATE,
+        fill_initial_ma20=True,
+        use_cache=True,
+        logger=logger,
+        verbose=verbose,
+    )
+    if df_display is None or df_display.empty:
+        return None
+    v2_context = build_v2_analysis_context(
+        df_display,
+        include_events=False,
+        include_state=False,
+    )
+    payload = {
+        "stock_code": normalized,
+        "requested_period": period or "all",
+        "multi_timeframes": build_multi_timeframe_payload(
+            normalized,
+            df_display,
+            logger=logger,
+            verbose=verbose,
+            allow_fetch=True,
+            daily_score_summary=v2_context.get("score_summary"),
+            daily_skip_event_summary=True,
+            target_periods=period,
+            use_chart_cache=True,
+            force_chart_cache_refresh=force_refresh,
+        ),
+    }
     return payload
 
 

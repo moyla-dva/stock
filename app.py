@@ -7,6 +7,7 @@ A股短线结构工作台 Web版 (Flask)
 """
 import logging  # 【新增】日志支持
 import math
+import os
 from numbers import Integral, Real
 
 from flask import Flask, render_template, request, jsonify as flask_jsonify
@@ -83,15 +84,27 @@ def jsonify(*args, **kwargs):
     safe_kwargs = {key: _json_safe(value) for key, value in kwargs.items()}
     return flask_jsonify(*safe_args, **safe_kwargs)
 
-def fetch_and_process_data(code):
-    return stock_service.fetch_and_process_data(code, logger=app.logger, verbose=True)
+def fetch_and_process_data(code, include_legacy_chart=False):
+    return stock_service.fetch_and_process_data(
+        code,
+        logger=app.logger,
+        verbose=True,
+        include_legacy_chart=include_legacy_chart,
+    )
+
+
+def fetch_multi_timeframe_data(code, period=None, force_refresh=False):
+    return stock_service.fetch_multi_timeframe_data(
+        code,
+        logger=app.logger,
+        verbose=True,
+        period=period,
+        force_refresh=force_refresh,
+    )
 
 
 scan_job_manager = ScanJobManager(max_jobs=2, max_workers=5, batch_size=50, batch_delay=1.0, request_delay=0.05)
 concept_refresh_job_manager = ConceptRefreshJobManager(max_workers=1)
-
-
-scan_events_for_mode = scan_events_for_type
 
 
 def enrich_scan_result_with_profile(result, code, profile=None):
@@ -397,6 +410,15 @@ def api_analyze():
     )
 
 
+@app.route('/api/analyze/timeframes')
+def api_analyze_timeframes():
+    return stock_api.analyze_timeframes_response(
+        jsonify,
+        normalize_code,
+        fetch_multi_timeframe_data,
+    )
+
+
 @app.errorhandler(404)
 def not_found(e):
     """
@@ -419,7 +441,9 @@ def log_request_info():
     print(f"  - Referer: {request.headers.get('Referer', 'N/A')[:50]}")
 
 if __name__ == '__main__':
-    print("启动服务... 请访问 http://0.0.0.0:5009")
-    print("注意: devtunnels 会自动处理 HTTPS 转换，服务器使用 HTTP 即可")
-    # 使用 HTTP 模式，devtunnels 会自动转换为 HTTPS
-    app.run(host='0.0.0.0', port=5009, debug=False, threaded=True)
+    # 默认只监听本机；如需局域网/devtunnel 访问，显式设置 STOCK_ANALYZER_BIND_HOST=0.0.0.0
+    host = os.environ.get("STOCK_ANALYZER_BIND_HOST", "127.0.0.1")
+    print(f"启动服务... 请访问 http://{host}:5009")
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        print("警告: 服务绑定在非回环地址，且全部接口无鉴权，同一网络内的设备均可访问。")
+    app.run(host=host, port=5009, debug=False, threaded=True)

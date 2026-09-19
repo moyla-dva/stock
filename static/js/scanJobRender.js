@@ -4,15 +4,11 @@ function renderScanProgress(job) {
     var fill = document.getElementById('scan-progress-fill');
     var title = document.getElementById('scan-progress-title');
     var detail = document.getElementById('scan-progress-detail');
-    var steps = document.getElementById('scan-progress-steps');
-    var metrics = document.getElementById('scan-progress-metrics');
     var detailPanel = document.querySelector('.scan-job-progress');
     if (!job) {
         strip.hidden = true;
         if (detailPanel) detailPanel.hidden = true;
         if (fill) fill.style.width = '0%';
-        if (steps) steps.innerHTML = '';
-        if (metrics) metrics.innerHTML = '';
         return;
     }
     var progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
@@ -24,8 +20,6 @@ function renderScanProgress(job) {
         title.textContent = getScanJobLabel(job) + ' · ' + getRefreshPolicyText(job.refresh_policy) + ' · ' + getScanStatusText(job.status) + ' · ' + progress + '%';
     }
     if (detail) detail.textContent = formatProgressStripDetail(job);
-    renderScanProgressSteps(steps, job);
-    renderScanProgressMetrics(metrics, job);
 }
 
 function formatProgressStripDetail(job) {
@@ -42,62 +36,6 @@ function formatProgressStripDetail(job) {
         parts.push(job.error);
     }
     return parts.join(' · ');
-}
-
-function scanProgressStepState(job, step) {
-    var status = job && job.status;
-    if (status === 'failed' || status === 'interrupted') {
-        if (step === 'scan' && Number(job.completed || 0) < Number(job.total || 0)) return 'failed';
-        return step === 'finish' ? 'failed' : 'done';
-    }
-    if (status === 'queued') return step === 'submit' ? 'active' : 'pending';
-    if (status === 'running' || status === 'cancelling') {
-        if (step === 'submit') return 'done';
-        return step === 'scan' ? 'active' : 'pending';
-    }
-    if (isScanJobTerminal(status)) return 'done';
-    return step === 'submit' ? 'active' : 'pending';
-}
-
-function renderScanProgressSteps(container, job) {
-    if (!container) return;
-    container.innerHTML = '';
-    [
-        {key: 'submit', label: '提交任务'},
-        {key: 'scan', label: '扫描数据'},
-        {key: 'finish', label: '整理结果'}
-    ].forEach(function(step) {
-        var node = document.createElement('span');
-        node.className = 'scan-progress-step scan-progress-step--' + scanProgressStepState(job, step.key);
-        node.textContent = step.label;
-        container.appendChild(node);
-    });
-}
-
-function createScanProgressMetric(label, value) {
-    var metric = document.createElement('span');
-    var labelNode = document.createElement('em');
-    labelNode.textContent = label;
-    var valueNode = document.createElement('strong');
-    valueNode.textContent = value == null || value === '' ? '-' : value;
-    metric.appendChild(labelNode);
-    metric.appendChild(valueNode);
-    return metric;
-}
-
-function renderScanProgressMetrics(container, job) {
-    if (!container) return;
-    container.innerHTML = '';
-    var current = job.current_code ? job.current_code : (isScanJobTerminal(job.status) ? '已结束' : '等待中');
-    [
-        ['当前', current],
-        ['速度', formatJobSpeed(job)],
-        ['预计', formatJobEta(job)],
-        ['命中', job.matched || 0],
-        ['跳过', job.skipped_count || 0]
-    ].forEach(function(item) {
-        container.appendChild(createScanProgressMetric(item[0], item[1]));
-    });
 }
 
 function renderPendingScanJob(scanType, refreshPolicy, title) {

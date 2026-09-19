@@ -217,7 +217,19 @@ def _v2_signal_driver(result):
 def _v2_fact_diagnostic(result):
     state_model = result.get("v2_state_model") or {}
     facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
-    if not facts or facts.get("source") != "c_signal_v2_phase_2_3":
+    if not facts or facts.get("source") not in {
+        "c_signal_v2_phase_2_3",
+        "c_signal_v2_p4_facts",
+        "c_signal_v2_p5_macro_facts",
+        "c_signal_v2_p7_target_facts",
+        "c_signal_v2_p8_macro_veto_facts",
+        "c_signal_v2_p9a_normalized_bars_facts",
+        "c_signal_v2_p9b_multi_rectangle_facts",
+        "c_signal_v2_p9c_bear_trap_facts",
+        "c_signal_v2_p10_resistance_zones_facts",
+        "c_signal_v2_p11_exit_gate_facts",
+        "c_signal_v2_p19_repair_watch_facts",
+    }:
         return None
 
     structure = facts.get("structure") if isinstance(facts.get("structure"), dict) else {}
@@ -229,17 +241,44 @@ def _v2_fact_diagnostic(result):
     fragments = []
     fractals = structure.get("fractals") if isinstance(structure.get("fractals"), dict) else {}
     rectangle = structure.get("rectangle") if isinstance(structure.get("rectangle"), dict) else {}
+    active_rectangle = structure.get("active_rectangle") if isinstance(structure.get("active_rectangle"), dict) else {}
+    macro_rectangle = structure.get("macro_rectangle") if isinstance(structure.get("macro_rectangle"), dict) else {}
+    bear_trap = structure.get("bear_trap_recovery") if isinstance(structure.get("bear_trap_recovery"), dict) else {}
+    normalized_bars = structure.get("normalized_bars") if isinstance(structure.get("normalized_bars"), dict) else {}
+    exit_gate = facts.get("exit_gate") if isinstance(facts.get("exit_gate"), dict) else {}
+    repair = facts.get("repair") if isinstance(facts.get("repair"), dict) else {}
     ignition = trigger.get("ignition") if isinstance(trigger.get("ignition"), dict) else {}
+    if repair.get("stage") == "repair_setup":
+        fragments.append("修复观察")
+        fragments.extend([str(value) for value in (repair.get("evidence") or [])[:3] if value])
+    elif repair.get("stage") == "bottom_research":
+        fragments.append("底背离研究")
     if fractals.get("double_bottom_higher_low"):
         fragments.append("双底抬高")
     elif fractals.get("latest_bottom"):
         fragments.append("底分型")
     if rectangle.get("available"):
-        fragments.append(f"矩形宽度 {_text(rectangle.get('width_pct'))}%")
+        family = active_rectangle.get("family") or rectangle.get("family") or "短线"
+        family_label = {"short": "短线", "swing": "波段", "macro": "一年"}.get(family, family)
+        fragments.append(f"{family_label}矩形 {_text(rectangle.get('width_pct'))}%")
+    if macro_rectangle and macro_rectangle.get("available"):
+        fragments.append(f"一年矩形 {_text(macro_rectangle.get('width_pct'))}%")
+    if normalized_bars.get("merge_count"):
+        fragments.append(f"K线包含合并 {normalized_bars.get('merge_count')} 根")
+    if bear_trap.get("breakout_after_recovery"):
+        fragments.append("破底翻突破")
+    elif bear_trap.get("recovered"):
+        fragments.append("破底翻观察")
     if trigger.get("attack_day"):
         fragments.append("攻击日")
     if ignition.get("triggered"):
         fragments.append(f"起爆 {_text(ignition.get('trigger_price'))}")
+    if exit_gate.get("action") == "sell":
+        fragments.append("Exit Gate离场")
+    elif exit_gate.get("action") == "scale_out":
+        fragments.append("强阻减仓")
+    elif (exit_gate.get("position_lifecycle") or {}).get("position_state") == "active":
+        fragments.append("持仓防守线")
     if not fragments:
         fragments.append(structure.get("summary") or trigger.get("summary") or "事实仍在观察")
 
@@ -249,11 +288,125 @@ def _v2_fact_diagnostic(result):
         f" / 触发 {_text(scores.get('trigger_quality'))}"
         f" / 风险 {_text(scores.get('execution_risk'))}"
     )
-    tone = "positive" if trigger.get("attack_day") or ignition.get("triggered") else ("warning" if structure.get("candidate") else "muted")
+    tone = "positive" if trigger.get("attack_day") or ignition.get("triggered") else (
+        "warning" if repair.get("stage") == "repair_setup" or structure.get("candidate") else "muted"
+    )
     return {
         "label": "V2事实",
         "value": f"{' · '.join(fragments)} · {score_text}",
         "tone": tone,
+    }
+
+
+def _v2_plan_gate_driver(result):
+    state_model = result.get("v2_state_model") or {}
+    permission_model = state_model.get("v2_permission_model") if isinstance(state_model.get("v2_permission_model"), dict) else {}
+    plan_gate = permission_model.get("plan_gate") if isinstance(permission_model.get("plan_gate"), dict) else {}
+    if not plan_gate:
+        return None
+    fragments = [
+        f"{_text(plan_gate.get('status_label'))}",
+        f"{_text(plan_gate.get('entry_type'))}",
+    ]
+    if plan_gate.get("stop_distance_pct") is not None:
+        fragments.append(f"止损 {_text(plan_gate.get('stop_distance_pct'))}%")
+    if plan_gate.get("risk_reward_ratio") is not None:
+        fragments.append(f"赔率 {_text(plan_gate.get('risk_reward_ratio'))}R")
+    if plan_gate.get("target_label"):
+        fragments.append(f"目标 {_text(plan_gate.get('target_label'))}")
+    issues = plan_gate.get("block_reasons") or plan_gate.get("required_confirmations") or plan_gate.get("warnings") or []
+    if issues:
+        fragments.append(str(issues[0]))
+    tone = {
+        "ready": "positive",
+        "waiting": "warning",
+        "blocked": "danger",
+    }.get(plan_gate.get("status"), "muted")
+    return {
+        "label": "交易闸门",
+        "value": " · ".join(fragments),
+        "tone": tone,
+    }
+
+
+def _v2_target_driver(result):
+    state_model = result.get("v2_state_model") or {}
+    facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
+    target_structure = facts.get("target_structure") if isinstance(facts.get("target_structure"), dict) else {}
+    if not target_structure:
+        return None
+    pullback_target = target_structure.get("pullback_target") if isinstance(target_structure.get("pullback_target"), dict) else {}
+    breakout_target = target_structure.get("selected_breakout_target") if isinstance(target_structure.get("selected_breakout_target"), dict) else {}
+    fragments = []
+    if pullback_target.get("price") is not None:
+        fragments.append(f"C回 {_text(pullback_target.get('label'))} {_text(pullback_target.get('price'))}")
+    if breakout_target.get("price") is not None:
+        strength = breakout_target.get("strength_score")
+        distance = breakout_target.get("distance_pct")
+        extra = []
+        if strength is not None:
+            extra.append(f"强度{_text(strength)}")
+        if distance is not None:
+            extra.append(f"距离{_text(distance)}%")
+        suffix = f" ({' / '.join(extra)})" if extra else ""
+        fragments.append(f"C突/C爆 {_text(breakout_target.get('label'))} {_text(breakout_target.get('price'))}{suffix}")
+    if not fragments:
+        fragments.append(_text(target_structure.get("summary"), "结构目标待确认"))
+    return {
+        "label": "结构目标",
+        "value": " / ".join(fragments),
+        "tone": "positive" if breakout_target or pullback_target else "warning",
+    }
+
+
+def _v2_macro_tide_driver(result):
+    state_model = result.get("v2_state_model") or {}
+    facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
+    macro_tide = facts.get("macro_tide") if isinstance(facts.get("macro_tide"), dict) else {}
+    if not macro_tide or not macro_tide.get("permission"):
+        return None
+    ma250 = macro_tide.get("ma250") if isinstance(macro_tide.get("ma250"), dict) else {}
+    ma60 = macro_tide.get("ma60") if isinstance(macro_tide.get("ma60"), dict) else {}
+    weekly = macro_tide.get("weekly_macd") if isinstance(macro_tide.get("weekly_macd"), dict) else {}
+    fragments = []
+    if ma60.get("available"):
+        slope = "上行" if ma60.get("up") else "未上行"
+        fragments.append(f"MA60 {slope} · 斜率 {_text(ma60.get('slope_pct'))}%")
+    if ma250.get("available"):
+        side = "站上" if ma250.get("above") else "跌破"
+        fragments.append(f"MA250 {side} · 斜率 {_text(ma250.get('slope_pct'))}%")
+    if weekly.get("available"):
+        fragments.append(f"周MACD柱 {_text(weekly.get('hist'))} · 变化 {_text(weekly.get('hist_delta'))}")
+    if not fragments:
+        fragments.append(_text(macro_tide.get("summary"), "大周期数据不足"))
+    tone = {
+        "allowed": "positive",
+        "watch": "warning",
+        "forbidden": "danger",
+        "unknown": "muted",
+    }.get(macro_tide.get("permission"), "muted")
+    return {
+        "label": "大周期",
+        "value": f"{_text(macro_tide.get('label'))} · {' / '.join(fragments)}",
+        "tone": tone,
+    }
+
+
+def _v2_environment_driver(result):
+    if not result.get("v2_environment_permission"):
+        return None
+    macro_text = ""
+    if result.get("v2_macro_veto_label"):
+        macro_text = f" / 宏观 {_text(result.get('v2_macro_veto_label'))}"
+    return {
+        "label": "环境许可",
+        "value": (
+            f"{_text(result.get('v2_environment_label'))}"
+            f" · 板块 {_text(result.get('v2_sector_permission_label'))}"
+            f" / 概念 {_text(result.get('v2_concept_permission_label'))}"
+            f"{macro_text}"
+        ),
+        "tone": _text(result.get("v2_environment_tone"), "muted"),
     }
 
 
@@ -277,6 +430,29 @@ def build_score_badges(result):
             "tone": _text(state_model.get("tone"), "muted"),
             "hint": _text(state_model.get("reason"), _text(state_model.get("detail"), "V2 状态模型")),
         })
+        permission_model = state_model.get("v2_permission_model") if isinstance(state_model.get("v2_permission_model"), dict) else {}
+        plan_gate = permission_model.get("plan_gate") if isinstance(permission_model.get("plan_gate"), dict) else {}
+        if plan_gate:
+            badges.append({
+                "label": "闸门",
+                "value": _text(plan_gate.get("status_label")),
+                "tone": {
+                    "ready": "positive",
+                    "waiting": "warning",
+                    "blocked": "danger",
+                }.get(plan_gate.get("status"), "muted"),
+                "hint": "C回/C突/C爆 统一经过结构止损、赔率和追高风险校验",
+            })
+        facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
+        target_structure = facts.get("target_structure") if isinstance(facts.get("target_structure"), dict) else {}
+        if target_structure:
+            selected = target_structure.get("selected_breakout_target") or target_structure.get("pullback_target") or {}
+            badges.append({
+                "label": "目标",
+                "value": _text(selected.get("label"), "待确认"),
+                "tone": "positive" if selected else "warning",
+                "hint": "目标价按入场类型选择：C回看箱体上沿，C突/C爆看上方结构阻力",
+            })
     elif result.get("v2_role_label"):
         badges.append({
             "label": "定位",
@@ -290,6 +466,29 @@ def build_score_badges(result):
             "value": _text(result.get("pool_stage_label")),
             "tone": _text(result.get("pool_stage_tone"), "muted"),
             "hint": _text(result.get("pool_stage_detail"), "池子内阶段判断"),
+        })
+    if result.get("v2_environment_permission"):
+        badges.append({
+            "label": "环境",
+            "value": _text(result.get("v2_environment_label")),
+            "tone": _text(result.get("v2_environment_tone"), "muted"),
+            "hint": "环境许可用于降级或阻止可执行候选，不单独制造买点",
+        })
+    macro_tide = {}
+    if isinstance(state_model.get("facts"), dict) and isinstance(state_model["facts"].get("macro_tide"), dict):
+        macro_tide = state_model["facts"]["macro_tide"]
+    if macro_tide.get("permission"):
+        macro_tone = {
+            "allowed": "positive",
+            "watch": "warning",
+            "forbidden": "danger",
+            "unknown": "muted",
+        }.get(macro_tide.get("permission"), "muted")
+        badges.append({
+            "label": "大周期",
+            "value": _text(macro_tide.get("label")),
+            "tone": macro_tone,
+            "hint": "大周期潮汐只负责许可或拦截可执行入场，不制造买点",
         })
     if _number(result.get("sector_market_score")) is not None:
         badges.append({
@@ -359,6 +558,10 @@ def build_scan_explanation(result):
     diagnostic_drivers = [
         item for item in (
             _v2_fact_diagnostic(result),
+            _v2_plan_gate_driver(result),
+            _v2_target_driver(result),
+            _v2_macro_tide_driver(result),
+            _v2_environment_driver(result),
             _breakout_diagnostic(result),
             _risk_split_diagnostic(result),
             _direction_diagnostic(result),

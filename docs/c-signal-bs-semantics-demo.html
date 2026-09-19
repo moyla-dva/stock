@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C信号到B/S点语义演示</title>
+  <style>
+    :root {
+      --ink: #18211f;
+      --muted: #68736f;
+      --paper: #f6f3eb;
+      --panel: #fffdf7;
+      --line: #d7d0c2;
+      --green: #12856f;
+      --green-soft: #dcefe9;
+      --amber: #b66a16;
+      --amber-soft: #f5e4c9;
+      --red: #b53b36;
+      --red-soft: #f2d5d2;
+      --blue: #335c9a;
+      --blue-soft: #dbe6f6;
+      --shadow: 0 18px 50px rgba(35, 31, 23, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(24, 33, 31, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(24, 33, 31, 0.04) 1px, transparent 1px),
+        var(--paper);
+      background-size: 34px 34px;
+      font-family: "Songti SC", "Noto Serif CJK SC", "PingFang SC", serif;
+      letter-spacing: 0;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 42px 0 56px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 24px;
+      align-items: end;
+      border-bottom: 2px solid var(--ink);
+      padding-bottom: 24px;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--green);
+      font: 700 13px/1.2 "PingFang SC", sans-serif;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font-size: clamp(36px, 6vw, 84px);
+      line-height: 0.96;
+      font-weight: 900;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: clamp(24px, 3vw, 40px);
+      line-height: 1.08;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.8;
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.9;
+      border-left: 4px solid var(--green);
+      padding-left: 16px;
+    }
+
+    .section {
+      margin-top: 34px;
+      padding: 26px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.92fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .surface {
+      background: rgba(255, 253, 247, 0.86);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .rule-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--ink);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .rule {
+      min-height: 154px;
+      padding: 18px;
+      border-right: 1px solid var(--ink);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .rule:last-child {
+      border-right: 0;
+    }
+
+    .rule strong {
+      display: block;
+      font-size: 34px;
+      line-height: 1;
+    }
+
+    .rule span {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .rule.buy {
+      background: var(--green-soft);
+    }
+
+    .rule.watch {
+      background: var(--blue-soft);
+    }
+
+    .rule.trim {
+      background: var(--amber-soft);
+    }
+
+    .rule.sell {
+      background: var(--red-soft);
+    }
+
+    .stage-map {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      margin-top: 18px;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 132px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .stage:after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -14px;
+      width: 18px;
+      height: 2px;
+      background: var(--ink);
+    }
+
+    .stage:last-child:after {
+      display: none;
+    }
+
+    .stage b {
+      display: inline-flex;
+      min-width: 44px;
+      height: 44px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      color: white;
+      background: var(--ink);
+      font: 800 14px/1 "PingFang SC", sans-serif;
+      margin-bottom: 12px;
+    }
+
+    .stage small {
+      display: block;
+      color: var(--muted);
+      font: 500 13px/1.6 "PingFang SC", sans-serif;
+    }
+
+    .demo-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--ink);
+      cursor: pointer;
+      font: 700 14px/1 "PingFang SC", sans-serif;
+      padding: 11px 16px;
+      transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button.active {
+      color: var(--panel);
+      background: var(--ink);
+    }
+
+    .chart {
+      position: relative;
+      height: 290px;
+      border: 1px solid var(--ink);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(24, 33, 31, 0.08) 1px, transparent 1px),
+        #fffefa;
+      background-size: 100% 58px;
+      overflow: hidden;
+    }
+
+    .chart svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .price-path {
+      fill: none;
+      stroke: var(--green);
+      stroke-width: 4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .stop-line {
+      stroke: var(--red);
+      stroke-width: 2;
+      stroke-dasharray: 7 7;
+    }
+
+    .gate-line {
+      stroke: var(--amber);
+      stroke-width: 2;
+      stroke-dasharray: 3 5;
+    }
+
+    .point-label {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      min-width: 58px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: white;
+      text-align: center;
+      font: 800 13px/1.1 "PingFang SC", sans-serif;
+      box-shadow: 0 9px 22px rgba(24, 33, 31, 0.22);
+    }
+
+    .point-label.buy {
+      background: var(--green);
+    }
+
+    .point-label.warn {
+      background: var(--amber);
+    }
+
+    .point-label.sell {
+      background: var(--red);
+    }
+
+    .note-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+      min-height: 112px;
+    }
+
+    .note em {
+      display: block;
+      color: var(--muted);
+      font-style: normal;
+      font: 700 12px/1.2 "PingFang SC", sans-serif;
+      margin-bottom: 8px;
+    }
+
+    .note strong {
+      display: block;
+      font-size: 19px;
+      line-height: 1.25;
+      margin-bottom: 8px;
+    }
+
+    .note p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .fact-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .fact-table th,
+    .fact-table td {
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      line-height: 1.55;
+    }
+
+    .fact-table th {
+      color: var(--muted);
+      font: 700 12px/1.2 "PingFang SC", sans-serif;
+      text-transform: uppercase;
+      background: rgba(24, 33, 31, 0.04);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font: 800 12px/1 "PingFang SC", sans-serif;
+      border: 1px solid currentColor;
+      white-space: nowrap;
+    }
+
+    .tag.green {
+      color: var(--green);
+    }
+
+    .tag.amber {
+      color: var(--amber);
+    }
+
+    .tag.red {
+      color: var(--red);
+    }
+
+    .tag.blue {
+      color: var(--blue);
+    }
+
+    .decision {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .decision-block {
+      border-radius: 8px;
+      border: 1px solid var(--ink);
+      background: var(--panel);
+      padding: 18px;
+      min-height: 160px;
+    }
+
+    .decision-block.good {
+      border-color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .decision-block.bad {
+      border-color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .code-pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.65);
+      padding: 2px 6px;
+      font: 700 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .footer-callout {
+      margin-top: 34px;
+      padding: 24px;
+      border-radius: 8px;
+      background: var(--ink);
+      color: var(--panel);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .footer-callout p {
+      color: rgba(255, 253, 247, 0.78);
+    }
+
+    @media (max-width: 920px) {
+      header,
+      .grid-2,
+      .decision,
+      .footer-callout {
+        grid-template-columns: 1fr;
+      }
+
+      .rule-strip,
+      .note-row {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .stage-map {
+        grid-template-columns: 1fr;
+      }
+
+      .stage:after {
+        display: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      main {
+        width: min(100% - 24px, 1180px);
+        padding-top: 26px;
+      }
+
+      .rule-strip,
+      .note-row {
+        grid-template-columns: 1fr;
+      }
+
+      .chart {
+        height: 240px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">C SIGNAL SEMANTICS DEMO</p>
+        <h1>C信号不是B/S点</h1>
+      </div>
+      <p class="lead">这份演示用 601330 的问题做例子：`风离` 是 Exit Gate 的风控动作语义，不是“明天一定跌”的预测。真正要落到交易执行，需要再经过持仓生命周期、计划门和防守线确认。</p>
+    </header>
+
+    <section class="section">
+      <h2>先把三层拆开</h2>
+      <div class="rule-strip">
+        <div class="rule watch">
+          <strong>C研/C候/C修</strong>
+          <span>研究、候选、修复。它们是证据层，不应该直接变成买卖动作。</span>
+        </div>
+        <div class="rule buy">
+          <strong>C回/C突/C爆</strong>
+          <span>可能进入 B 点候选，但必须通过 Plan Gate：目标、止损、收益风险比、环境许可。</span>
+        </div>
+        <div class="rule trim">
+          <strong>C盈/减仓</strong>
+          <span>触及强阻或过热时保护利润。它不是清仓 S 点，更多是仓位管理。</span>
+        </div>
+        <div class="rule sell">
+          <strong>C风/风离</strong>
+          <span>只有存在有效持仓生命周期且防守线失守，才应该升级成 S 离场。</span>
+        </div>
+      </div>
+
+      <div class="stage-map">
+        <div class="stage">
+          <b>事实</b>
+          <h3>结构事实</h3>
+          <small>矩形、底背离、攻击日、顶分型、强阻力。</small>
+        </div>
+        <div class="stage">
+          <b>许可</b>
+          <h3>环境闸门</h3>
+          <small>大势、MA60、MA250、板块共振决定能不能参与。</small>
+        </div>
+        <div class="stage">
+          <b>计划</b>
+          <h3>交易计划</h3>
+          <small>入场价、止损价、目标价、2R 以上空间。</small>
+        </div>
+        <div class="stage">
+          <b>持仓</b>
+          <h3>生命周期</h3>
+          <small>只有先有 B 点和持仓，Exit Gate 才有“离场对象”。</small>
+        </div>
+        <div class="stage">
+          <b>动作</b>
+          <h3>B / 减 / S</h3>
+          <small>最终图面动作应是买入、减仓、离场，而不是把 C 字母直接当指令。</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="section grid-2">
+      <div>
+        <h2>601330 的 8月24日到底是什么</h2>
+        <p>按当前本地重算数据，601330 在 2026-08-24 的日线截面确实触发 `风离`。原因是收盘价 7.01 跌破动态防守线 7.05；但 2026-08-27 又出现双底分型低点抬高，代表离场后进入新一轮结构修复观察。</p>
+        <div class="decision">
+          <div class="decision-block good">
+            <h3>当前可确认</h3>
+            <p>2026-08-24 日线：收盘 7.01，动态防守线约 7.05，Exit Gate 为 `sell`。它是持仓风控动作，不是对后续全部走势的否定。</p>
+          </div>
+          <div class="decision-block bad">
+            <h3>容易误读</h3>
+            <p>如果只看单标签，会觉得系统一边给 `风离`，一边又承认底部抬高。拆分后应读成：8月24日旧持仓退出，8月27日新结构重新观察。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="surface">
+        <table class="fact-table">
+          <thead>
+            <tr>
+              <th>字段</th>
+              <th>601330 日线截面</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>日期</td>
+              <td>2026-08-24</td>
+            </tr>
+            <tr>
+              <td>价格</td>
+              <td>开 6.98，收 7.01，低 6.94，高 7.02</td>
+            </tr>
+            <tr>
+              <td>Exit Gate</td>
+              <td><span class="tag red">action sell</span> <span class="tag red">marker sell</span></td>
+            </tr>
+            <tr>
+              <td>系统解释</td>
+              <td>收盘价跌破动态防守线 7.05，Exit Gate 给出离场动作。</td>
+            </tr>
+            <tr>
+              <td>后续表现</td>
+              <td>从 7.01 到 5 个交易日后的 7.81，约 +11.41%；到 10 个交易日后的 8.01，约 +14.27%。这说明离场后可以重新形成新结构，而不是说明风控语义不存在。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <div>
+          <h2>为什么“风离后上涨”仍然可能发生</h2>
+          <p>风控信号处理的是“如果我已有仓位，是否还按原计划持有”。它保护的是亏损边界和利润回撤，不负责预测未来所有反弹。问题不在于风控会不会错过一段上涨，而在于它是否被正确显示为观察、减仓、还是 S 离场。</p>
+        </div>
+        <div class="surface">
+          <div class="demo-controls" aria-label="选择演示情景">
+            <button class="active" data-case="valid">有效风控</button>
+            <button data-case="rebound">离场后反弹</button>
+            <button data-case="mislabel">无持仓误标</button>
+          </div>
+          <div class="chart" id="demo-chart">
+            <svg viewBox="0 0 900 290" role="img" aria-label="C信号与B/S动作示意图">
+              <path id="price-path" class="price-path" d="M40 224 C130 210, 180 190, 240 176 C310 132, 372 118, 430 110 C492 98, 548 92, 604 84 C670 76, 728 126, 790 154 C830 170, 856 160, 872 150"></path>
+              <line id="stop-line" class="stop-line" x1="70" y1="218" x2="850" y2="218"></line>
+              <line id="gate-line" class="gate-line" x1="70" y1="92" x2="850" y2="92"></line>
+            </svg>
+            <div id="label-a" class="point-label buy" style="left: 31%; top: 60%;">B点</div>
+            <div id="label-b" class="point-label warn" style="left: 64%; top: 29%;">减仓</div>
+            <div id="label-c" class="point-label sell" style="left: 78%; top: 58%;">S点</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note-row">
+        <div class="note">
+          <em id="note-a-k">前提</em>
+          <strong id="note-a-title">先有有效 B 点</strong>
+          <p id="note-a-body">C回/C突/C爆 通过计划门后，才建立持仓生命周期。</p>
+        </div>
+        <div class="note">
+          <em id="note-b-k">过程</em>
+          <strong id="note-b-title">触强阻先减仓</strong>
+          <p id="note-b-body">强阻或过热只建议保护利润，不直接把全部仓位卖掉。</p>
+        </div>
+        <div class="note">
+          <em id="note-c-k">动作</em>
+          <strong id="note-c-title">跌破防守线才 S</strong>
+          <p id="note-c-body">只有收盘跌破动态防守线，才从 C风升级为真正离场动作。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section grid-2">
+      <div>
+        <h2>我建议的下一步改法</h2>
+        <p>把 `C风` 从一个笼统标签，拆成图面可执行语义。这样既保留作者思路里的风险意识，又不会把所有风险事实都误读为卖点。</p>
+      </div>
+      <div class="stack">
+        <div class="note">
+          <em>1. 风控观察</em>
+          <strong><span class="tag blue">C风观察</span></strong>
+          <p>顶分型、短线过热、局部背离，只显示风险观察，不显示 S。</p>
+        </div>
+        <div class="note">
+          <em>2. 利润保护</em>
+          <strong><span class="tag amber">减仓</span></strong>
+          <p>已有持仓且触及强阻、过热、远离均线时，显示减仓或保护利润。</p>
+        </div>
+        <div class="note">
+          <em>3. 真正离场</em>
+          <strong><span class="tag red">S离场</span></strong>
+          <p>必须满足：存在有效 B 点生命周期，并且收盘跌破动态防守线或结构破位。</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer-callout">
+      <div>
+        <h3>核心结论</h3>
+        <p>`C` 是状态语言，`B/S` 是动作语言。系统下一步应当让状态先解释清楚，再由计划门和持仓生命周期转换成可执行动作。</p>
+      </div>
+      <span class="code-pill">C signal -> Gate -> Position -> B/S</span>
+    </div>
+  </main>
+
+  <script>
+    var cases = {
+      valid: {
+        path: "M40 224 C130 210, 180 190, 240 176 C310 132, 372 118, 430 110 C492 98, 548 92, 604 84 C670 76, 728 126, 790 154 C830 170, 856 160, 872 150",
+        stopY: 218,
+        gateY: 92,
+        labels: [
+          ["B点", "buy", "31%", "60%"],
+          ["减仓", "warn", "64%", "29%"],
+          ["S点", "sell", "78%", "58%"]
+        ],
+        notes: [
+          ["前提", "先有有效 B 点", "C回/C突/C爆 通过计划门后，才建立持仓生命周期。"],
+          ["过程", "触强阻先减仓", "强阻或过热只建议保护利润，不直接把全部仓位卖掉。"],
+          ["动作", "跌破防守线才 S", "只有收盘跌破动态防守线，才从 C风升级为真正离场动作。"]
+        ]
+      },
+      rebound: {
+        path: "M40 224 C126 210, 192 172, 250 150 C318 112, 390 90, 468 82 C552 74, 620 148, 690 222 C742 258, 810 150, 872 76",
+        stopY: 208,
+        gateY: 84,
+        labels: [
+          ["B点", "buy", "29%", "53%"],
+          ["S点", "sell", "76%", "77%"],
+          ["反弹", "warn", "91%", "27%"]
+        ],
+        notes: [
+          ["事实", "离场后也会反弹", "S 点保护的是计划失效后的损失边界，不保证后面没有反抽或再突破。"],
+          ["误区", "不能用未来上涨否定当天风控", "评估风控要看当时是否跌破防守线、是否有有效持仓生命周期。"],
+          ["改进", "反弹应触发新一轮结构评估", "离场后如果重新站回结构，需要重新走 C候、C突/C回、Plan Gate，而不是撤销旧 S。"]
+        ]
+      },
+      mislabel: {
+        path: "M40 230 C142 224, 214 214, 296 202 C370 194, 452 170, 520 150 C604 126, 696 112, 872 88",
+        stopY: 230,
+        gateY: 116,
+        labels: [
+          ["观察", "warn", "37%", "67%"],
+          ["C候", "buy", "61%", "52%"],
+          ["非S", "warn", "78%", "41%"]
+        ],
+        notes: [
+          ["问题", "没有持仓就不该叫离场", "如果系统没有确认有效 B 点生命周期，C风只能是风险观察。"],
+          ["语义", "风离必须有离场对象", "S 点应依赖 position_state active，否则图面会误导用户。"],
+          ["动作", "显示为观察或减仓候选", "这种情形应写成 C风观察、强阻减仓，不能直接写成风离。"]
+        ]
+      }
+    };
+
+    function setCase(name) {
+      var item = cases[name] || cases.valid;
+      document.getElementById("price-path").setAttribute("d", item.path);
+      document.getElementById("stop-line").setAttribute("y1", item.stopY);
+      document.getElementById("stop-line").setAttribute("y2", item.stopY);
+      document.getElementById("gate-line").setAttribute("y1", item.gateY);
+      document.getElementById("gate-line").setAttribute("y2", item.gateY);
+
+      ["label-a", "label-b", "label-c"].forEach(function(id, index) {
+        var label = item.labels[index];
+        var el = document.getElementById(id);
+        el.textContent = label[0];
+        el.className = "point-label " + label[1];
+        el.style.left = label[2];
+        el.style.top = label[3];
+      });
+
+      item.notes.forEach(function(note, index) {
+        var key = String.fromCharCode(97 + index);
+        document.getElementById("note-" + key + "-k").textContent = note[0];
+        document.getElementById("note-" + key + "-title").textContent = note[1];
+        document.getElementById("note-" + key + "-body").textContent = note[2];
+      });
+
+      document.querySelectorAll("[data-case]").forEach(function(button) {
+        button.classList.toggle("active", button.getAttribute("data-case") === name);
+      });
+    }
+
+    document.querySelectorAll("[data-case]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        setCase(button.getAttribute("data-case"));
+      });
+    });
+  </script>
+</body>
+</html>

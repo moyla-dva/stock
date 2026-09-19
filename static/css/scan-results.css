@@ -568,6 +568,36 @@
     background: #eef1ec;
 }
 
+.stock-card__evidence-item--positive {
+    border-color: rgba(0, 137, 123, 0.28);
+    background: var(--buy-soft);
+    color: var(--buy);
+}
+
+.stock-card__evidence-item--positive strong {
+    color: var(--buy);
+}
+
+.stock-card__evidence-item--warning {
+    border-color: rgba(183, 121, 31, 0.28);
+    background: var(--warning-soft);
+    color: var(--warning);
+}
+
+.stock-card__evidence-item--warning strong {
+    color: var(--warning);
+}
+
+.stock-card__evidence-item--danger {
+    border-color: rgba(200, 55, 55, 0.24);
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.stock-card__evidence-item--danger strong {
+    color: var(--danger);
+}
+
 .stock-card__scores {
     grid-column: 1 / -1;
     display: flex;

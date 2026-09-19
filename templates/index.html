@@ -92,9 +92,12 @@
                             <button class="chart-view-btn active" id="chart-view-focus" onclick="setChartSignalView('focus')">核心</button>
                             <button class="chart-view-btn" id="chart-view-full" onclick="setChartSignalView('full')">全部</button>
                         </div>
+                        <div class="chart-position-toggle" aria-label="持仓视角">
+                            <button class="chart-position-btn active" id="chart-position-flat" onclick="setChartPositionView('flat')">空仓</button>
+                            <button class="chart-position-btn" id="chart-position-position" onclick="setChartPositionView('position')">持仓</button>
+                        </div>
                         <div class="scan-strategy-toggle scan-strategy-toggle--analysis" data-scan-strategy-toggle role="group" aria-label="C信号视角">
                             <span>V2语义</span>
-                            <button type="button" data-scan-strategy-view="legacy" aria-pressed="false" onclick="setScanStrategyView('legacy')">旧C</button>
                             <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
                         </div>
                         <div class="strategy-scope-note" data-scan-strategy-scope>V2语义层对比 · 指标/评分沿用当前策略</div>
@@ -311,6 +314,47 @@
                 </div>
             </section>
 
+            <aside class="scan-filter-side" id="scan-filter-side" aria-label="筛选与池">
+                <div class="scan-pool-tabs scan-pool-tabs--side" aria-label="扫描池">
+                    <button class="scan-pool-tab active" id="scan-pool-opportunity" onclick="setScanPool('opportunity')">
+                        <span>参与候选</span>
+                        <strong id="scan-count-opportunity">0</strong>
+                    </button>
+                    <button class="scan-pool-tab" id="scan-pool-risk" onclick="setScanPool('risk')">
+                        <span>风险验证</span>
+                        <strong id="scan-count-risk">0</strong>
+                    </button>
+                </div>
+
+                <section class="scan-filter-panel" aria-label="候选筛选">
+                    <div class="scan-filter-row">
+                        <label class="scan-field scan-field--search">
+                            <span>快速定位</span>
+                            <input id="scan-search" type="search" placeholder="搜索股票 / 板块 / 概念" oninput="setScanFilterQuery(this.value)">
+                        </label>
+                        <div class="scan-recommendation" aria-label="系统推荐">
+                            <span>系统动作</span>
+                            <strong id="scan-recommendation-title">读取结构</strong>
+                            <small id="scan-recommendation-detail">按结构、确认和风险自动排序</small>
+                        </div>
+                        <div class="scan-strategy-toggle" id="scan-strategy-view-toggle" data-scan-strategy-toggle role="group" aria-label="候选策略视角">
+                            <span>V2语义</span>
+                            <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
+                        </div>
+                        <div class="strategy-scope-note strategy-scope-note--scan" data-scan-strategy-scope>V2语义层对比 · 指标/评分沿用当前策略</div>
+                    </div>
+                    <div class="scan-reason-filter" id="scan-reason-filter" aria-label="V2原因筛选"></div>
+                    <div class="scan-candidate-context" id="scan-candidate-context" aria-label="当前名单上下文">
+                        <div class="scan-candidate-context__copy">
+                            <span id="scan-candidate-context-label">当前语境</span>
+                            <strong id="scan-candidate-context-title">系统正在整理参与名单</strong>
+                            <small id="scan-candidate-context-detail">默认按结构、确认和风险排序，必要时再展开高级筛选。</small>
+                        </div>
+                        <div class="scan-candidate-context__actions" id="scan-candidate-context-actions"></div>
+                    </div>
+                </section>
+            </aside>
+
             <section class="market-results-pane">
                 <div class="pane-head market-results-head">
                     <div class="market-results-title">
@@ -326,49 +370,9 @@
                         </div>
                         <button type="button" id="btn-scan-candidate-action" class="candidate-desk-brief__action" onclick="scanActivePool()">更新参与候选</button>
                     </div>
-                    <div class="market-results-tools">
-                        <div class="scan-pool-tabs scan-pool-tabs--market" aria-label="扫描池">
-                            <button class="scan-pool-tab active" id="scan-pool-opportunity" onclick="setScanPool('opportunity')">
-                                <span>参与候选</span>
-                                <strong id="scan-count-opportunity">0</strong>
-                            </button>
-                            <button class="scan-pool-tab" id="scan-pool-risk" onclick="setScanPool('risk')">
-                                <span>风险验证</span>
-                                <strong id="scan-count-risk">0</strong>
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
                 <section class="scan-workspace-page scan-workspace-page--candidates" id="scan-workspace-page-candidates" aria-label="执行层">
-                    <section class="scan-filter-panel" aria-label="候选筛选">
-                        <div class="scan-filter-row">
-                            <label class="scan-field scan-field--search">
-                                <span>快速定位</span>
-                                <input id="scan-search" type="search" placeholder="搜索股票 / 板块 / 概念" oninput="setScanFilterQuery(this.value)">
-                            </label>
-                            <div class="scan-recommendation" aria-label="系统推荐">
-                                <span>系统动作</span>
-                                <strong id="scan-recommendation-title">读取结构</strong>
-                                <small id="scan-recommendation-detail">按结构、确认和风险自动排序</small>
-                            </div>
-                            <div class="scan-strategy-toggle" id="scan-strategy-view-toggle" data-scan-strategy-toggle role="group" aria-label="候选策略视角">
-                                <span>V2语义</span>
-                                <button type="button" data-scan-strategy-view="legacy" aria-pressed="false" onclick="setScanStrategyView('legacy')">旧C</button>
-                                <button type="button" data-scan-strategy-view="v2" class="active" aria-pressed="true" onclick="setScanStrategyView('v2')">V2</button>
-                            </div>
-                            <div class="strategy-scope-note strategy-scope-note--scan" data-scan-strategy-scope>V2语义层对比 · 指标/评分沿用当前策略</div>
-                        </div>
-                        <div class="scan-candidate-context" id="scan-candidate-context" aria-label="当前名单上下文">
-                            <div class="scan-candidate-context__copy">
-                                <span id="scan-candidate-context-label">当前语境</span>
-                                <strong id="scan-candidate-context-title">系统正在整理参与名单</strong>
-                                <small id="scan-candidate-context-detail">默认按结构、确认和风险排序，必要时再展开高级筛选。</small>
-                            </div>
-                            <div class="scan-candidate-context__actions" id="scan-candidate-context-actions"></div>
-                        </div>
-                    </section>
-
                     <section id="scan-result-panel" class="scan-result-panel is-visible">
                         <div class="scan-result-header">
                             <span class="scan-result-title">当前执行层</span>
@@ -495,6 +499,7 @@
     </main>
 
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/analysisStore.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/signalPanel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/chartMarkers.js') }}"></script>

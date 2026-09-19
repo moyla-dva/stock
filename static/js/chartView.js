@@ -1,8 +1,9 @@
 var myChart = echarts.init(document.getElementById('chart-container'));
 
 function rerenderInspectorSignalBoard() {
-    if (!lastData || typeof renderSignalBoard !== 'function') return;
-    var allMarkPoints = getModeMarkPoints(lastData);
+    var viewData = analysisStore.getViewData();
+    if (!viewData || typeof renderSignalBoard !== 'function') return;
+    var allMarkPoints = getModeMarkPoints(viewData);
     var activeMarkPoints = allMarkPoints.filter(isPointActive);
     renderSignalBoard(allMarkPoints, activeMarkPoints);
 }
@@ -21,11 +22,32 @@ function updateChartSignalViewState() {
     });
 }
 
+function updateChartPositionViewState() {
+    var view = getChartPositionView();
+    ['flat', 'position'].forEach(function(positionView) {
+        var el = document.getElementById('chart-position-' + positionView);
+        if (!el) return;
+        var active = view === positionView;
+        el.classList.toggle('active', active);
+        el.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+}
+
 function setChartSignalView(view) {
     chartSignalView = view === 'full' ? 'full' : 'focus';
     updateChartSignalViewState();
-    if (lastData) {
-        renderChart(lastData);
+    var rootData = analysisStore.getCurrentChartData();
+    if (rootData) {
+        renderChart(rootData);
+    }
+}
+
+function setChartPositionView(view) {
+    analysisStore.setChartPositionView(view);
+    updateChartPositionViewState();
+    var rootData = analysisStore.getCurrentChartData();
+    if (rootData) {
+        renderChart(rootData);
     }
 }
 
@@ -43,9 +65,101 @@ function chartPayloadForPeriod(root, period) {
     return summary && summary.chart ? summary.chart : null;
 }
 
+function chartSummaryForPeriod(root, period) {
+    if (!root || period === 'daily') return null;
+    var meta = chartPeriodMeta(period);
+    return root.multi_timeframes && root.multi_timeframes[meta.summaryKey] ? root.multi_timeframes[meta.summaryKey] : null;
+}
+
 function chartPeriodAvailable(root, period) {
     if (period === 'daily') return true;
     return !!chartPayloadForPeriod(root, period);
+}
+
+function chartPeriodLoadable(root, period) {
+    if (!root || period === 'daily') return false;
+    return !!(root.stock_code || root.stock_name);
+}
+
+function chartPeriodLoading(period) {
+    var meta = chartPeriodMeta(period);
+    return Boolean(analysisStore.getTimeframePromise(meta.key));
+}
+
+function mergeTimeframePayload(root, payload) {
+    if (!root || !payload || !payload.multi_timeframes) return;
+    if (analysisStore.getRootData() === root) {
+        analysisStore.mergeTimeframes(payload);
+    }
+}
+
+function loadDeferredTimeframeCharts(period) {
+    var root = analysisStore.getCurrentChartData();
+    var meta = chartPeriodMeta(period);
+    if (!root || !chartPeriodLoadable(root, meta.key)) {
+        setChartState(meta.label + ' 暂无可用K线数据');
+        return null;
+    }
+    var existingPromise = analysisStore.getTimeframePromise(meta.key);
+    if (existingPromise) {
+        setChartState(meta.label + ' 确认层加载中');
+        return existingPromise;
+    }
+
+    var code = normalizeChartStockCode(root.stock_code || root.stock_name);
+    if (!code) {
+        setChartState(meta.label + ' 缺少股票代码');
+        return null;
+    }
+    var timeframeRequest = analysisStore.beginTimeframeLoad(meta.key, code);
+    if (!timeframeRequest && meta.key !== 'daily') {
+        return null;
+    }
+    setChartState('正在加载 ' + meta.label + ' 确认层');
+    updateChartPeriodState(root);
+
+    var loadPromise = fetchAnalysisTimeframes(code, meta.key)
+        .then(function(payload) {
+            if (!analysisStore.isTimeframeRequestCurrent(timeframeRequest)) {
+                return;
+            }
+            if (!payload || payload.error) {
+                throw new Error(payload && payload.error ? payload.error : '分时确认层返回为空');
+            }
+            var currentRoot = analysisStore.getRootData() || root;
+            if (normalizeChartStockCode(currentRoot.stock_code || currentRoot.stock_name) !== code) {
+                return;
+            }
+            mergeTimeframePayload(currentRoot, payload);
+            if (chartPeriodAvailable(currentRoot, meta.key)) {
+                if (analysisStore.getActivePeriod() === meta.key) {
+                    renderChart(currentRoot);
+                } else {
+                    updateChartPeriodState(currentRoot);
+                }
+            } else {
+                if (analysisStore.getActivePeriod() === meta.key) {
+                    analysisStore.setActivePeriod('daily');
+                    renderChart(currentRoot);
+                    setChartState(meta.label + ' 暂无可用K线数据');
+                } else {
+                    updateChartPeriodState(currentRoot);
+                }
+            }
+        })
+        .catch(function(err) {
+            if (!analysisStore.failTimeframeLoad(timeframeRequest, err)) {
+                return;
+            }
+            updateChartPeriodState(analysisStore.getRootData() || root);
+            setChartState(meta.label + ' 确认层加载失败: ' + err.message);
+        })
+        .finally(function() {
+            analysisStore.finishTimeframeLoad(timeframeRequest);
+            updateChartPeriodState(analysisStore.getRootData() || root);
+        });
+    analysisStore.attachTimeframePromise(timeframeRequest, loadPromise);
+    return loadPromise;
 }
 
 function buildChartPeriodData(root, period) {
@@ -67,26 +181,46 @@ function buildChartPeriodData(root, period) {
 }
 
 function updateChartPeriodState(root) {
+    var currentPeriod = analysisStore.getActivePeriod();
     ['daily', '60m', '4h'].forEach(function(period) {
         var meta = chartPeriodMeta(period);
         var button = document.getElementById(meta.id);
         if (!button) return;
         var available = chartPeriodAvailable(root, period);
-        button.classList.toggle('active', activeChartPeriod === period);
-        button.disabled = !available;
-        button.setAttribute('aria-pressed', activeChartPeriod === period ? 'true' : 'false');
+        var loadable = chartPeriodLoadable(root, period);
+        var loading = chartPeriodLoading(period);
+        button.classList.toggle('active', currentPeriod === period);
+        button.classList.toggle('is-loading', loading);
+        button.classList.toggle('is-deferred', !available && loadable);
+        button.disabled = !available && !loadable;
+        button.title = available
+            ? meta.label + ' 已载入'
+            : (loadable ? '点击加载 ' + meta.label + ' 确认层' : meta.label + ' 暂无可用K线数据');
+        button.setAttribute('aria-pressed', currentPeriod === period ? 'true' : 'false');
     });
 }
 
 function setChartPeriod(period) {
     period = chartPeriodMeta(period).key;
-    var root = lastAnalysisData || lastData;
+    var root = analysisStore.getCurrentChartData();
+    if (root && period !== 'daily' && chartPeriodLoading(period)) {
+        analysisStore.setActivePeriod(period);
+        updateChartPeriodState(root);
+        setChartState(chartPeriodMeta(period).label + ' 确认层加载中');
+        return;
+    }
     if (root && !chartPeriodAvailable(root, period)) {
+        if (chartPeriodLoadable(root, period)) {
+            analysisStore.setActivePeriod(period);
+            updateChartPeriodState(root);
+            loadDeferredTimeframeCharts(period);
+            return;
+        }
         setChartState(chartPeriodMeta(period).label + ' 暂无可用K线数据');
         updateChartPeriodState(root);
         return;
     }
-    activeChartPeriod = period;
+    analysisStore.setActivePeriod(period);
     updateChartPeriodState(root);
     if (root) {
         renderChart(root);
@@ -94,12 +228,13 @@ function setChartPeriod(period) {
 }
 
 function focusSignal(date) {
-    if (!lastData || !date || !lastData.dates) return false;
-    var idx = lastData.dates.indexOf(date);
+    var viewData = analysisStore.getViewData();
+    if (!viewData || !date || !viewData.dates) return false;
+    var idx = viewData.dates.indexOf(date);
     if (idx < 0) return false;
     activeHoverSignalDate = null;
     activeInspectorSignalDate = date;
-    var total = Math.max(1, lastData.dates.length - 1);
+    var total = Math.max(1, viewData.dates.length - 1);
     var start = Math.max(0, ((idx - 30) / total) * 100);
     var end = Math.min(100, ((idx + 30) / total) * 100);
     [0, 1].forEach(function(dataZoomIndex) {
@@ -201,27 +336,41 @@ function updateChartHeader(data, dates) {
 }
 
 function updateChartStats(data) {
-    var compositeCount = getModeMarkPoints(data).length;
-    setText('stat-composite', compositeCount);
+    var markCount = getModeMarkPoints(data).length;
+    setText('stat-composite', markCount);
 
-    var stats = data.stats_composite;
-
-    if (stats && stats.b) {
+    var stats = (data.event_stats || {}).v2 || {};
+    var bySignal = stats.by_signal || {};
+    var sampleCount = 0;
+    var winRateSum = 0;
+    var avgRetSum = 0;
+    Object.keys(bySignal).forEach(function(key) {
+        var item = bySignal[key] || {};
+        var count = Number(item.evaluated_count || 0);
+        if (count > 0) {
+            sampleCount += count;
+            winRateSum += Number(item.win_rate || 0) * count;
+            avgRetSum += Number(item.avg_ret || 0) * count;
+        }
+    });
+    if (sampleCount > 0) {
         var horizonUnit = data.chart_period === 'daily' ? '日' : '根';
-        var horizon = (stats.b.horizon == null) ? '-' : stats.b.horizon + horizonUnit;
-        var bWin = formatChartPercent(stats.b.win_rate, 1);
-        var bRet = formatChartPercent(stats.b.avg_ret, 2);
-        var sWin = stats.s ? formatChartPercent(stats.s.win_rate, 1) : '-';
-        var sRet = stats.s ? formatChartPercent(stats.s.avg_ret, 2) : '-';
-        setText('stat-detail', horizon + ' B ' + bWin + ' / ' + bRet + ' | 离场 ' + sWin + ' / ' + sRet);
+        var horizon = stats.horizon == null ? 5 : stats.horizon;
+        setText(
+            'stat-detail',
+            'V2 ' + sampleCount + ' 样本 / ' + horizon + horizonUnit
+            + ' · 胜率 ' + (winRateSum / sampleCount).toFixed(1) + '%'
+            + ' / 均值 ' + (avgRetSum / sampleCount).toFixed(2) + '%'
+        );
     } else {
         setText('stat-detail', '-');
     }
 }
 
 function buildVisibleMarkPoints(data, dates, scanFocus) {
-    var allMarkPoints = getModeMarkPoints(data);
-    var activeMarkPoints = allMarkPoints.filter(isPointActive);
+    var rawMarkPoints = getModeMarkPoints(data);
+    var allMarkPoints = annotateChartDisplayContext(rawMarkPoints);
+    var activeMarkPoints = annotateChartDisplayContext(rawMarkPoints.filter(isPointActive), rawMarkPoints);
     var chartSourcePoints = chartSignalView === 'focus'
         ? selectFocusChartPoints(activeMarkPoints, dates)
         : activeMarkPoints;
@@ -237,9 +386,10 @@ function buildVisibleMarkPoints(data, dates, scanFocus) {
 
     if (dates.length > 0) {
         var viewText = chartSignalView === 'focus' ? '核心' : '全部';
+        var positionText = getChartPositionView() === 'position' ? '持仓' : '空仓';
         var focusText = scanFocus ? ' · ' + scanFocusStateText(scanFocus) : '';
         var unitText = data.chart_period === 'daily' ? '日' : '根';
-        setChartState('已载入 ' + dates.length + ' ' + unitText + ' · ' + (data.chart_period_label || '日线') + ' · ' + viewText + ' ' + chartSourcePoints.length + '/' + activeMarkPoints.length + focusText);
+        setChartState('已载入 ' + dates.length + ' ' + unitText + ' · ' + (data.chart_period_label || '日线') + ' · ' + positionText + ' · ' + viewText + ' ' + chartSourcePoints.length + '/' + activeMarkPoints.length + focusText);
     } else {
         setChartState('无数据');
     }
@@ -260,15 +410,17 @@ function defaultChartZoomStart(data, totalDays) {
 
 function renderChart(data) {
     if (data && data.multi_timeframes && !data._chart_period_view) {
-        lastAnalysisData = data;
+        analysisStore.setRootData(data);
     }
-    var rootData = lastAnalysisData || data;
-    if (!chartPeriodAvailable(rootData, activeChartPeriod)) {
-        activeChartPeriod = 'daily';
+    var rootData = analysisStore.getRootData() || data;
+    var currentPeriod = analysisStore.getActivePeriod();
+    if (!chartPeriodAvailable(rootData, currentPeriod)) {
+        currentPeriod = 'daily';
+        analysisStore.setActivePeriod(currentPeriod);
     }
     updateChartPeriodState(rootData);
-    data = buildChartPeriodData(rootData, activeChartPeriod) || rootData;
-    lastData = data;
+    data = buildChartPeriodData(rootData, currentPeriod) || rootData;
+    analysisStore.setViewData(data);
     mergeSignalDefinitions(data.signal_definitions);
     renderScoreSummary(data.score_summary);
     setText('stock-title', data.stock_name || data.stock_code || '未知股票');
@@ -276,6 +428,7 @@ function renderChart(data) {
     setText('stock-sector', '板块: ' + (data.stock_sector || '-') + (concepts ? ' · 概念: ' + concepts : ''));
     updateModeState();
     updateChartSignalViewState();
+    updateChartPositionViewState();
     if (typeof renderStockTagProfile === 'function') {
         renderStockTagProfile(data.tag_profile || null);
     }

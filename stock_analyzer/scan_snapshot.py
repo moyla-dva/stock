@@ -2,14 +2,16 @@
 
 import json
 import os
+import uuid
 from datetime import datetime, time
 from pathlib import Path
 
 from stock_analyzer.code_utils import normalize_code
-from stock_analyzer.c_signal_v2 import build_c_signal_v2_priority, build_c_signal_v2_state_from_result, c_signal_v2_fields
+from stock_analyzer.c_signal_v2 import build_c_signal_v2_priority, build_c_signal_v2_state_from_result
 from stock_analyzer.data_fetcher import beijing_now
+from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_fields
 from stock_analyzer.scanner import SCAN_CONFIG, format_scan_date, normalize_scan_type, scan_stock_frame
-from stock_analyzer.trade_plan import build_trade_plan
+from stock_analyzer.v2_analysis_context import build_v2_analysis_context
 from stock_analyzer.versioning import (
     DATA_ADJUST,
     SCAN_STRATEGY_VERSION,
@@ -198,7 +200,9 @@ def write_scan_snapshot(snapshot, start_date=None, snapshot_day=None, logger=Non
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(".tmp")
+        # Unique tmp name so the web service and offline rebuild jobs writing the
+        # same code/day never clobber each other's staging file.
+        tmp_path = path.with_suffix(f".{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp")
         with tmp_path.open("w", encoding="utf-8") as handle:
             json.dump(snapshot, handle, ensure_ascii=False, separators=(",", ":"))
         tmp_path.replace(path)
@@ -221,16 +225,25 @@ def build_scan_snapshot(
     concepts = list(concepts or [])
     computed_scan_types = [normalize_scan_type(scan_type) for scan_type in scan_types]
     results = {}
-    trade_plan = build_trade_plan(
+    analysis_context = build_v2_analysis_context(
         df_display,
         context={
             "alignment": "scan_candidate",
             "detail": "来自扫描候选，仍需核对市场结构和板块阶段。",
         },
+        include_events=False,
+        include_trade_plan=True,
     )
+    trade_plan = analysis_context.get("trade_plan")
 
     for scan_type in computed_scan_types:
-        result = scan_stock_frame(code, name or code, df_display, scan_type)
+        result = scan_stock_frame(
+            code,
+            name or code,
+            df_display,
+            scan_type,
+            analysis_context=analysis_context,
+        )
         if result:
             result["sector"] = sector
             result["concepts"] = concepts
@@ -285,6 +298,35 @@ def scan_result_from_snapshot(snapshot, scan_type):
         output.update(c_signal_v2_fields(output.get("signal_key")))
     if output.get("signal_key") and not output.get("v2_state_model"):
         output["v2_state_model"] = build_c_signal_v2_state_from_result(output)
+    state_model = output.get("v2_state_model") if isinstance(output.get("v2_state_model"), dict) else {}
+    if output.get("signal_key") and (
+        not state_model.get("candidate_substate")
+        or not state_model.get("candidate_trigger_plan")
+    ):
+        backfilled_state = build_c_signal_v2_state_from_result(output)
+        for key in (
+            "candidate_substate",
+            "candidate_substate_label",
+            "candidate_display_label",
+            "candidate_confirmation_price",
+            "candidate_invalidation_price",
+            "candidate_missing_confirmations",
+            "candidate_trigger_plan",
+        ):
+            state_model[key] = backfilled_state.get(key)
+        if state_model:
+            output["v2_state_model"] = state_model
+    for key in (
+        "candidate_substate",
+        "candidate_substate_label",
+        "candidate_display_label",
+        "candidate_confirmation_price",
+        "candidate_invalidation_price",
+        "candidate_missing_confirmations",
+        "candidate_trigger_plan",
+    ):
+        if key not in output and state_model.get(key) is not None:
+            output[key] = state_model.get(key)
     if output.get("signal_key") and not output.get("v2_priority_score"):
         output.update(build_c_signal_v2_priority(output))
     return output

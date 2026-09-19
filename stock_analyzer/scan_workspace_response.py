@@ -1,6 +1,7 @@
 """Response shaping for the scan workspace API."""
 
 from stock_analyzer.c_signal_v2 import apply_c_signal_v2_priority
+from stock_analyzer.scan_explainer import attach_scan_explanation
 from stock_analyzer.scan_snapshot import display_snapshot_day
 from stock_analyzer.scan_snapshot_meta import build_snapshot_meta
 from stock_analyzer.scan_strategy_health import build_strategy_health
@@ -33,6 +34,8 @@ def trim_workspace_pools(pools, max_items):
     """Sort pools, preserve full counts, and cap the displayed result payload."""
     apply_c_signal_v2_priority(pools)
     for pool in pools.values():
+        for result in pool["results"]:
+            attach_scan_explanation(result)
         results = sort_scan_results(pool["results"])
         pool["count"] = len(results)
         pool["max_items"] = max_items
@@ -86,6 +89,429 @@ def trim_workspace_pool_stats(pools, limit=None):
                 key=lambda stat: _pool_stat_priority(stat, "concept"),
                 reverse=True,
             )[:limit]
+
+
+COMPACT_RESULT_KEYS = {
+    "avg_ret",
+    "bear_power",
+    "bear_power_dominant",
+    "bull_bear_balance",
+    "bull_power",
+    "bull_power_dominant",
+    "candidate_confirmation_price",
+    "candidate_display_label",
+    "candidate_invalidation_price",
+    "candidate_missing_confirmations",
+    "candidate_substate",
+    "candidate_substate_label",
+    "candidate_trigger_plan",
+    "code",
+    "concept_avg_rank",
+    "concept_bottom_div_count",
+    "concept_breadth_label",
+    "concept_breadth_latest_date",
+    "concept_breadth_ma20_rate",
+    "concept_breadth_sample_count",
+    "concept_breadth_up_rate",
+    "concept_candidate_density",
+    "concept_candidate_width_label",
+    "concept_focus",
+    "concept_latest_event",
+    "concept_market_boost",
+    "concept_market_cache_stale",
+    "concept_market_latest_date",
+    "concept_market_ret_20",
+    "concept_market_ret_5",
+    "concept_market_score",
+    "concept_market_source",
+    "concept_market_trend",
+    "concept_member_count",
+    "concept_opportunity_count",
+    "concept_opportunity_density",
+    "concept_relation_quality_label",
+    "concept_relation_quality_score",
+    "concept_relation_verified_count",
+    "concept_relation_weak_count",
+    "concept_risk_count",
+    "concept_risk_density",
+    "concept_score",
+    "concept_signal_count",
+    "concept_width_label",
+    "concept_width_score",
+    "concepts",
+    "confirm_score",
+    "custom_z",
+    "data_date",
+    "date",
+    "event_date",
+    "explanation",
+    "final_score",
+    "history_delta",
+    "market_boost",
+    "momentum_efficiency",
+    "name",
+    "pool_stage_detail",
+    "pool_stage_label",
+    "pool_stage_tone",
+    "price",
+    "prior_breakout",
+    "prior_high_10",
+    "profile_relation_count",
+    "profile_relation_group_summary",
+    "profile_relation_summary",
+    "rank_score",
+    "reason",
+    "requires_stop_loss",
+    "requires_trade_plan",
+    "return_pct",
+    "risk_break_score",
+    "risk_heat_score",
+    "risk_score",
+    "scan_admission_label",
+    "scan_admission_source",
+    "scan_title",
+    "scan_type",
+    "score_confidence",
+    "score_confidence_label",
+    "score_confidence_level",
+    "sector",
+    "sector_avg_rank",
+    "sector_bottom_div_count",
+    "sector_breadth_label",
+    "sector_breadth_latest_date",
+    "sector_breadth_ma20_rate",
+    "sector_breadth_sample_count",
+    "sector_breadth_up_rate",
+    "sector_candidate_density",
+    "sector_candidate_width_label",
+    "sector_latest_event",
+    "sector_member_count",
+    "sector_opportunity_count",
+    "sector_opportunity_density",
+    "sector_relation_quality_label",
+    "sector_relation_quality_score",
+    "sector_relation_verified_count",
+    "sector_relation_weak_count",
+    "sector_risk_count",
+    "sector_risk_density",
+    "sector_score",
+    "sector_signal_count",
+    "sector_width_label",
+    "sector_width_score",
+    "setup_score",
+    "signal",
+    "signal_category",
+    "signal_key",
+    "signal_label",
+    "signal_name",
+    "snapshot_day",
+    "snapshot_strategy_label",
+    "snapshot_strategy_version",
+    "strategy_source_label",
+    "strategy_status",
+    "trade_intent",
+    "trade_intent_label",
+    "v2_concept_permission",
+    "v2_concept_permission_label",
+    "v2_concept_permission_reason",
+    "v2_detail",
+    "v2_effective_permission",
+    "v2_environment_block_reasons",
+    "v2_environment_effect",
+    "v2_environment_label",
+    "v2_environment_permission",
+    "v2_environment_reasons",
+    "v2_environment_tone",
+    "v2_environment_warnings",
+    "v2_macro_veto_block_reasons",
+    "v2_macro_veto_label",
+    "v2_macro_veto_permission",
+    "v2_macro_veto_reason",
+    "v2_macro_veto_tone",
+    "v2_macro_veto_warnings",
+    "v2_market_permission",
+    "v2_permission",
+    "v2_plan_scope",
+    "v2_plan_status",
+    "v2_plan_status_label",
+    "v2_priority_detail",
+    "v2_priority_group",
+    "v2_priority_label",
+    "v2_priority_score",
+    "v2_priority_source",
+    "v2_priority_tone",
+    "v2_queue",
+    "v2_queue_label",
+    "v2_queue_priority",
+    "v2_role",
+    "v2_role_label",
+    "v2_sector_permission",
+    "v2_sector_permission_label",
+    "v2_sector_permission_reason",
+    "v2_signal",
+    "v2_signal_name",
+    "v2_state",
+    "v2_state_label",
+    "v2_tone",
+    "view_model",
+    "volume_ratio",
+    "williams_r",
+    "williams_r_center_side",
+    "williams_r_cross_bear",
+    "williams_r_cross_bull",
+    "win_rate",
+}
+
+
+COMPACT_TRADE_PLAN_KEYS = {
+    "detail",
+    "entry",
+    "execution_constraints",
+    "forbidden_reasons",
+    "invalidation_conditions",
+    "latest_date",
+    "latest_price",
+    "next_actions",
+    "permission",
+    "plan_type",
+    "plan_type_label",
+    "position",
+    "protection_rules",
+    "required_confirmations",
+    "risk_reward",
+    "status",
+    "status_label",
+    "stop",
+    "targets",
+    "title",
+    "version",
+}
+
+
+COMPACT_V2_MODEL_KEYS = {
+    "candidate_confirmation_price",
+    "candidate_display_label",
+    "candidate_invalidation_price",
+    "candidate_missing_confirmations",
+    "candidate_substate",
+    "candidate_substate_label",
+    "candidate_trigger_plan",
+    "detail",
+    "event_mapping",
+    "latest_date",
+    "next_action",
+    "permission",
+    "permission_context",
+    "permission_label",
+    "plan_scope",
+    "reason",
+    "requires_stop_loss",
+    "requires_trade_plan",
+    "role",
+    "role_label",
+    "scores",
+    "signal",
+    "signal_name",
+    "source",
+    "state",
+    "state_label",
+    "tone",
+    "trade_intent",
+    "trade_intent_label",
+    "v2_state_schema_version",
+    "version",
+}
+
+
+COMPACT_PERMISSION_MODEL_KEYS = {
+    "block_reasons",
+    "can_open",
+    "mode",
+    "mode_label",
+    "next_action",
+    "permission",
+    "permission_label",
+    "plan_gate",
+    "plan_status",
+    "plan_status_label",
+    "reason",
+    "required_confirmations",
+    "schema_version",
+    "signal_key",
+    "source",
+    "state",
+    "state_label",
+}
+
+
+def _copy_keys(source, keys):
+    if not isinstance(source, dict):
+        return {}
+    return {key: source[key] for key in keys if key in source}
+
+
+def _compact_structure_facts(structure):
+    structure = structure if isinstance(structure, dict) else {}
+    compact = _copy_keys(structure, {"available", "candidate", "summary", "source", "version"})
+    rectangle_keys = {
+        "available",
+        "family",
+        "lookback",
+        "upper",
+        "lower",
+        "mid",
+        "width_pct",
+        "inside",
+        "breaks_previous_upper",
+        "breaks_previous_lower",
+        "latest_position",
+        "quality_score",
+        "summary",
+    }
+    for key in ("rectangle", "active_rectangle", "macro_rectangle"):
+        value = structure.get(key)
+        if isinstance(value, dict):
+            compact[key] = _copy_keys(value, rectangle_keys)
+    bear_trap = structure.get("bear_trap_recovery")
+    if isinstance(bear_trap, dict):
+        compact["bear_trap_recovery"] = _copy_keys(bear_trap, {
+            "available",
+            "breakout_after_recovery",
+            "macro_breakout_after_recovery",
+            "recovered",
+            "stop_price",
+            "summary",
+        })
+    fractals = structure.get("fractals")
+    if isinstance(fractals, dict):
+        compact["fractals"] = _copy_keys(fractals, {
+            "available",
+            "confirmation_lag",
+            "containment_count",
+            "double_bottom_higher_low",
+            "latest_bottom",
+            "latest_top",
+            "merge_count",
+            "normalization_used",
+            "normalized_count",
+            "original_count",
+            "summary",
+            "top_lower_high",
+        })
+    normalized_bars = structure.get("normalized_bars")
+    if isinstance(normalized_bars, dict):
+        compact["normalized_bars"] = _copy_keys(normalized_bars, {
+            "available",
+            "containment_count",
+            "dropped_count",
+            "lookback",
+            "merge_count",
+            "normalized_count",
+            "original_count",
+            "summary",
+        })
+    return compact
+
+
+def _compact_trigger_facts(trigger):
+    trigger = trigger if isinstance(trigger, dict) else {}
+    return _copy_keys(trigger, {"attack_day", "ignition", "summary", "source", "version"})
+
+
+def compact_v2_facts(facts):
+    facts = facts if isinstance(facts, dict) else {}
+    compact = _copy_keys(facts, {"latest_date", "scores", "source", "version", "v2_scores"})
+    for key in ("target_structure", "macro_tide", "exit_gate"):
+        value = facts.get(key)
+        if isinstance(value, dict):
+            if key == "target_structure":
+                compact[key] = _copy_keys(value, {
+                    "available",
+                    "pullback_target",
+                    "reference_price",
+                    "selected_breakout_target",
+                    "summary",
+                    "target_selection_reason",
+                })
+            elif key == "exit_gate":
+                compact[key] = _copy_keys(value, {
+                    "action",
+                    "available",
+                    "marker_level",
+                    "marker_reason",
+                    "marker_role",
+                    "position_lifecycle",
+                    "summary",
+                })
+            else:
+                compact[key] = value
+    return compact
+
+
+def compact_v2_state_model(model):
+    model = model if isinstance(model, dict) else {}
+    compact = _copy_keys(model, COMPACT_V2_MODEL_KEYS)
+    permission_model = model.get("v2_permission_model")
+    if isinstance(permission_model, dict):
+        compact["v2_permission_model"] = _copy_keys(permission_model, COMPACT_PERMISSION_MODEL_KEYS)
+    facts = model.get("facts")
+    if isinstance(facts, dict):
+        compact["facts"] = compact_v2_facts(facts)
+    return compact
+
+
+def compact_trade_plan(plan):
+    compact = _copy_keys(plan, COMPACT_TRADE_PLAN_KEYS)
+    structures = plan.get("technical_structures") if isinstance(plan, dict) else {}
+    if isinstance(structures, dict) and isinstance(structures.get("williams_clock"), dict):
+        compact["technical_structures"] = {"williams_clock": structures["williams_clock"]}
+    return compact
+
+
+def compact_explanation(explanation):
+    explanation = explanation if isinstance(explanation, dict) else {}
+    compact = _copy_keys(explanation, {"card_summary", "headline", "summary", "version"})
+    if isinstance(explanation.get("drivers"), list):
+        compact["drivers"] = explanation["drivers"][:1]
+    if isinstance(explanation.get("cautions"), list):
+        compact["cautions"] = explanation["cautions"][:1]
+    if isinstance(explanation.get("score_badges"), list):
+        compact["score_badges"] = explanation["score_badges"][:4]
+    return compact
+
+
+def compact_scan_result(result):
+    """Return the list/detail contract without heavyweight analysis internals."""
+    if not isinstance(result, dict):
+        return result
+    compact = _copy_keys(result, COMPACT_RESULT_KEYS)
+    compact.pop("explanation", None)
+    compact.pop("view_model", None)
+    if isinstance(result.get("v2_state_model"), dict):
+        compact["v2_state_model"] = compact_v2_state_model(result["v2_state_model"])
+    if isinstance(result.get("explanation"), dict):
+        compact["explanation"] = compact_explanation(result["explanation"])
+    compact["_compact"] = True
+    return compact
+
+
+def compact_workspace_response(workspace, active_scan_type=None):
+    if not isinstance(workspace, dict):
+        return workspace
+    compact = dict(workspace)
+    pools = {}
+    for pool_key, pool in (workspace.get("pools") or {}).items():
+        next_pool = dict(pool)
+        if active_scan_type and pool_key != active_scan_type:
+            next_pool["results"] = []
+            next_pool["loaded_count"] = 0
+            next_pool["has_more"] = bool(next_pool.get("count"))
+        else:
+            next_pool["results"] = [compact_scan_result(result) for result in pool.get("results", [])]
+        pools[pool_key] = next_pool
+    compact["pools"] = pools
+    compact["compact"] = True
+    return compact
 
 
 def build_workspace_response(

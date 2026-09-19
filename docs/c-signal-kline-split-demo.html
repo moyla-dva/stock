@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>601330 双视角信号演示</title>
+  <style>
+    :root {
+      --ink: #17201d;
+      --muted: #62716b;
+      --paper: #f4f0e6;
+      --surface: #fffdf6;
+      --line: #d4cab8;
+      --grid: rgba(23, 32, 29, 0.09);
+      --rise: #0d8b70;
+      --fall: #bd4541;
+      --watch: #2f5f99;
+      --amber: #b56b17;
+      --buy: #058769;
+      --sell: #b72d34;
+      --soft-blue: #dce8f4;
+      --soft-green: #d9eee6;
+      --soft-amber: #f2dfbf;
+      --soft-red: #f0d0cc;
+      --shadow: 0 24px 70px rgba(33, 28, 18, 0.13);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(23, 32, 29, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(23, 32, 29, 0.04) 1px, transparent 1px),
+        var(--paper);
+      background-size: 38px 38px;
+      font-family: "Songti SC", "Noto Serif CJK SC", "PingFang SC", serif;
+      letter-spacing: 0;
+    }
+
+    main {
+      width: min(1240px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 36px 0 54px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: 26px;
+      align-items: end;
+      border-bottom: 2px solid var(--ink);
+      padding-bottom: 22px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--amber);
+      font: 800 12px/1.2 "PingFang SC", sans-serif;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 6vw, 74px);
+      line-height: 0.98;
+      font-weight: 900;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: clamp(24px, 3.6vw, 44px);
+      line-height: 1.08;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.75;
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.85;
+      border-left: 4px solid var(--amber);
+      padding-left: 16px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 350px;
+      gap: 18px;
+      margin-top: 28px;
+    }
+
+    .chart-shell {
+      min-width: 0;
+      border: 1px solid var(--ink);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .chart-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 253, 246, 0.92);
+    }
+
+    .chart-title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .chart-title strong {
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    .chart-title span {
+      color: var(--muted);
+      font: 700 13px/1.2 "PingFang SC", sans-serif;
+    }
+
+    .mode-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--ink);
+      cursor: pointer;
+      font: 800 13px/1 "PingFang SC", sans-serif;
+      padding: 10px 13px;
+      transition: transform 150ms ease, background 150ms ease, color 150ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button.active {
+      background: var(--ink);
+      color: var(--surface);
+    }
+
+    .plot-wrap {
+      position: relative;
+      height: 530px;
+      overflow: hidden;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .grid-line {
+      stroke: var(--grid);
+      stroke-width: 1;
+    }
+
+    .axis-label {
+      fill: var(--muted);
+      font: 700 11px/1 "PingFang SC", sans-serif;
+    }
+
+    .date-label {
+      fill: var(--muted);
+      font: 700 11px/1 "PingFang SC", sans-serif;
+    }
+
+    .wick {
+      stroke-width: 1.4;
+    }
+
+    .candle {
+      stroke-width: 1.4;
+      rx: 1;
+    }
+
+    .rise {
+      stroke: var(--rise);
+      fill: rgba(13, 139, 112, 0.1);
+    }
+
+    .fall {
+      stroke: var(--fall);
+      fill: rgba(189, 69, 65, 0.72);
+    }
+
+    .flat {
+      stroke: var(--watch);
+      fill: rgba(47, 95, 153, 0.12);
+    }
+
+    .ma-line {
+      fill: none;
+      stroke: #d3a321;
+      stroke-width: 4;
+      stroke-linecap: round;
+      opacity: 0.88;
+    }
+
+    .support-line {
+      stroke: var(--watch);
+      stroke-width: 2;
+      stroke-dasharray: 7 6;
+      opacity: 0.75;
+    }
+
+    .lane-rule {
+      stroke: rgba(23, 32, 29, 0.22);
+      stroke-width: 1;
+      stroke-dasharray: 2 5;
+    }
+
+    .lane-title {
+      fill: var(--ink);
+      font: 900 12px/1 "PingFang SC", sans-serif;
+    }
+
+    .signal-dot {
+      stroke: var(--surface);
+      stroke-width: 2;
+    }
+
+    .signal-label-bg {
+      stroke-width: 1;
+      rx: 6;
+    }
+
+    .signal-label {
+      fill: white;
+      font: 900 12px/1 "PingFang SC", sans-serif;
+      text-anchor: middle;
+      dominant-baseline: central;
+    }
+
+    .marker-watch {
+      fill: var(--watch);
+      stroke: var(--watch);
+    }
+
+    .marker-candidate {
+      fill: var(--buy);
+      stroke: var(--buy);
+    }
+
+    .marker-warn {
+      fill: var(--amber);
+      stroke: var(--amber);
+    }
+
+    .marker-sell {
+      fill: var(--sell);
+      stroke: var(--sell);
+    }
+
+    .callout-line {
+      stroke: var(--ink);
+      stroke-width: 1.2;
+      stroke-dasharray: 3 4;
+      opacity: 0.55;
+    }
+
+    .focus-band {
+      fill: rgba(181, 107, 23, 0.08);
+      stroke: rgba(181, 107, 23, 0.35);
+      stroke-width: 1;
+    }
+
+    .side-panel {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 246, 0.9);
+      padding: 16px;
+      box-shadow: 0 12px 34px rgba(33, 28, 18, 0.08);
+    }
+
+    .panel p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .legend {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .legend-row {
+      display: grid;
+      grid-template-columns: 78px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      font: 700 13px/1.45 "PingFang SC", sans-serif;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid currentColor;
+      font: 900 12px/1 "PingFang SC", sans-serif;
+      white-space: nowrap;
+    }
+
+    .pill.blue {
+      color: var(--watch);
+      background: var(--soft-blue);
+    }
+
+    .pill.green {
+      color: var(--buy);
+      background: var(--soft-green);
+    }
+
+    .pill.amber {
+      color: var(--amber);
+      background: var(--soft-amber);
+    }
+
+    .pill.red {
+      color: var(--sell);
+      background: var(--soft-red);
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .date-card {
+      min-height: 126px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 13px;
+    }
+
+    .date-card time {
+      display: block;
+      color: var(--muted);
+      font: 800 12px/1.2 "PingFang SC", sans-serif;
+      margin-bottom: 9px;
+    }
+
+    .date-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    .date-card p {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      margin-top: 22px;
+    }
+
+    .compare-block {
+      min-height: 180px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      background: var(--surface);
+    }
+
+    .compare-block.problem {
+      border-color: rgba(183, 45, 52, 0.5);
+      background: linear-gradient(180deg, var(--soft-red), var(--surface));
+    }
+
+    .compare-block.solution {
+      border-color: rgba(5, 135, 105, 0.5);
+      background: linear-gradient(180deg, var(--soft-green), var(--surface));
+    }
+
+    .small {
+      color: var(--muted);
+      font: 700 12px/1.6 "PingFang SC", sans-serif;
+    }
+
+    @media (max-width: 980px) {
+      header,
+      .workspace,
+      .comparison {
+        grid-template-columns: 1fr;
+      }
+
+      .chart-head {
+        grid-template-columns: 1fr;
+      }
+
+      .mode-tabs {
+        justify-content: flex-start;
+      }
+
+      .timeline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 580px) {
+      main {
+        width: min(100% - 24px, 1240px);
+        padding-top: 24px;
+      }
+
+      .plot-wrap {
+        height: 500px;
+      }
+
+      .timeline {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">601330 TWO-LENS SIGNAL SPECIMEN</p>
+        <h1>601330 的双视角 K 线信号方案</h1>
+      </div>
+      <p class="lead">这份页面用 601330 绿色动力在 2026-08-03 至 2026-09-11 的日线片段演示新的显示原则：无持仓只读结构和风险，有持仓才显示减、撤、卖。C 信号保留在详情里，不直接抢占主图语义。</p>
+    </header>
+
+    <section class="workspace" aria-label="K线信号拆分演示">
+      <div class="chart-shell">
+        <div class="chart-head">
+          <div class="chart-title">
+            <strong>绿色动力 601330</strong>
+            <span id="mode-caption">无持仓视角：8月18日破，8月24日警，8月27日候</span>
+          </div>
+          <div class="mode-tabs" aria-label="图面显示模式">
+            <button class="active" data-mode="flat">无持仓</button>
+            <button data-mode="position">有持仓</button>
+            <button data-mode="actual">当前对照</button>
+            <button data-mode="mixed">旧式堆叠</button>
+          </div>
+        </div>
+        <div class="plot-wrap">
+          <svg id="chart" viewBox="0 0 980 530" role="img" aria-label="601330日线K线与信号拆分示意图"></svg>
+        </div>
+      </div>
+
+      <aside class="side-panel">
+        <div class="panel">
+          <h3 id="panel-title">无持仓视角</h3>
+          <p id="panel-body">左侧没有系统确认过买点，所以 601330 这段不应凭空显示卖。8月18日应显示破，表示结构防守失效；8月24日继续显示警；8月27日双底右侧抬高，重新显示候。</p>
+          <div class="legend">
+            <div class="legend-row"><span class="pill blue">看</span><span>研究观察，来自 C研/C修 等证据。</span></div>
+            <div class="legend-row"><span class="pill green">候/买</span><span>候是结构候选；买必须通过 Plan Gate 且进入持仓生命周期后才出现。</span></div>
+            <div class="legend-row"><span class="pill amber">阻/警</span><span>阻是不宜追高，警是风险升高；二者都不是交易动作。</span></div>
+            <div class="legend-row"><span class="pill red">破/卖</span><span>无持仓显示破；有持仓且破防才显示卖。</span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>读图规则</h3>
+          <p>先判断有没有持仓。没有持仓时只读看、候、阻、警、破；有持仓时再把阻翻译成减，把转弱翻译成撤，把破防翻译成卖。</p>
+        </div>
+
+        <div class="panel">
+          <h3>8月24日核对</h3>
+          <p>2026-08-24：开 6.98，收 7.01，低 6.94，高 7.02。它仍低于防守线 7.05，但左侧没有明确买点时，不应显示卖；它更像破防后的风险延续。</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="timeline" aria-label="关键日期">
+      <article class="date-card">
+        <time>2026-08-07</time>
+        <strong>候：结构候选</strong>
+        <p>双底分型低点抬高，但还没有通过交易计划，不能当作买点。</p>
+      </article>
+      <article class="date-card">
+        <time>2026-08-11</time>
+        <strong>阻：顶分型压力</strong>
+        <p>顶分型确认，适合作为不追高或降低预期的提示；有持仓时可进一步转成撤。</p>
+      </article>
+      <article class="date-card">
+        <time>2026-08-14</time>
+        <strong>警：走势转弱</strong>
+        <p>价格继续回落，风险提示应早于最终破防，而不是等到 8月18日才第一次发声。</p>
+      </article>
+      <article class="date-card">
+        <time>2026-08-18</time>
+        <strong>破：防守失效</strong>
+        <p>收盘 7.02 低于动态防守线 7.05。无持仓叫破，有持仓才叫卖。</p>
+      </article>
+    </section>
+
+    <section class="timeline" aria-label="保留的当前事实">
+      <article class="date-card">
+        <time>2026-08-07</time>
+        <strong>C候：早期右底</strong>
+        <p>双底分型低点抬高，先形成结构候选，但随后仍未摆脱弱势震荡。</p>
+      </article>
+      <article class="date-card">
+        <time>2026-08-24</time>
+        <strong>当前算法：风离</strong>
+        <p>当前重算会继续显示风离，这是我们要收敛的生命周期和显示语义问题。</p>
+      </article>
+      <article class="date-card">
+        <time>2026-08-27</time>
+        <strong>当前算法：C候</strong>
+        <p>双底低点抬高重新出现，说明离场后并不等于结构彻底死亡。</p>
+      </article>
+      <article class="date-card">
+        <time>2026-08-31</time>
+        <strong>跳涨：新阶段</strong>
+        <p>价格直接跳涨到 7.81，说明 8月24日的破防风险和后续上涨可以同时成立。</p>
+      </article>
+    </section>
+
+    <section class="comparison" aria-label="旧显示与新显示对比">
+      <article class="compare-block problem">
+        <h2>视角混淆的问题</h2>
+        <p>没有确认买点时，图上出现卖或减，会让人误以为系统知道你的仓位。8月18日至8月24日连续显示风离，也会让人误读成每天都在发卖点。</p>
+      </article>
+      <article class="compare-block solution">
+        <h2>双视角表达</h2>
+        <p>无持仓：候、阻、警、破、候、阻。有持仓：撤、撤、卖，退出后回到空仓观察。图上先讲处境，再讲动作。</p>
+      </article>
+    </section>
+
+    <p class="small" style="margin-top: 18px;">说明：601330 当前算法在 2026-08-24 仍显示风离；新的显示原则不是否认风险，而是先区分有没有持仓。无持仓显示破或警，有持仓才显示卖。</p>
+  </main>
+
+  <script>
+    var bars = [
+      {date: "2026-08-03", open: 7.27, close: 7.39, low: 7.25, high: 7.42},
+      {date: "2026-08-04", open: 7.4, close: 7.29, low: 7.27, high: 7.45},
+      {date: "2026-08-05", open: 7.26, close: 7.27, low: 7.18, high: 7.28},
+      {date: "2026-08-06", open: 7.22, close: 7.18, low: 7.13, high: 7.24},
+      {date: "2026-08-07", open: 7.17, close: 7.14, low: 7.05, high: 7.2},
+      {date: "2026-08-10", open: 7.11, close: 7.25, low: 7.11, high: 7.25},
+      {date: "2026-08-11", open: 7.24, close: 7.2, low: 7.17, high: 7.26},
+      {date: "2026-08-12", open: 7.21, close: 7.18, low: 7.11, high: 7.23},
+      {date: "2026-08-13", open: 7.16, close: 7.17, low: 7.1, high: 7.26},
+      {date: "2026-08-14", open: 7.14, close: 7.09, low: 7.0, high: 7.16},
+      {date: "2026-08-17", open: 7.08, close: 7.11, low: 7.01, high: 7.12},
+      {date: "2026-08-18", open: 7.09, close: 7.02, low: 7.01, high: 7.1},
+      {date: "2026-08-19", open: 7.03, close: 7.0, low: 6.98, high: 7.06},
+      {date: "2026-08-20", open: 7.0, close: 7.02, low: 6.97, high: 7.1},
+      {date: "2026-08-21", open: 7.0, close: 6.99, low: 6.94, high: 7.01},
+      {date: "2026-08-24", open: 6.98, close: 7.01, low: 6.94, high: 7.02},
+      {date: "2026-08-25", open: 7.02, close: 7.05, low: 7.0, high: 7.08},
+      {date: "2026-08-26", open: 7.05, close: 7.08, low: 7.03, high: 7.11},
+      {date: "2026-08-27", open: 7.06, close: 7.07, low: 6.97, high: 7.07},
+      {date: "2026-08-28", open: 7.06, close: 7.1, low: 7.03, high: 7.12},
+      {date: "2026-08-31", open: 7.48, close: 7.81, low: 7.48, high: 7.81},
+      {date: "2026-09-01", open: 7.82, close: 7.97, low: 7.7, high: 8.13},
+      {date: "2026-09-02", open: 7.9, close: 7.81, low: 7.76, high: 7.99},
+      {date: "2026-09-03", open: 7.84, close: 7.9, low: 7.78, high: 7.94},
+      {date: "2026-09-04", open: 7.9, close: 7.92, low: 7.79, high: 8.0},
+      {date: "2026-09-07", open: 7.9, close: 8.01, low: 7.84, high: 8.01},
+      {date: "2026-09-08", open: 8.02, close: 8.18, low: 8.01, high: 8.3},
+      {date: "2026-09-09", open: 8.12, close: 8.29, low: 8.07, high: 8.36},
+      {date: "2026-09-10", open: 8.25, close: 8.22, low: 8.15, high: 8.39},
+      {date: "2026-09-11", open: 8.2, close: 8.36, low: 8.13, high: 8.42}
+    ];
+
+    var actualSignals = [
+      {date: "2026-08-07", lane: "evidence", text: "候", tone: "candidate", detail: "C候/右底"},
+      {date: "2026-08-11", lane: "evidence", text: "看", tone: "watch", detail: "C研/顶分型"},
+      {date: "2026-08-18", lane: "action", text: "卖", tone: "sell", detail: "风离/跌破防守线"},
+      {date: "2026-08-19", lane: "action", text: "卖", tone: "sell", detail: "当前重复风离"},
+      {date: "2026-08-20", lane: "action", text: "卖", tone: "sell", detail: "当前重复风离"},
+      {date: "2026-08-21", lane: "action", text: "卖", tone: "sell", detail: "当前重复风离"},
+      {date: "2026-08-24", lane: "action", text: "卖", tone: "sell", detail: "当前重复风离"},
+      {date: "2026-08-27", lane: "evidence", text: "候", tone: "candidate", detail: "C候/新右底"},
+      {date: "2026-09-09", lane: "risk", text: "减", tone: "warn", detail: "触60日前高"},
+      {date: "2026-09-10", lane: "risk", text: "减", tone: "warn", detail: "强阻减仓"},
+      {date: "2026-09-11", lane: "risk", text: "减", tone: "warn", detail: "强阻减仓"}
+    ];
+
+    var mixedSignals = [
+      {date: "2026-08-07", lane: "single", text: "C候", tone: "candidate", detail: "右底"},
+      {date: "2026-08-11", lane: "single", text: "C研", tone: "watch", detail: "顶部观察"},
+      {date: "2026-08-18", lane: "single", text: "风离", tone: "sell", detail: "防守失守"},
+      {date: "2026-08-19", lane: "single", text: "风离", tone: "sell", detail: "重复风离"},
+      {date: "2026-08-20", lane: "single", text: "风离", tone: "sell", detail: "重复风离"},
+      {date: "2026-08-21", lane: "single", text: "风离", tone: "sell", detail: "重复风离"},
+      {date: "2026-08-24", lane: "single", text: "风离", tone: "sell", detail: "重复风离"},
+      {date: "2026-08-27", lane: "single", text: "C候", tone: "candidate", detail: "右底被割裂"},
+      {date: "2026-09-09", lane: "single", text: "C盈", tone: "warn", detail: "强阻减仓"}
+    ];
+
+    var flatSignals = [
+      {date: "2026-08-07", lane: "evidence", text: "候", tone: "candidate", detail: "右底/结构候选"},
+      {date: "2026-08-11", lane: "risk", text: "阻", tone: "warn", detail: "顶分型压力"},
+      {date: "2026-08-14", lane: "risk", text: "警", tone: "warn", detail: "走势转弱"},
+      {date: "2026-08-18", lane: "risk", text: "破", tone: "sell", detail: "跌破防守线"},
+      {date: "2026-08-24", lane: "risk", text: "警", tone: "warn", detail: "破防后延续"},
+      {date: "2026-08-27", lane: "evidence", text: "候", tone: "candidate", detail: "右底重新修复"},
+      {date: "2026-09-09", lane: "risk", text: "阻", tone: "warn", detail: "触60日前高"}
+    ];
+
+    var positionSignals = [
+      {date: "2026-08-07", lane: "evidence", text: "候", tone: "candidate", detail: "非买点"},
+      {date: "2026-08-11", lane: "action", text: "撤", tone: "warn", detail: "顶分型减暴露"},
+      {date: "2026-08-14", lane: "action", text: "撤", tone: "warn", detail: "走势转弱"},
+      {date: "2026-08-18", lane: "action", text: "卖", tone: "sell", detail: "纪律破防"},
+      {date: "2026-08-24", lane: "risk", text: "警", tone: "warn", detail: "退出后观察"},
+      {date: "2026-08-27", lane: "evidence", text: "候", tone: "candidate", detail: "新结构观察"},
+      {date: "2026-09-09", lane: "risk", text: "阻", tone: "warn", detail: "无新买不减"}
+    ];
+
+    var modeCopy = {
+      flat: {
+        caption: "无持仓视角：8月18日破，8月24日警，8月27日候",
+        title: "无持仓视角",
+        body: "左侧没有系统确认过买点，所以 601330 这段不应凭空显示卖。8月18日应显示破，表示结构防守失效；8月24日继续显示警；8月27日双底右侧抬高，重新显示候。"
+      },
+      position: {
+        caption: "有持仓视角：8月11日撤，8月14日撤，8月18日卖",
+        title: "有持仓视角",
+        body: "如果前面已有真实买点或用户持仓，8月11日顶分型应先给撤，8月14日走势转弱继续撤，8月18日跌破防守线才是纪律卖。破位卖是兜底线，不是第一提醒。"
+      },
+      actual: {
+        caption: "当前对照：8月24日仍显示卖/风离，8月27日显示候/C候",
+        title: "当前对照视图",
+        body: "这里把当前 C 语义翻译成通俗字，但仍保留当前算法的问题：8月18日至8月24日会连续出现 卖。这说明算法需要生命周期去重，而不是只改文案。"
+      },
+      mixed: {
+        caption: "旧式单标签：风离连续出现，右底修复被割裂阅读",
+        title: "旧式单标签冲突",
+        body: "这个模式展示当前最容易误读的地方：8月18日至8月24日连续显示风离，8月27日才显示 C候。用户会感觉系统刚喊离场又承认右底，其实这是退出生命周期和新结构修复两个阶段。"
+      }
+    };
+
+    var chart = document.getElementById("chart");
+    var plot = {
+      left: 58,
+      right: 44,
+      top: 34,
+      priceBottom: 330,
+      laneTop: 360,
+      bottom: 500
+    };
+
+    function svgEl(name, attrs) {
+      var el = document.createElementNS("http://www.w3.org/2000/svg", name);
+      Object.keys(attrs || {}).forEach(function(key) {
+        el.setAttribute(key, attrs[key]);
+      });
+      return el;
+    }
+
+    function priceScale() {
+      var lows = bars.map(function(bar) { return bar.low; });
+      var highs = bars.map(function(bar) { return bar.high; });
+      var min = Math.min.apply(null, lows) - 0.05;
+      var max = Math.max.apply(null, highs) + 0.06;
+      return {
+        min: min,
+        max: max,
+        y: function(price) {
+          var t = (price - min) / (max - min);
+          return plot.priceBottom - t * (plot.priceBottom - plot.top);
+        }
+      };
+    }
+
+    function xFor(index) {
+      var width = 980 - plot.left - plot.right;
+      if (bars.length <= 1) return plot.left;
+      return plot.left + index * (width / (bars.length - 1));
+    }
+
+    function findIndex(date) {
+      return bars.findIndex(function(bar) { return bar.date === date; });
+    }
+
+    function movingAverage(days) {
+      return bars.map(function(_, index) {
+        var start = Math.max(0, index - days + 1);
+        var slice = bars.slice(start, index + 1);
+        var total = slice.reduce(function(sum, bar) { return sum + bar.close; }, 0);
+        return total / slice.length;
+      });
+    }
+
+    function markerClass(tone) {
+      if (tone === "sell") return "marker-sell";
+      if (tone === "warn") return "marker-warn";
+      if (tone === "candidate") return "marker-candidate";
+      return "marker-watch";
+    }
+
+    function laneY(lane) {
+      if (lane === "action") return 376;
+      if (lane === "risk") return 420;
+      if (lane === "single") return 392;
+      return 466;
+    }
+
+    function renderGrid(scale) {
+      var gridGroup = svgEl("g", {});
+      var ticks = [6.9, 7.2, 7.5, 7.8, 8.1, 8.4];
+      ticks.forEach(function(value) {
+        var y = scale.y(value);
+        gridGroup.appendChild(svgEl("line", {
+          class: "grid-line",
+          x1: plot.left,
+          y1: y,
+          x2: 980 - plot.right,
+          y2: y
+        }));
+        var text = svgEl("text", {
+          class: "axis-label",
+          x: 980 - plot.right + 10,
+          y: y + 4
+        });
+        text.textContent = value.toFixed(2);
+        gridGroup.appendChild(text);
+      });
+
+      [0, 5, 10, 15, 20, 25, 29].forEach(function(index) {
+        var x = xFor(index);
+        gridGroup.appendChild(svgEl("line", {
+          class: "grid-line",
+          x1: x,
+          y1: plot.top,
+          x2: x,
+          y2: plot.bottom
+        }));
+        var label = svgEl("text", {
+          class: "date-label",
+          x: x,
+          y: 518,
+          "text-anchor": "middle"
+        });
+        label.textContent = bars[index].date.slice(5);
+        gridGroup.appendChild(label);
+      });
+
+      [["持仓动作 持/减/撤/卖", 376], ["风险提示 阻/警/破", 420], ["结构观察 看/候", 466]].forEach(function(item) {
+        gridGroup.appendChild(svgEl("line", {
+          class: "lane-rule",
+          x1: plot.left,
+          y1: item[1],
+          x2: 980 - plot.right,
+          y2: item[1]
+        }));
+        var lane = svgEl("text", {
+          class: "lane-title",
+          x: 12,
+          y: item[1] + 4
+        });
+        lane.textContent = item[0];
+        gridGroup.appendChild(lane);
+      });
+
+      return gridGroup;
+    }
+
+    function renderCandles(scale) {
+      var group = svgEl("g", {});
+      var bodyWidth = Math.max(9, Math.min(18, (980 - plot.left - plot.right) / bars.length * 0.56));
+      bars.forEach(function(bar, index) {
+        var x = xFor(index);
+        var isRise = bar.close > bar.open;
+        var isFall = bar.close < bar.open;
+        var cls = isRise ? "rise" : (isFall ? "fall" : "flat");
+        var highY = scale.y(bar.high);
+        var lowY = scale.y(bar.low);
+        var openY = scale.y(bar.open);
+        var closeY = scale.y(bar.close);
+        group.appendChild(svgEl("line", {
+          class: "wick " + cls,
+          x1: x,
+          y1: highY,
+          x2: x,
+          y2: lowY
+        }));
+        group.appendChild(svgEl("rect", {
+          class: "candle " + cls,
+          x: x - bodyWidth / 2,
+          y: Math.min(openY, closeY),
+          width: bodyWidth,
+          height: Math.max(3, Math.abs(closeY - openY))
+        }));
+      });
+      return group;
+    }
+
+    function renderMa(scale) {
+      var ma = movingAverage(5);
+      var d = ma.map(function(value, index) {
+        return (index === 0 ? "M" : "L") + xFor(index).toFixed(1) + " " + scale.y(value).toFixed(1);
+      }).join(" ");
+      return svgEl("path", {class: "ma-line", d: d});
+    }
+
+    function renderBands(scale) {
+      var group = svgEl("g", {});
+      var idx = findIndex("2026-08-24");
+      var x = xFor(idx);
+      group.appendChild(svgEl("rect", {
+        class: "focus-band",
+        x: x - 14,
+        y: plot.top,
+        width: 28,
+        height: plot.bottom - plot.top
+      }));
+
+      var y = scale.y(7.05);
+      group.appendChild(svgEl("line", {
+        class: "support-line",
+        x1: xFor(8),
+        y1: y,
+        x2: xFor(17),
+        y2: y
+      }));
+      var label = svgEl("text", {
+        class: "axis-label",
+        x: xFor(17) + 8,
+        y: y - 8
+      });
+      label.textContent = "8/24 防守线约 7.05";
+      group.appendChild(label);
+      return group;
+    }
+
+    function renderSignals(signals) {
+      var group = svgEl("g", {});
+      signals.forEach(function(signal) {
+        var index = findIndex(signal.date);
+        if (index < 0) return;
+        var x = xFor(index);
+        var y = laneY(signal.lane);
+        var cls = markerClass(signal.tone);
+
+        group.appendChild(svgEl("line", {
+          class: "callout-line",
+          x1: x,
+          y1: y - 12,
+          x2: x,
+          y2: y - 50
+        }));
+        group.appendChild(svgEl("circle", {
+          class: "signal-dot " + cls,
+          cx: x,
+          cy: y,
+          r: 6
+        }));
+        group.appendChild(svgEl("rect", {
+          class: "signal-label-bg " + cls,
+          x: x - 25,
+          y: y - 35,
+          width: 50,
+          height: 24
+        }));
+        var text = svgEl("text", {
+          class: "signal-label",
+          x: x,
+          y: y - 22
+        });
+        text.textContent = signal.text;
+        group.appendChild(text);
+
+        var detail = svgEl("text", {
+          class: "axis-label",
+          x: x,
+          y: y + 22,
+          "text-anchor": "middle"
+        });
+        detail.textContent = signal.detail;
+        group.appendChild(detail);
+      });
+      return group;
+    }
+
+    function signalsForMode(mode) {
+      if (mode === "mixed") return mixedSignals;
+      if (mode === "position") return positionSignals;
+      if (mode === "flat") return flatSignals;
+      return actualSignals;
+    }
+
+    function render(mode) {
+      var scale = priceScale();
+      chart.replaceChildren();
+      chart.appendChild(renderGrid(scale));
+      chart.appendChild(renderBands(scale));
+      chart.appendChild(renderMa(scale));
+      chart.appendChild(renderCandles(scale));
+      chart.appendChild(renderSignals(signalsForMode(mode)));
+
+      var copy = modeCopy[mode] || modeCopy.actual;
+      document.getElementById("mode-caption").textContent = copy.caption;
+      document.getElementById("panel-title").textContent = copy.title;
+      document.getElementById("panel-body").textContent = copy.body;
+      document.querySelectorAll("[data-mode]").forEach(function(button) {
+        button.classList.toggle("active", button.getAttribute("data-mode") === mode);
+      });
+    }
+
+    document.querySelectorAll("[data-mode]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        render(button.getAttribute("data-mode"));
+      });
+    });
+
+    render("flat");
+  </script>
+</body>
+</html>

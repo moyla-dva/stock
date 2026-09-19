@@ -224,8 +224,16 @@
     background: #fbfcfa;
 }
 
+.scan-detail-section--v2-gate {
+    background: #f7fbf8;
+}
+
 .scan-detail-basis-grid--trade-plan .scan-check-item {
     min-height: 104px;
+}
+
+.scan-detail-basis-grid--v2-gate .scan-check-item {
+    min-height: 108px;
 }
 
 .scan-detail-section--basis .scan-check-item {

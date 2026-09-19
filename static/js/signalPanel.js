@@ -14,8 +14,14 @@ function getPointMeta(point) {
         order: point.signalOrder || 999
     };
     var meta = Object.assign({}, fallback, signalMeta[key] || {});
+    meta.markerRole = point.markerRole || point.marker_role || meta.markerRole || meta.marker_role || '';
+    meta.markerLevel = point.markerLevel || point.marker_level || meta.markerLevel || meta.marker_level || 'normal';
+    meta.markerReason = point.markerReason || point.marker_reason || meta.markerReason || meta.marker_reason || '';
     if (typeof scanPointStrategyMeta === 'function') {
-        return scanPointStrategyMeta(point, meta);
+        meta = scanPointStrategyMeta(point, meta);
+    }
+    if (typeof chartPositionDisplayMeta === 'function') {
+        meta = chartPositionDisplayMeta(point, meta);
     }
     return meta;
 }
@@ -29,10 +35,25 @@ function isPointActive(point) {
     return activeSignalKeys[key] !== false;
 }
 
-function shapeClass(category) {
-    if (category === 'entry') return 'signal-shape--entry';
-    if (category === 'exit') return 'signal-shape--exit';
-    if (category === 'risk') return 'signal-shape--risk';
+function markerRoleForPoint(point, meta) {
+    point = point || {};
+    meta = meta || getPointMeta(point);
+    if (typeof chartMarkerDisplayRole === 'function') {
+        return chartMarkerDisplayRole(point, meta);
+    }
+    var role = meta.markerRole || point.markerRole || point.marker_role || '';
+    if (role) return role;
+    var category = meta.category || point.signalCategory || 'observe';
+    if (category === 'entry') return 'buy';
+    if (category === 'exit') return 'sell';
+    if (category === 'risk') return 'scale_out';
+    return 'observe';
+}
+
+function shapeClass(category, role) {
+    if (role === 'buy') return 'signal-shape--entry';
+    if (role === 'sell') return 'signal-shape--exit';
+    if (role === 'scale_out') return 'signal-shape--scale-out';
     if (category === 'top') return 'signal-shape--risk';
     if (category === 'bottom') return 'signal-shape--bottom';
     return 'signal-shape--observe';
@@ -64,10 +85,21 @@ function findPointByDate(points, date) {
     return null;
 }
 
-function signalHealthByCategory(category) {
+function signalHealthByCategory(category, role) {
+    var positionView = typeof getChartPositionView === 'function' ? getChartPositionView() : 'flat';
+    if (positionView !== 'position') {
+        if (role === 'sell') return '结构破位';
+        if (role === 'scale_out') return '阻力/风险';
+    }
+    if (role === 'buy') return '入场决策';
+    if (role === 'sell') return '离场决策';
+    if (role === 'scale_out') return '减仓建议';
+    if (role === 'observe') return '观察事实';
     if (category === 'entry') return '买入候选';
     if (category === 'risk') return '风险预警';
     if (category === 'exit') return '离场信号';
+    if (category === 'top') return '阻力观察';
+    if (category === 'bottom') return '底部观察';
     return '观察';
 }
 
@@ -108,6 +140,7 @@ function renderSignalFilters(points) {
     keys.forEach(function(key) {
         var sample = points.find(function(point) { return getPointKey(point) === key; }) || {};
         var meta = getPointMeta(sample);
+        var role = markerRoleForPoint(sample, meta);
         var active = activeSignalKeys[key] !== false;
         var row = document.createElement('button');
         row.type = 'button';
@@ -115,7 +148,7 @@ function renderSignalFilters(points) {
         row.setAttribute('aria-pressed', active ? 'true' : 'false');
 
         var shape = document.createElement('span');
-        shape.className = 'signal-shape ' + shapeClass(meta.category);
+        shape.className = 'signal-shape ' + shapeClass(meta.category, role);
         shape.style.setProperty('--shape-color', meta.color);
 
         var main = document.createElement('span');
@@ -136,7 +169,8 @@ function renderSignalFilters(points) {
         row.appendChild(count);
         row.onclick = function() {
             activeSignalKeys[key] = !active;
-            if (lastData) renderChart(lastData);
+            var chartData = analysisStore.getCurrentChartData();
+            if (chartData) renderChart(chartData);
         };
         container.appendChild(row);
     });
@@ -157,6 +191,7 @@ function renderEventList(points, allPoints) {
 
     points.slice().reverse().slice(0, 80).forEach(function(point) {
         var meta = getPointMeta(point);
+        var role = markerRoleForPoint(point, meta);
         var pointDate = resolvePointDate(point);
         var isPreview = Boolean(activeHoverSignalDate && activeHoverSignalDate === pointDate);
         var isActive = !isPreview && Boolean(activeInspectorSignalDate && activeInspectorSignalDate === pointDate);
@@ -165,7 +200,7 @@ function renderEventList(points, allPoints) {
         item.className = 'event-item' + (isPreview ? ' is-preview' : '') + (isActive ? ' is-active' : '');
 
         var shape = document.createElement('span');
-        shape.className = 'signal-shape ' + shapeClass(meta.category);
+        shape.className = 'signal-shape ' + shapeClass(meta.category, role);
         shape.style.setProperty('--shape-color', meta.color);
 
         var main = document.createElement('span');
@@ -206,11 +241,12 @@ function renderSignalBrief(points, allPoints) {
         else focusHealth = '参与确认';
         if (activePoint && resolvePointDate(activePoint) !== (focus.date || '')) {
             var activeMeta = getPointMeta(activePoint);
+            var activeRole = markerRoleForPoint(activePoint, activeMeta);
             applySignalBriefState(
                 activeMeta.label + ' ' + (activeMeta.name || ''),
                 resolvePointDate(activePoint),
                 points.length,
-                signalHealthByCategory(activeMeta.category),
+                signalHealthByCategory(activeMeta.category, activeRole),
                 (previewing ? '悬停预览 · ' : '已定位信号日 · ') + (activePoint.reason || activePoint.value || activeMeta.detail || '查看这一天的结构与处理。')
             );
             return;
@@ -236,7 +272,8 @@ function renderSignalBrief(points, allPoints) {
     }
     var latest = activePoint || points[points.length - 1];
     var meta = getPointMeta(latest);
-    var health = signalHealthByCategory(meta.category);
+    var role = markerRoleForPoint(latest, meta);
+    var health = signalHealthByCategory(meta.category, role);
     applySignalBriefState(
         meta.label + ' ' + (meta.name || ''),
         resolvePointDate(latest),
@@ -353,11 +390,19 @@ function renderMultiTimeframeBoard(timeframes) {
 
     ordered.forEach(function(item) {
         var periodKey = item.period === '60m' ? '60m' : (item.period === '4h' ? '4h' : 'daily');
+        var rootData = analysisStore.getCurrentChartData();
+        var currentPeriod = analysisStore.getActivePeriod();
         var chartReady = periodKey === 'daily' || !!item.chart;
+        var chartLoadable = !chartReady
+            && typeof chartPeriodLoadable === 'function'
+            && chartPeriodLoadable(rootData, periodKey);
+        var chartLoading = typeof chartPeriodLoading === 'function' && chartPeriodLoading(periodKey);
         var card = document.createElement('div');
         card.className = 'timeframe-card timeframe-card--' + (item.tone || 'watch');
-        card.classList.toggle('active', typeof activeChartPeriod !== 'undefined' && activeChartPeriod === periodKey);
-        if (chartReady && typeof setChartPeriod === 'function') {
+        card.classList.toggle('active', currentPeriod === periodKey);
+        card.classList.toggle('is-deferred', chartLoadable);
+        card.classList.toggle('is-loading', chartLoading);
+        if ((chartReady || chartLoadable) && typeof setChartPeriod === 'function') {
             card.classList.add('timeframe-card--clickable');
             card.setAttribute('role', 'button');
             card.tabIndex = 0;
@@ -382,7 +427,9 @@ function renderMultiTimeframeBoard(timeframes) {
         head.appendChild(titleWrap);
 
         var status = document.createElement('em');
-        status.textContent = item.available === false ? '未就绪' : (item.latest_at || item.title || '');
+        status.textContent = chartLoading
+            ? '加载中'
+            : (item.available === false ? (chartLoadable ? '可加载' : '未就绪') : (item.latest_at || item.title || ''));
         head.appendChild(status);
         card.appendChild(head);
 
@@ -565,7 +612,8 @@ function renderAnalysisDecision(visiblePoints, allPoints) {
     var latest = selectedPoint || (visiblePoints.length ? visiblePoints[visiblePoints.length - 1] : null);
     var latestMeta = latest ? getPointMeta(latest) : null;
     var focus = activeScanChartFocus || null;
-    var tradePlan = lastData && lastData.trade_plan ? lastData.trade_plan : null;
+    var currentData = analysisStore.getViewData();
+    var tradePlan = currentData && currentData.trade_plan ? currentData.trade_plan : null;
     var tone = 'watch';
     var tags = [];
 
@@ -713,7 +761,7 @@ function renderAnalysisDecision(visiblePoints, allPoints) {
     verdict.className = 'analysis-decision-verdict analysis-decision-verdict--' + tone;
     panel.className = 'analysis-decision-panel analysis-decision-panel--' + tone;
     renderAnalysisDecisionTags(tags);
-    var stateModel = lastData && lastData.c_signal_v2_state ? lastData.c_signal_v2_state : null;
+    var stateModel = currentData && currentData.c_signal_v2_state ? currentData.c_signal_v2_state : null;
     var deltaSource = focus || latest || null;
     if (stateModel) {
         deltaSource = Object.assign({}, deltaSource || {}, { c_signal_v2_state: stateModel });

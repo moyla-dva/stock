@@ -38,7 +38,7 @@ function applyScanNavigationState(route) {
         scanWorkspaceState.filters = Object.assign({}, scanWorkspaceState.filters, next.filters);
     }
     if (next.resetFilters) {
-        scanWorkspaceState.filters = {query: '', sector: '', concept: '', sort: 'system'};
+        scanWorkspaceState.filters = {query: '', sector: '', concept: '', reason: '', sort: 'system'};
     }
     return next;
 }
@@ -122,7 +122,8 @@ function scanFilterLoadKey(scanType, filters, snapshotDay) {
         snapshotDay || scanWorkspaceState.historySnapshotDay || '',
         normalizeFilterText(filters.query || ''),
         filters.sector || '',
-        filters.concept || ''
+        filters.concept || '',
+        filters.reason || ''
     ].join('|');
 }
 
@@ -141,13 +142,21 @@ function applyRunningScanJobToWorkspace(job) {
     var scanType = setActiveScanType(job.scan_type);
     if (job.refresh_policy === 'force') {
         var config = getScanConfig(scanType);
+        var existingPool = scanWorkspaceState.pools[scanType] || {};
+        if (job.results_omitted || !Array.isArray(job.results) || !job.results.length) {
+            scanWorkspaceState.pools[scanType] = Object.assign({}, existingPool, {
+                title: existingPool.title || config.title,
+                count: job.matched || existingPool.count || 0
+            });
+            return;
+        }
         scanWorkspaceState.pools[scanType] = {
             title: config.title,
             count: job.matched || 0,
-            loaded_count: (job.results || []).length,
-            max_items: (job.results || []).length,
+            loaded_count: job.results.length,
+            max_items: job.results.length,
             has_more: false,
-            results: job.results || []
+            results: job.results
         };
     }
 }

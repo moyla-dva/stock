@@ -1,6 +1,9 @@
 """Event-level backtest and attribution helpers."""
 
+import math
 from collections import defaultdict
+
+from stock_analyzer.events import event_date_key
 
 
 UP_CATEGORIES = {"entry", "bottom", "observe"}
@@ -17,8 +20,18 @@ def event_direction(event):
 
 
 def _date_positions(df_display):
-    dates = df_display["date"].dt.strftime("%Y-%m-%d").tolist()
-    return {date: idx for idx, date in enumerate(dates)}
+    positions = {}
+    for idx, value in enumerate(df_display["date"]):
+        if hasattr(value, "strftime"):
+            if getattr(value, "hour", 0) or getattr(value, "minute", 0) or getattr(value, "second", 0):
+                display_date = value.strftime("%Y-%m-%d %H:%M")
+            else:
+                display_date = value.strftime("%Y-%m-%d")
+        else:
+            display_date = str(value)
+        positions[display_date] = idx
+        positions[event_date_key(display_date)] = idx
+    return positions
 
 
 def _empty_stats(label=None, name=None, category=None, direction=None, horizon=5, entry_model=ENTRY_MODEL_EVENT_CLOSE):
@@ -41,6 +54,14 @@ def _empty_stats(label=None, name=None, category=None, direction=None, horizon=5
     return result
 
 
+def _finite_number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _stats_from_returns(
     returns,
     direction,
@@ -59,7 +80,11 @@ def _stats_from_returns(
         entry_model=entry_model,
     )
     stats["count"] = len(returns)
-    evaluated = [value for value in returns if value is not None]
+    evaluated = [
+        number
+        for number in (_finite_number(value) for value in returns)
+        if number is not None
+    ]
     stats["evaluated_count"] = len(evaluated)
     if not evaluated:
         return stats
@@ -102,7 +127,9 @@ def _future_return(df_display, idx, horizon, entry_model):
         base = closes[idx]
 
     target = closes[exit_idx]
-    if not base:
+    base = _finite_number(base)
+    target = _finite_number(target)
+    if base is None or target is None or base == 0:
         return None
     return (target - base) / base * 100
 
@@ -126,6 +153,8 @@ def evaluate_signal_events(df_display, events, horizon=5, entry_model=ENTRY_MODE
         }
 
         idx = date_positions.get(event.date)
+        if idx is None:
+            idx = date_positions.get(event_date_key(event.date))
         future_ret = None if idx is None else _future_return(df_display, idx, horizon, entry_model)
 
         by_signal[event.key].append(future_ret)

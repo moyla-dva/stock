@@ -225,6 +225,13 @@ function createStockCard(item, variant, index) {
 
     var evidence = document.createElement('div');
     evidence.className = 'stock-card__evidence';
+    var v2EvidenceItems = typeof scanV2CardEvidenceItems === 'function'
+        ? scanV2CardEvidenceItems(item)
+        : [];
+    v2EvidenceItems.forEach(function(part) {
+        var node = createStockCardEvidence(part.label, part.value, part.tone);
+        if (node) evidence.appendChild(node);
+    });
     [
         createStockCardEvidence('事件', eventDate, 'date'),
         createStockCardEvidence('板块', item.sector || UNKNOWN_SCAN_SECTOR, item.sector ? 'context' : 'muted'),

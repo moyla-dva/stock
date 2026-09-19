@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
-from stock_analyzer.c_signal_v2 import c_signal_v2_mark_fields
+from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_mark_fields
 
 
 SIGNAL_DEFINITIONS = {
@@ -13,7 +13,21 @@ SIGNAL_DEFINITIONS = {
         "detail": "底部观察事实",
         "color": "#3b82f6",
         "category": "bottom",
+        "marker_role": "observe",
+        "marker_level": "normal",
+        "marker_reason": "bottom_research",
         "order": 12,
+    },
+    "v2_repair_watch": {
+        "label": "C修",
+        "name": "V2修复观察",
+        "detail": "底背离后的修复事实",
+        "color": "#7c3aed",
+        "category": "bottom",
+        "marker_role": "observe",
+        "marker_level": "normal",
+        "marker_reason": "repair_watch",
+        "order": 13,
     },
     "v2_structure_candidate": {
         "label": "C候",
@@ -21,6 +35,9 @@ SIGNAL_DEFINITIONS = {
         "detail": "分型/矩形结构",
         "color": "#64748b",
         "category": "candidate",
+        "marker_role": "observe",
+        "marker_level": "normal",
+        "marker_reason": "structure_candidate",
         "order": 14,
     },
     "v2_attack_day": {
@@ -29,6 +46,9 @@ SIGNAL_DEFINITIONS = {
         "detail": "攻击日触发",
         "color": "#0f9f6e",
         "category": "entry",
+        "marker_role": "buy",
+        "marker_level": "strong",
+        "marker_reason": "attack_day",
         "order": 16,
     },
     "v2_ignition": {
@@ -37,6 +57,9 @@ SIGNAL_DEFINITIONS = {
         "detail": "起爆点触发",
         "color": "#059669",
         "category": "entry",
+        "marker_role": "buy",
+        "marker_level": "strong",
+        "marker_reason": "ignition",
         "order": 18,
     },
     "v2_bearish_new_low": {
@@ -45,87 +68,98 @@ SIGNAL_DEFINITIONS = {
         "detail": "极端观察",
         "color": "#2563eb",
         "category": "bottom",
+        "marker_role": "observe",
+        "marker_level": "normal",
+        "marker_reason": "bearish_new_low",
         "order": 22,
     },
-    "v2_top_fractal_risk": {
+    "v2_breakout": {
+        "label": "C突",
+        "name": "V2突破入场",
+        "detail": "矩形上沿或前高突破",
+        "color": "#00897b",
+        "category": "entry",
+        "marker_role": "buy",
+        "marker_level": "strong",
+        "marker_reason": "breakout",
+        "order": 15,
+    },
+    "v2_pullback": {
+        "label": "C回",
+        "name": "V2回踩入场",
+        "detail": "回踩确认触发",
+        "color": "#00897b",
+        "category": "entry",
+        "marker_role": "buy",
+        "marker_level": "strong",
+        "marker_reason": "pullback",
+        "order": 14,
+    },
+    "v2_risk_break": {
         "label": "C风",
-        "name": "V2顶分型风控",
-        "detail": "顶分型风险",
-        "color": "#b7791f",
+        "name": "V2破位风控",
+        "detail": "结构破位风险",
+        "color": "#c83737",
         "category": "risk",
+        "marker_role": "scale_out",
+        "marker_level": "strong",
+        "marker_reason": "risk_break",
+        "order": 43,
+    },
+    "v2_risk_heat": {
+        "label": "C风",
+        "name": "V2过热风控",
+        "detail": "过热风险",
+        "color": "#d97706",
+        "category": "risk",
+        "marker_role": "scale_out",
+        "marker_level": "normal",
+        "marker_reason": "risk_heat",
         "order": 42,
     },
-    "composite_pullback": {
-        "label": "C回",
-        "name": "综合回踩",
-        "detail": "持仓候选",
-        "color": "#00897b",
-        "category": "entry",
-        "order": 10,
-    },
-    "composite_breakout": {
-        "label": "C突",
-        "name": "综合突破",
-        "detail": "前高突破",
-        "color": "#00897b",
-        "category": "entry",
-        "order": 20,
-    },
-    "composite_confirm": {
-        "label": "C观",
-        "name": "修复确认",
-        "detail": "修复买点",
-        "color": "#5f66d6",
-        "category": "entry",
-        "order": 30,
-    },
-    "composite_warning": {
-        "label": "C预",
-        "name": "综合预警",
-        "detail": "持仓风险",
-        "color": "#b7791f",
-        "category": "risk",
-        "order": 40,
-    },
-    "composite_stop_loss": {
-        "label": "C止",
-        "name": "综合止损",
-        "detail": "亏损控制",
-        "color": "#c83737",
-        "category": "exit",
-        "order": 50,
-    },
-    "composite_take_profit": {
-        "label": "C盈",
-        "name": "综合止盈",
-        "detail": "收益保护",
-        "color": "#2f8f46",
-        "category": "exit",
-        "order": 60,
-    },
-    "composite_exit": {
-        "label": "C退",
-        "name": "综合离场",
-        "detail": "风险退出",
-        "color": "#6f766f",
-        "category": "exit",
-        "order": 70,
-    },
-    "composite_bottom_divergence": {
-        "label": "C底",
-        "name": "综合底背离",
-        "detail": "底部观察",
-        "color": "#2563eb",
-        "category": "bottom",
-        "order": 80,
-    },
-    "composite_top_divergence": {
-        "label": "C顶",
-        "name": "综合顶背离",
-        "detail": "顶部风险",
+    "v2_top_fractal_observe": {
+        "label": "C研",
+        "name": "V2顶分型观察",
+        "detail": "局部阻力观察",
         "color": "#b7791f",
         "category": "top",
-        "order": 90,
+        "marker_role": "observe",
+        "marker_level": "weak",
+        "marker_reason": "top_fractal",
+        "order": 41,
+    },
+    "v2_top_fractal_risk": {
+        "label": "C研",
+        "name": "V2顶分型观察",
+        "detail": "局部阻力观察",
+        "color": "#b7791f",
+        "category": "top",
+        "marker_role": "observe",
+        "marker_level": "weak",
+        "marker_reason": "top_fractal",
+        "order": 42,
+    },
+    "v2_strong_resistance_scale_out": {
+        "label": "C盈",
+        "name": "V2强阻减仓",
+        "detail": "强阻减仓建议",
+        "color": "#d97706",
+        "category": "risk",
+        "marker_role": "scale_out",
+        "marker_level": "normal",
+        "marker_reason": "strong_resistance",
+        "order": 44,
+    },
+    "v2_exit_gate_sell": {
+        "label": "C风",
+        "name": "V2防守离场",
+        "detail": "Exit Gate离场",
+        "color": "#c83737",
+        "category": "exit",
+        "marker_role": "sell",
+        "marker_level": "strong",
+        "marker_reason": "trailing_stop_break",
+        "order": 46,
     },
     "old_gold": {
         "label": "★B",
@@ -227,6 +261,17 @@ def has_recent_true(df_display, idx, column, lookback):
     return bool(df_display.iloc[idx - lookback:idx + 1][column].fillna(False).any())
 
 
+def event_date_key(value):
+    if value is None:
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    text = str(value)
+    if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+        return text[:10]
+    return text
+
+
 def _date_for(row):
     value = row["date"]
     if not hasattr(value, "strftime"):
@@ -260,10 +305,42 @@ def _fact_event(key, group, date, coord_price, price, reason="", value=""):
     )
 
 
+def _marker_role_for(definition):
+    role = definition.get("marker_role")
+    if role:
+        return role
+    category = definition.get("category")
+    if category == "entry":
+        return "buy"
+    if category == "exit":
+        return "sell"
+    if category == "risk":
+        return "scale_out"
+    return "observe"
+
+
+def _marker_level_for(definition):
+    level = definition.get("marker_level")
+    if level:
+        return level
+    category = definition.get("category")
+    if category in {"entry", "exit"}:
+        return "strong"
+    if category == "risk":
+        return "normal"
+    return "weak"
+
+
+def _marker_reason_for(event, definition):
+    return definition.get("marker_reason") or event.key
+
+
 def _row_by_date(df_display):
     rows = {}
     for _, row in df_display.iterrows():
-        rows[_date_for(row)] = row
+        display_date = _date_for(row)
+        rows[display_date] = row
+        rows[event_date_key(display_date)] = row
     return rows
 
 
@@ -329,7 +406,7 @@ def build_old_signal_events(df_display):
     return sorted(events, key=lambda event: (event.date, event.definition["order"]))
 
 
-def build_v2_signal_events(df_display):
+def build_v2_signal_events(df_display, lookback=None):
     """Build independent V2 chart events from the V2 fact layer.
 
     These points are intentionally separate from legacy composite events. They
@@ -344,8 +421,20 @@ def build_v2_signal_events(df_display):
     rows_by_date = _row_by_date(df_display)
     previous_rectangle_available = False
     last_burst_idx = -10
+    start_idx = 0
+    if lookback:
+        start_idx = max(0, len(df_display) - int(lookback))
+        if start_idx > 0:
+            previous_facts = build_c_signal_v2_facts(df_display.iloc[:start_idx])
+            previous_structure = previous_facts.get("structure") if isinstance(previous_facts.get("structure"), dict) else {}
+            previous_rectangle = (
+                previous_structure.get("rectangle")
+                if isinstance(previous_structure.get("rectangle"), dict)
+                else {}
+            )
+            previous_rectangle_available = bool(previous_rectangle.get("available"))
 
-    for idx in range(len(df_display)):
+    for idx in range(start_idx, len(df_display)):
         frame = df_display.iloc[:idx + 1]
         latest = frame.iloc[-1]
         facts = build_c_signal_v2_facts(frame)
@@ -355,8 +444,19 @@ def build_v2_signal_events(df_display):
         fractals = structure.get("fractals") if isinstance(structure.get("fractals"), dict) else {}
         rectangle = structure.get("rectangle") if isinstance(structure.get("rectangle"), dict) else {}
         ignition = trigger.get("ignition") if isinstance(trigger.get("ignition"), dict) else {}
+        exit_gate = facts.get("exit_gate") if isinstance(facts.get("exit_gate"), dict) else {}
+        repair = facts.get("repair") if isinstance(facts.get("repair"), dict) else {}
 
-        if setup.get("bottom_divergence"):
+        if repair.get("stage") == "repair_setup":
+            _dedupe_append(events, seen, _event(
+                "v2_repair_watch",
+                "v2",
+                latest,
+                _low_coord(latest),
+                reason=repair.get("summary") or "底背离后进入 V2 修复观察",
+                value="修复观察",
+            ))
+        elif setup.get("bottom_divergence"):
             _dedupe_append(events, seen, _event(
                 "v2_bottom_research",
                 "v2",
@@ -396,14 +496,25 @@ def build_v2_signal_events(df_display):
             top_row = rows_by_date.get(latest_top.get("date"))
             if top_row is not None:
                 _dedupe_append(events, seen, _fact_event(
-                    "v2_top_fractal_risk",
+                    "v2_top_fractal_observe",
                     "v2",
                     latest_top.get("date"),
                     latest_top.get("price"),
                     top_row.get("close"),
                     reason="顶分型确认",
-                    value="顶部风险",
+                    value="顶部观察",
                 ))
+
+        exit_action = exit_gate.get("action")
+        if exit_action in {"scale_out", "sell"}:
+            _dedupe_append(events, seen, _event(
+                "v2_exit_gate_sell" if exit_action == "sell" else "v2_strong_resistance_scale_out",
+                "v2",
+                latest,
+                latest.get("high"),
+                reason=exit_gate.get("summary") or "Exit Gate 触发",
+                value=exit_gate.get("marker_reason") or exit_action,
+            ))
 
         rectangle_available = bool(rectangle.get("available"))
         if rectangle_available and not previous_rectangle_available:
@@ -491,80 +602,12 @@ def build_opt_signal_events(df_display):
     return events
 
 
-def build_composite_signal_events(df_display):
-    events = []
-    for _, row in df_display.iterrows():
-        has_composite_event = False
-        if row.get("composite_entry", False):
-            entry_type = row.get("composite_entry_type", "")
-            if entry_type == "pullback":
-                key = "composite_pullback"
-            elif entry_type == "breakout":
-                key = "composite_breakout"
-            else:
-                key = "composite_confirm"
-            events.append(_event(
-                key,
-                "composite",
-                row,
-                row["low"],
-                reason=row.get("composite_entry_reason", ""),
-                value=row.get("composite_entry_reason", ""),
-            ))
-            has_composite_event = True
-        if row.get("composite_exit", False):
-            exit_type = row.get("composite_exit_type", "")
-            if exit_type == "stop_loss":
-                key = "composite_stop_loss"
-            elif exit_type == "take_profit":
-                key = "composite_take_profit"
-            else:
-                key = "composite_exit"
-            events.append(_event(
-                key,
-                "composite",
-                row,
-                row["high"],
-                reason=row.get("composite_risk_reason", ""),
-                value=row.get("composite_risk_reason", ""),
-            ))
-            has_composite_event = True
-        elif row.get("composite_risk_warn", False):
-            events.append(_event(
-                "composite_warning",
-                "composite",
-                row,
-                row["high"],
-                reason=row.get("composite_risk_reason", ""),
-                value=row.get("composite_risk_reason", ""),
-            ))
-            has_composite_event = True
-
-        if row.get("is_bottom_divergence", False) and not row.get("composite_entry", False):
-            events.append(_event(
-                "composite_bottom_divergence",
-                "composite",
-                row,
-                row["low"] * 0.98,
-                reason="MACD 底背离观察",
-                value="底背离",
-            ))
-
-        if row.get("is_top_divergence", False) and not has_composite_event:
-            events.append(_event(
-                "composite_top_divergence",
-                "composite",
-                row,
-                row["high"] * 1.02,
-                reason="MACD 顶背离观察",
-                value="顶背离",
-            ))
-    return events
-
-
 def event_to_mark_point(event):
     definition = event.definition
     label = definition["label"]
+    marker_role = _marker_role_for(definition)
+    marker_level = _marker_level_for(definition)
+    marker_reason = _marker_reason_for(event, definition)
     payload = {
         "name": definition["name"],
         "coord": [event.date, event.coord_price],
@@ -579,6 +622,9 @@ def event_to_mark_point(event):
         "signalDetail": definition["detail"],
         "signalColor": definition["color"],
         "signalOrder": definition["order"],
+        "markerRole": marker_role,
+        "markerLevel": marker_level,
+        "markerReason": marker_reason,
         "date": event.date,
         "price": event.price,
         "reason": event.reason,

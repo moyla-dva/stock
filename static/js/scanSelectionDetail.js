@@ -238,6 +238,92 @@ function renderScanTradePlanSection(item) {
     return section;
 }
 
+function renderScanV2GateSection(item) {
+    if (!item || typeof isScanV2StrategyView !== 'function' || !isScanV2StrategyView()) return null;
+    if (typeof scanV2DecisionFacts !== 'function') return null;
+    var facts = scanV2DecisionFacts(item);
+    var model = facts.model || {};
+    if (!model || !model.version) return null;
+
+    var planGate = facts.planGate;
+    var targetStructure = facts.targetStructure || {};
+    var exitGate = facts.exitGate || {};
+    var macroTide = facts.macroTide || {};
+    var permission = item.v2_permission || model.permission || '-';
+    var queue = item.v2_queue_label || model.state_label || '-';
+    var permissionTone = typeof scanV2ToneForPermission === 'function' ? scanV2ToneForPermission(permission) : 'muted';
+    var planTone = !planGate
+        ? 'muted'
+        : (typeof scanV2PlanGateTone === 'function' ? scanV2PlanGateTone(planGate.status) : 'warning');
+    var targetText = typeof scanV2TargetText === 'function' ? scanV2TargetText(targetStructure, planGate, item) : '';
+    var targetDetail = typeof scanV2TargetDetail === 'function' ? scanV2TargetDetail(targetStructure, planGate, item) : '';
+    var stopText = typeof scanV2StopText === 'function' ? scanV2StopText(planGate) : '';
+    var issueText = typeof scanV2PlanGateIssue === 'function' ? scanV2PlanGateIssue(planGate) : '';
+    var markerRole = exitGate.marker_role || exitGate.markerRole || '';
+    var markerLabel = typeof scanV2MarkerRoleLabel === 'function'
+        ? scanV2MarkerRoleLabel(markerRole)
+        : markerRole;
+    var exitTone = markerRole === 'sell' ? 'danger' : (markerRole === 'scale_out' ? 'warning' : 'muted');
+    var targetFallback = '目标待确认（旧快照无目标结构）';
+    if (typeof model.signal === 'string' && model.signal) {
+        if (model.signal === 'C回') targetFallback = 'C回目标优先取箱体上沿';
+        else if (model.signal === 'C突' || model.signal === 'C爆') targetFallback = 'C突/C爆目标优先取上方结构阻力';
+        else targetFallback = model.signal + ' 为观察/风控信号，不生成入场目标';
+    }
+
+    var section = createScanDetailSection(
+        'V2闸门',
+        model.latest_date || item.date || '-',
+        'scan-detail-section--v2-gate'
+    );
+    var grid = document.createElement('div');
+    grid.className = 'scan-detail-basis-grid scan-detail-basis-grid--v2-gate';
+
+    [
+        createScanChecklistItem(
+            '许可',
+            permission,
+            queue + ' · ' + (model.permission_label || model.state_label || model.reason || '-'),
+            permissionTone
+        ),
+        createScanChecklistItem(
+            'Plan',
+            planGate ? (scanV2PlanGateText(planGate) || planGate.status_label || planGate.status) : '不生成入场计划',
+            issueText || (planGate ? '入场价、止损、目标和 R/R 已进入校验' : '观察/风控语义不要求入场止损价'),
+            planTone
+        ),
+        createScanChecklistItem(
+            '目标',
+            targetText || '目标待确认',
+            targetDetail || ((targetStructure || {}).target_selection_reason || targetFallback),
+            targetText ? 'positive' : 'warning'
+        ),
+        createScanChecklistItem(
+            '止损',
+            stopText || (model.requires_stop_loss ? '止损待确认' : '不要求入场止损'),
+            model.requires_stop_loss ? '入场类必须有结构止损；观察/风控类只给失效或处理条件' : (model.plan_scope || '观察或风控语义'),
+            model.requires_stop_loss && !stopText ? 'danger' : 'muted'
+        ),
+        createScanChecklistItem(
+            '宏观',
+            macroTide.label || macroTide.permission || '宏观待核',
+            macroTide.summary || '大周期只负责许可或否决，不制造买点',
+            macroTide.permission === 'forbidden' ? 'danger' : (macroTide.permission === 'watch' ? 'warning' : 'positive')
+        ),
+        createScanChecklistItem(
+            'Exit',
+            markerLabel || '观察',
+            exitGate.summary || '未触发减仓或卖出，继续按结构观察',
+            exitTone
+        )
+    ].forEach(function(node) {
+        grid.appendChild(node);
+    });
+
+    section.appendChild(grid);
+    return section;
+}
+
 function renderScanDecisionChecklist(item, explanation, conceptText) {
     var checklist = document.createElement('section');
     checklist.className = 'scan-decision-checklist';
