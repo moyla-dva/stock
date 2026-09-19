@@ -2,7 +2,7 @@
 
 from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
 from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_fields, c_signal_v2_mark_fields
-from stock_analyzer.market_permission import build_v2_environment_permission
+from stock_analyzer.market_permission import build_v2_environment_permission, evaluate_macro_entry_blocks
 from stock_analyzer.technical_structures import build_technical_structures
 from stock_analyzer.trade_plan import evaluate_v2_plan_gate
 
@@ -532,45 +532,22 @@ def _v2_entry_attempt(facts, latest, event_key=None):
 
 
 def _v2_macro_entry_gate(macro_tide, entry_type):
-    macro_tide = macro_tide if isinstance(macro_tide, dict) else {}
-    entry_type = str(entry_type or "").strip()
-    ma60 = macro_tide.get("ma60") if isinstance(macro_tide.get("ma60"), dict) else {}
-    ma250 = macro_tide.get("ma250") if isinstance(macro_tide.get("ma250"), dict) else {}
-    weekly = macro_tide.get("weekly_macd") if isinstance(macro_tide.get("weekly_macd"), dict) else {}
-    block_reasons = []
-    warnings = []
-
-    if entry_type in {"attack", "breakout"}:
-        if ma250.get("available") and ma250.get("above") is False:
-            block_reasons.append("C突/C爆 位于 MA250 下方，突破诱多风险过高")
-        if weekly.get("available") and (
-            weekly.get("dead_cross_down")
-            or weekly.get("bearish_cross_down")
-            or weekly.get("bearish_expanding")
-        ):
-            block_reasons.append("周线 MACD 死叉向下或空方扩张，突破不允许升级")
-        if not ma250.get("available"):
-            warnings.append("MA250 样本不足，突破大势仍需人工核对")
-        if not weekly.get("available"):
-            warnings.append("周线 MACD 样本不足，突破大势仍需人工核对")
-    elif entry_type == "pullback":
-        if ma60.get("available") and ma60.get("up") is not True:
-            block_reasons.append("C回 所需的 MA60 上行条件未满足")
-        if not ma60.get("available"):
-            warnings.append("MA60 样本不足，回踩大势仍需人工核对")
-
+    """宏观入场闸门：核心判定复用 market_permission.evaluate_macro_entry_blocks。"""
+    gate = evaluate_macro_entry_blocks(macro_tide, entry_type)
+    block_reasons = gate["block_reasons"]
+    warnings = gate["warnings"]
     if block_reasons:
         return {
             "permission": "forbidden",
             "label": "宏观否决",
-            "block_reasons": _unique_text(block_reasons),
-            "warnings": _unique_text(warnings),
+            "block_reasons": block_reasons,
+            "warnings": warnings,
         }
     return {
         "permission": "allowed" if not warnings else "watch",
         "label": "宏观通过" if not warnings else "宏观待核",
         "block_reasons": [],
-        "warnings": _unique_text(warnings),
+        "warnings": warnings,
     }
 
 

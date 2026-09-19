@@ -1163,3 +1163,11 @@
 - **新口径验证（全池离线统计）**：opportunity 2082→2288（+206 = 196 C回 + 9 C突 + 1 C爆，正是入池缺口修复后回归的计划就绪股）；plan ready 206 / blocked 299 / waiting 11；周线 unknown 73 只（次新股待核，不再误判逆风）；风险池 1047 全部以 v2_exit_gate_sell/v2_strong_resistance_scale_out 正确入池。候选池前排已出现 breakout_allowed 的 C突（301683/603882/688082 等）。
 - **缓存迁移与回收**：cleanup 脚本新增 --migrate-missing（同键取最新 legacy 补齐 canonical + meta）；执行后删除 88,150 个 legacy 文件、回收 1.19GB，.cache/history 现为 11,048 个 canonical CSV + meta（202MB）。
 - **验证：240 tests OK**；服务重启后工作台 API 正常（lite 冷构建 8.2s，暖缓存 1-3s）。
+
+- [2026-09-20 00:10] ZCode：**UI 验收完成 + 认领宏观否决收敛**。IAB 实测工作台（1440 宽）：策略 2026.09.19.2 显示、候选 120/2288、前排 C突 可交易、卡片 30/30 零越界、详情面板 V2 闸门七区块完整、次新股样本不足→待核提示正确。随后收敛 `c_signal_v2._v2_macro_entry_gate` 与 `market_permission._v2_macro_veto_permission` 的 MA60/MA250/周线重复判定为单一实现，纯重构零语义变化。
+
+## ZCode 完成记录：UI 验收 + 宏观否决收敛（2026-09-20 凌晨）
+
+- **UI 验收（IAB 实测 1440 宽）**：工作台显示策略 2026.09.19.2、候选 120/2288、前排全部 C突 可交易（慧谷新材/金域医学/盛美上海…）；30 张卡片程序化几何校验 **0 内容越界**（历史重叠 bug 类回归通过）；详情面板 V2 闸门七区块（许可/Plan/目标/止损/宏观/Exit/交易计划）完整渲染；次新股（301683）宏观正确显示"样本不足→待核"。（注：IAB 对该用户页签的截图表面捕获超时，视觉核对以 DOM 几何校验替代，结论可靠。）
+- **宏观否决收敛完成**：MA60/MA250/周线 MACD 入场判定收敛为 `market_permission.evaluate_macro_entry_blocks` 唯一实现；`c_signal_v2._v2_macro_entry_gate` 与 `_v2_macro_veto_permission` 改为消费共享核心 + 各自形状适配（label/tone/reason 保持原样）。删除前逐字 diff 确认两份拷贝核心判定一致，且 `_v2_entry_attempt` 各分支必带 entry_type（共享核心的空类型 elif 分支不改变 c_signal_v2 路径行为）。
+- **验证：240 tests OK**（含宏观否决/环境许可全部用例）；live 抽查 000166 状态输出正常。

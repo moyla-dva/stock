@@ -136,10 +136,15 @@ def _v2_state_entry_type(state_model):
     return ""
 
 
-def _v2_macro_veto_permission(state_model):
-    facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
-    macro_tide = facts.get("macro_tide") if isinstance(facts.get("macro_tide"), dict) else {}
-    entry_type = _v2_state_entry_type(state_model)
+def evaluate_macro_entry_blocks(macro_tide, entry_type):
+    """MA60/MA250/周线 MACD 的入场宏观判定唯一实现。
+
+    c_signal_v2 的入场闸门与环境许可的宏观否决共用此核心；本函数只返回
+    原始判定（block_reasons/warnings/macro 可用性），输出形状（label/tone/
+    reason）由各消费端自行组装，禁止再复制判定逻辑。
+    """
+    macro_tide = macro_tide if isinstance(macro_tide, dict) else {}
+    entry_type = str(entry_type or "").strip()
     ma60 = macro_tide.get("ma60") if isinstance(macro_tide.get("ma60"), dict) else {}
     ma250 = macro_tide.get("ma250") if isinstance(macro_tide.get("ma250"), dict) else {}
     weekly = macro_tide.get("weekly_macd") if isinstance(macro_tide.get("weekly_macd"), dict) else {}
@@ -166,6 +171,22 @@ def _v2_macro_veto_permission(state_model):
             warnings.append("MA60 样本不足，回踩大势仍需人工核对")
     elif macro_tide.get("permission") in {"forbidden", "watch", "unknown"}:
         warnings.append(macro_tide.get("summary") or "大周期潮汐待核")
+
+    return {
+        "block_reasons": _unique_text(block_reasons),
+        "warnings": _unique_text(warnings),
+        "macro_available": bool(macro_tide.get("available")),
+        "macro_summary": macro_tide.get("summary"),
+    }
+
+
+def _v2_macro_veto_permission(state_model):
+    facts = state_model.get("facts") if isinstance(state_model.get("facts"), dict) else {}
+    macro_tide = facts.get("macro_tide") if isinstance(facts.get("macro_tide"), dict) else {}
+    entry_type = _v2_state_entry_type(state_model)
+    gate = evaluate_macro_entry_blocks(macro_tide, entry_type)
+    block_reasons = gate["block_reasons"]
+    warnings = gate["warnings"]
 
     if block_reasons:
         return {
