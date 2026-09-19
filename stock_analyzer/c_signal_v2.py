@@ -66,6 +66,7 @@ def _permission_contract(
         "reason": reason,
         "next_action": next_action,
         "can_open": bool(can_open),
+        "can_hold": signal_key == "v2_strong_resistance_scale_out" or permission != "risk_only",
         "block_reasons": list(block_reasons or []),
         "required_confirmations": list(required_confirmations or []),
         "plan_gate": plan_gate or None,
@@ -98,6 +99,15 @@ def _price_distance_pct(target, base):
     if target_value is None or base_value in {None, 0}:
         return None
     return round((target_value - base_value) / base_value * 100, 2)
+
+
+def _drop_distance_pct(latest_price, stop_price):
+    """从现价到下方止损位的距离，以现价为基，与上方空间百分比可直接比较。"""
+    latest_value = _as_float(latest_price)
+    stop_value = _as_float(stop_price)
+    if latest_value in {None, 0} or stop_value is None:
+        return None
+    return round((latest_value - stop_value) / latest_value * 100, 2)
 
 
 def _trigger_price_text(value):
@@ -196,7 +206,7 @@ def _candidate_trigger_plan(
         "invalidation_price": invalidation_price,
         "invalidation_label": "结构失效价",
         "distance_to_confirmation_pct": _price_distance_pct(confirmation_price, latest_price),
-        "distance_to_invalidation_pct": _price_distance_pct(latest_price, invalidation_price),
+        "distance_to_invalidation_pct": _drop_distance_pct(latest_price, invalidation_price),
         "missing_confirmations": list(missing_confirmations or []),
         "trigger_checklist": _unique_text(checklist),
         "intraday_rule": intraday_rule,
@@ -974,7 +984,7 @@ def build_c_signal_v2_state(df_display, *, event_key=None, context=None, compone
             "mode": permission_model.get("mode"),
             "mode_label": permission_model.get("mode_label"),
             "can_open": permission_model.get("can_open"),
-            "can_hold": permission_model.get("signal_key") == "v2_strong_resistance_scale_out" or permission_model.get("permission") != "risk_only",
+            "can_hold": bool(permission_model.get("can_hold")),
             "risk_score": _as_int(scores.get("risk")),
             "risk_break_score": _as_int((facts.get("risk") or {}).get("risk_break_score")) if isinstance(facts.get("risk"), dict) else 0,
             "risk_heat_score": _as_int((facts.get("risk") or {}).get("risk_heat_score")) if isinstance(facts.get("risk"), dict) else 0,
@@ -1000,7 +1010,13 @@ def build_c_signal_v2_state_from_result(result):
     scan_type = result.get("scan_type") or result.get("_scan_type") or ""
     role = fields.get("v2_role")
 
-    if role == "risk" or scan_type == "risk":
+    if scan_type == "risk" and fields and role == "watch":
+        # 观察类契约（如顶分型观察）进入风险池时保持观察语义，不伪装成风险处理。
+        state = fields.get("v2_state") or "risk_control"
+        state_label = fields.get("v2_state_label") or "风险处理"
+        permission = "watch_only"
+        permission_label = "只观察"
+    elif role == "risk" or scan_type == "risk":
         state = fields.get("v2_state") if role == "risk" else "risk_control"
         state_label = fields.get("v2_state_label") if role == "risk" else "风险处理"
         permission = "risk_only"

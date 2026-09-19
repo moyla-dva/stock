@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import textwrap
 import unittest
@@ -8,6 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendAnalysisStoreTest(unittest.TestCase):
+    def setUp(self):
+        if shutil.which("node") is None:
+            self.skipTest("node 不可用，跳过前端脚本测试")
+
     def _run_node_script(self, script):
         result = subprocess.run(
             ["node", "-e", script],

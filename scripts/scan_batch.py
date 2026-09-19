@@ -11,11 +11,6 @@ import time
 # 添加项目路径
 sys.path.insert(0, '/Users/vainve/股票短线分析软件')
 
-# 设置代理环境变量（确保akshare能连接）
-os.environ.setdefault('HTTP_PROXY', 'http://127.0.0.1:7897')
-os.environ.setdefault('HTTPS_PROXY', 'http://127.0.0.1:7897')
-os.environ.setdefault('no_proxy', 'localhost,127.0.0.1')
-
 import akshare as ak
 import numpy as np
 from stock_analyzer.versioning import DATA_ADJUST, DATA_START_DATE
@@ -237,7 +232,15 @@ def get_all_stock_codes():
         print(f"获取股票列表失败: {e}")
         return []
 
+def _setup_proxy_env():
+    # 仅在脚本直接运行时设置代理；模块级设置会污染测试进程环境。
+    os.environ.setdefault('HTTP_PROXY', 'http://127.0.0.1:7897')
+    os.environ.setdefault('HTTPS_PROXY', 'http://127.0.0.1:7897')
+    os.environ.setdefault('no_proxy', 'localhost,127.0.0.1')
+
+
 def main():
+    _setup_proxy_env()
     print("开始扫描A股底背离+上升趋势股票...")
     print("=" * 60)
     

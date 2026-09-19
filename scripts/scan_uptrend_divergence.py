@@ -13,12 +13,6 @@ import akshare as ak
 
 BASE_URL = "http://127.0.0.1:5009"
 
-# 设置代理环境变量（从用户配置文件读取，或使用默认值）
-os.environ.setdefault('HTTP_PROXY', 'http://127.0.0.1:7897')
-os.environ.setdefault('HTTPS_PROXY', 'http://127.0.0.1:7897')
-# 同时设置no_proxy确保本地连接不被代理
-os.environ.setdefault('no_proxy', 'localhost,127.0.0.1')
-
 def get_stock_list():
     """获取A股股票列表（走项目 provider 链：TDX → 交易所 → 保底列表）"""
     try:
@@ -97,7 +91,15 @@ def analyze_via_api(code):
     except Exception:
         return None
 
+def _setup_proxy_env():
+    # 仅在脚本直接运行时设置代理；模块级设置会污染测试进程环境。
+    os.environ.setdefault('HTTP_PROXY', 'http://127.0.0.1:7897')
+    os.environ.setdefault('HTTPS_PROXY', 'http://127.0.0.1:7897')
+    os.environ.setdefault('no_proxy', 'localhost,127.0.0.1')
+
+
 def main():
+    _setup_proxy_env()
     print("=" * 60)
     print("通过API扫描：本周底背离 + 上升趋势的A股")
     print("=" * 60)

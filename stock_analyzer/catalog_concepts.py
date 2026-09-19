@@ -109,8 +109,19 @@ def refresh_stock_concept_cache(max_concepts=None, logger=None, progress_callbac
         if concepts
     }
 
-    if stock_concepts or not read_concept_cache(cache_dir):
+    # 中途大面积失败（网络恶化/限流）时，半成品结果不得覆盖原本完整的概念缓存。
+    previous_concepts = read_concept_cache(cache_dir)
+    previous_count = len(previous_concepts) if isinstance(previous_concepts, dict) else 0
+    coverage_ok = not previous_count or len(stock_concepts) >= int(previous_count * 0.8)
+    if stock_concepts and coverage_ok:
         write_concept_cache(stock_concepts, source=source, cache_dir=cache_dir)
+    elif not stock_concepts and not previous_count:
+        write_concept_cache(stock_concepts, source=source, cache_dir=cache_dir)
+    elif not coverage_ok:
+        print(
+            f"[概念缓存] 覆盖率不足，保留原缓存: 本轮 {len(stock_concepts)} 只 / 原缓存 {previous_count} 只",
+            flush=True,
+        )
 
     with _PROFILE_CACHE_LOCK:
         profiles = read_profile_cache(cache_dir)

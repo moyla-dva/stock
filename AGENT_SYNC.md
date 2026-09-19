@@ -1132,3 +1132,13 @@
 - **P1-9（语义变化，已确认方向）**：`build_macro_tide_facts` 周线 MACD 只用已收盘完整周（最新交易日所在周未走完则剔除，周五收盘周计入），样本门槛 20→60 根完整周（约 14 个月，覆盖 EMA 暖机）。影响：周中判定不再随未收盘周翻转；上市 4-14 个月的次新股周线门从可能 forbidden 变为 unknown（警告不拦截，方向保守）。**未 bump 版本**——待下次数据重刷时一并 bump + 全量重建（同 9-10 评审批次先例）。
 - 新增回归测试 3 个：`test_macro_tide_weekly_macd_excludes_forming_week`、`test_macro_tide_weekly_macd_requires_sixty_completed_weeks`、`test_unfilled_gap_targets_skip_nan_rows_without_false_fill`。
 - **验证：239 tests OK**（+3），compileall 通过；本批改动仅 `c_signal_v2_facts.py` + `tests/test_project_smoke.py`，未触碰扫描入池/Plan Gate/前端。
+
+- [2026-09-19 22:10] ZCode：**认领契约一致性 + 回放口径收尾 + 稳健性小批（用户已确认按优先级执行）**。范围：`stock_analyzer/c_signal_v2.py`/`trade_plan.py`（can_hold 两端统一、风险回填不覆盖观察契约、契约透出 plan warnings、候选距离分母统一）、`scan_workspace_structure.py`/`scan_api.py`（最新日工作区跳过白干 replay、回放样本按入场许可过滤、口径标注）、`catalog_concepts.py`（刷新最低覆盖率护栏）、`static/js/api.js`（请求超时）、测试卫生（node skip、fresh_breakout_bar 负向用例）。边界：不改扫描入池、不 bump 版本、不动退役脚本归档（留待死代码批次）。
+
+## ZCode 完成记录：契约一致性 + 回放口径 + 稳健性小批（2026-09-19 晚，第二批）
+
+- **契约一致性**：`can_hold` 下沉进 `_permission_contract`（减仓建议例外统一），状态模型与交易计划视图同源消费；旧快照回填对 `role=="watch"` 契约（顶分型观察）保留观察语义，不再强制改写 `risk_control`；`_v2_permission_view` 的 warnings 改读 `plan_gate.warnings`（此前恒空）；`distance_to_invalidation_pct` 分母统一为现价（`_drop_distance_pct`，与上方空间百分比可直接比较，该字段此前无消费方）。
+- **回放口径**：`collect_scan_workspace` 仅在显式 `snapshot_day`（历史回看）时运行 replay——当前日工作台事件日即最新 K 线，前向收益必空、纯白读缓存；`build_replay_calibration` 只统计入场类事件（`v2_state_model.permission ∈ {attack/breakout/pullback}_allowed`），观察/风控状态不再污染胜率；replay 输出与 score_confidence basis 均标注入场口径（`信号日收盘价入场/次日开盘价入场`）。
+- **稳健性**：`catalog_concepts` 刷新加 80% 覆盖率护栏（半成品不再覆盖完整概念缓存，保留时打印告警）；`api.js` 请求 90s 超时（AbortSignal.timeout，防挂起卡死 UI，超时报"请求超时: URL"）。
+- **测试卫生**：`test_frontend_analysis_store` 无 node 时 skip；新增 `test_v2_setup_breakout_trigger_requires_fresh_breakout_bar`（合并 K 吸收抑制突破触发的负向回归）；`scan_batch.py`/`scan_uptrend_divergence.py` 的硬编码代理 env 从模块顶层移入 `main()`（不再污染测试进程环境）。
+- **验证：240 tests OK**（+1）、compileall、`node --check api.js` 通过。已知影响：latest 模式全量响应的 `replay_calibration.method` 现为 `deferred`（历史回看不受影响）；历史快照中观察类风险池行的 V2 状态显示为"只观察"。

@@ -34,6 +34,7 @@ from stock_analyzer.c_signal_v2_facts import (
     build_target_structure_facts,
     build_trigger_facts,
     build_williams_fractal_facts,
+    build_v2_setup_facts,
     _unfilled_gap_targets,
 )
 from stock_analyzer.catalog import (
@@ -2161,6 +2162,30 @@ class ProjectSmokeTest(unittest.TestCase):
         all_nan_after = frame.copy()
         all_nan_after.loc[3:, "high"] = float("nan")
         self.assertEqual(len(_unfilled_gap_targets(all_nan_after, 9.0, lookback=250)), 1)
+
+    def test_v2_setup_breakout_trigger_requires_fresh_breakout_bar(self):
+        # 15 根以内不触发 prior_high 分支，隔离矩形分支的 fresh 守卫。
+        rows = 15
+        closes = [10.0 + index * 0.08 for index in range(rows)]
+        frame = pd.DataFrame({
+            "date": pd.bdate_range("2026-01-01", periods=rows),
+            "open": closes,
+            "high": [value + 0.1 for value in closes],
+            "low": [value - 0.1 for value in closes],
+            "close": closes,
+        })
+        rectangle = {"available": True, "previous_upper": 10.6, "previous_lower": 9.8, "lower": 9.8}
+        absorbed_bars = {"available": True, "recent_bars": [{"source_indices": [13, 14]}]}
+        fresh_bars = {"available": True, "recent_bars": [{"source_indices": [14]}]}
+
+        fresh = build_v2_setup_facts(frame, rectangle=rectangle, normalized_bars=fresh_bars)
+        absorbed = build_v2_setup_facts(frame, rectangle=rectangle, normalized_bars=absorbed_bars)
+
+        self.assertTrue(fresh["breakout_setup"])
+        self.assertTrue(fresh["breakout_trigger"])
+        # 末根被包含合并吸收时，previous_upper 退化为旧箱体，突破触发必须被抑制。
+        self.assertTrue(absorbed["breakout_setup"])
+        self.assertFalse(absorbed["breakout_trigger"])
 
     def test_c_signal_v2_state_model_promotes_independent_facts_to_attack_plan(self):
         frame = self._v2_trigger_frame()

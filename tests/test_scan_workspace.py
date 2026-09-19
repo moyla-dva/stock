@@ -851,6 +851,7 @@ class ScanWorkspaceTest(unittest.TestCase):
                     "win_rate": 60.0,
                     "avg_ret": 2.0,
                     "scan_type": "opportunity",
+                    "v2_state_model": {"permission": "pullback_allowed", "state": "entry_pullback"},
                 },
             },
         }
@@ -865,9 +866,10 @@ class ScanWorkspaceTest(unittest.TestCase):
                     with patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir):
                         with patch("stock_analyzer.scan_snapshot.beijing_now", return_value=pd.Timestamp("2026-01-07")):
                             write_scan_snapshot(snapshot, start_date="2025-04-29", snapshot_day="2026-01-02")
-                            workspace = collect_scan_workspace(start_date="2025-04-29")
+                            workspace = collect_scan_workspace(start_date="2025-04-29", snapshot_day="2026-01-02")
                             next_open_workspace = collect_scan_workspace(
                                 start_date="2025-04-29",
+                                snapshot_day="2026-01-02",
                                 replay_entry_model="next_open",
                             )
 
@@ -935,7 +937,7 @@ class ScanWorkspaceTest(unittest.TestCase):
                     write_scan_snapshot(snapshot, start_date="2025-04-29", snapshot_day="2026-05-10")
                     client = app.app.test_client()
                     lite_response = client.get("/api/scan_workspace?lite=1")
-                    full_response = client.get("/api/scan_workspace")
+                    full_response = client.get("/api/scan_workspace?snapshot_day=2026-05-10")
 
         lite_payload = lite_response.get_json()
         full_payload = full_response.get_json()

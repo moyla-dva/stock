@@ -65,11 +65,15 @@ def _v2_permission_view(permission_model, facts, context):
         "permission_label": permission_model.get("permission_label") or "",
         "can_open": bool(permission_model.get("can_open")),
         "can_add": False,
-        "can_hold": permission != "risk_only",
+        "can_hold": bool(permission_model.get("can_hold", permission != "risk_only")),
         "action": next_action,
         "risk_action": next_action,
         "forbidden_reasons": list(permission_model.get("block_reasons") or []),
-        "warnings": list(permission_model.get("warnings") or []),
+        "warnings": list(
+            (permission_model.get("plan_gate") or {}).get("warnings")
+            or permission_model.get("warnings")
+            or []
+        ),
         "required_confirmations": list(permission_model.get("required_confirmations") or []),
         "scores": {
             "setup": _as_int(scores.get("setup")),

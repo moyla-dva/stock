@@ -164,6 +164,18 @@ def _candidate_results(pools):
             yield result
 
 
+def _result_is_entry_class(result):
+    """回放只统计入场类事件；观察/风控状态没有"入场收益"语义，混入会污染胜率。"""
+    state_model = result.get("v2_state_model")
+    if not isinstance(state_model, dict):
+        return False
+    return state_model.get("permission") in {
+        "attack_allowed",
+        "breakout_allowed",
+        "pullback_allowed",
+    }
+
+
 def build_replay_calibration(
     pools,
     start_date=None,
@@ -182,6 +194,8 @@ def build_replay_calibration(
     for result in _candidate_results(pools):
         if candidates_seen >= max_candidates:
             break
+        if not _result_is_entry_class(result):
+            continue
         candidates_seen += 1
 
         code = normalize_code(result.get("code"))
@@ -235,8 +249,11 @@ def build_replay_calibration(
 
     return {
         "method": "historical_snapshot_replay",
-        "note": "使用本地日线缓存追踪事件日后的真实交易日收益",
+        "note": "使用本地日线缓存追踪事件日后的真实交易日收益（仅统计入场类事件）",
         "entry_model": entry_model,
+        "entry_model_label": (
+            "次日开盘价入场" if entry_model == ENTRY_MODEL_NEXT_OPEN else "信号日收盘价入场"
+        ),
         "horizons": list(horizons),
         "candidate_count": complete_candidates,
         "requested_count": candidates_seen,

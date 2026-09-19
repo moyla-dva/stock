@@ -46,6 +46,7 @@ def apply_score_confidence(pools, replay_calibration=None):
             replay_avg_worst_ret = replay5.get("avg_worst_ret")
             has_proxy_history = result.get("win_rate") is not None or result.get("avg_ret") is not None
             level, label = _score_confidence(sample_count, has_proxy_history)
+            replay_entry_model_label = (replay_calibration or {}).get("entry_model_label") or ""
             replay_basis = (
                 f"5日回放 {sample_count} 样本"
                 + (
@@ -53,6 +54,7 @@ def apply_score_confidence(pools, replay_calibration=None):
                     if sample_count and replay_win_rate is not None and replay_avg_ret is not None
                     else ""
                 )
+                + (f" · {replay_entry_model_label}" if replay_entry_model_label and sample_count else "")
             )
             result["score_confidence"] = {
                 "level": level,

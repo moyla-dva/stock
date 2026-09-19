@@ -1,5 +1,17 @@
+// 冷缓存工作台构建约 45s，超时须显著大于该值；仅防连接永久挂起。
+var REQUEST_TIMEOUT_MS = 90000;
+
 function requestJson(url, options) {
-    return fetch(url, options || {}).then(function(response) {
+    var fetchOptions = options || {};
+    if (!fetchOptions.signal && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        fetchOptions.signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    }
+    return fetch(url, fetchOptions).catch(function (error) {
+        if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+            throw new Error('请求超时: ' + url);
+        }
+        throw error;
+    }).then(function(response) {
         if (!response.ok) {
             return response.text().then(function(text) {
                 throw new Error('服务器错误 (' + response.status + '): ' + text.substring(0, 100));

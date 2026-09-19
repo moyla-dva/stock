@@ -40,7 +40,9 @@ def collect_scan_workspace(
         loaded["profile_cache"],
         start_date=start_date,
         board_market_reader=board_market_reader,
-        include_replay=include_replay,
+        # 回放校准属于历史回看能力：当前日工作台的事件日就是最新一根 K 线，
+        # 前向收益必然为空，跑一遍只会白读数百份历史缓存。
+        include_replay=include_replay and snapshot_day is not None,
         replay_max_candidates=replay_max_candidates,
         replay_entry_model=replay_entry_model,
         include_market_universe=include_market_universe,
