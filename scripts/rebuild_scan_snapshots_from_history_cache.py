@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.data_fetcher import CACHE_DIR as HISTORY_CACHE_DIR
-from stock_analyzer.data_fetcher import cache_path_for_history
+from stock_analyzer.data_fetcher import _cached_history_candidates, cache_path_for_history
 from stock_analyzer.scan_snapshot import (
     build_scan_snapshot,
     is_current_strategy_snapshot,
@@ -80,8 +80,18 @@ def _start_key(start_date: str) -> str:
 
 
 def _history_cache_path(code: str, start_date: str, snapshot_day: str) -> Path:
+    """Resolve the history cache file: canonical name first, then newest legacy file.
+
+    缓存键重构后存量文件仍是旧命名（{code}_{start}_{end}_{adjust}.csv），
+    读取必须回退到 legacy 候选并取数据最新的一份。
+    """
     start_text = _start_key(start_date)
     end_text = normalize_snapshot_day(snapshot_day)
+    candidates = _cached_history_candidates(
+        code, start_text, end_text, adjust=DATA_ADJUST
+    )
+    if candidates:
+        return candidates[0]
     return cache_path_for_history(code, start_text, end_text, adjust=DATA_ADJUST)
 
 

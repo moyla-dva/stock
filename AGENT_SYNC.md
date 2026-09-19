@@ -1153,3 +1153,5 @@
 - **评审误报纠正**：`wait_job`/`shutdown` 实际被测试与重建脚本使用（保留）；`scan-insights.css` 含在用的 `.scan-side-view` 等（整板删除结论有误，保留）；compact 键的 pop+重赋值流非纯死代码（保留）。
 - **文档同步**：`data-flow.md` V2 标签与交易计划流向、`c-signal-v2-design.md` 版本演进说明（09.09.2→09.19.1→09.19.2 待重刷）、`data-operations.md` 新增四个数据脚本用法与 qfq 漂移风险、README 标注退役脚本状态。
 - **验证：240 tests OK**、全部 JS `node --check` 通过、compileall + `import app` 通过。
+
+- [2026-09-19 23:20] ZCode：**认领提前生效批次（用户确认不等周一）**：versioning bump → 2026.09.19.2（周线 MACD 完整周 + 60 周门槛）；用现有 09-18 本地缓存离线 rebuild --force-current 全量重刷（append/backfill 等周一收盘后例行补 09-21 即可）；重启服务并在新口径上验证入池/周线/风险分布；cleanup 脚本增加 --migrate-missing（主动迁移 legacy→canonical），补齐后执行 --apply 回收 8.8 万文件。

@@ -15,6 +15,8 @@ miss 重取并堆积文件。data_fetcher 现已改用 canonical 键（{code}_{s
 """
 
 import argparse
+import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from stock_analyzer.data_fetcher import (
     CACHE_DIR,
     _history_meta_path,
     _read_latest_history_date_text,
+    beijing_now,
 )
 
 
@@ -40,14 +43,16 @@ def _meta_mtime(path):
         return 0.0
 
 
-def classify_legacy_files(cache_dir=None):
-    """Return (deletable, keep_reasons) for legacy cache files in cache_dir."""
+def classify_legacy_files(cache_dir=None, migrate_missing=False):
+    """Return (deletable, keep_reasons, migrated) for legacy cache files in cache_dir."""
     cache_dir = Path(cache_dir or CACHE_DIR)
     if not cache_dir.exists():
-        return [], []
+        return [], [], []
     canonical_latest = {}
+    pending_migrations = {}
     deletable = []
     keep_reasons = []
+    migrated = []
     for path in sorted(cache_dir.glob("*.csv")):
         parts = path.stem.split("_")
         if len(parts) != 4:
@@ -58,6 +63,9 @@ def classify_legacy_files(cache_dir=None):
             continue
         canonical = cache_dir / f"{code}_{start_text}_{adjust}.csv"
         if not canonical.exists():
+            if migrate_missing:
+                pending_migrations.setdefault((code, start_text, adjust), []).append((path, end_text))
+                continue
             keep_reasons.append((path, "canonical 缺失，保留迁移来源"))
             continue
         key = (code, start_text, adjust)
@@ -75,17 +83,42 @@ def classify_legacy_files(cache_dir=None):
             keep_reasons.append((path, f"legacy 更新（{legacy_date} > {canonical_date}），先重刷再清理"))
             continue
         deletable.append((path, legacy_date, canonical_date))
-    return deletable, keep_reasons
+
+    if migrate_missing:
+        for key, pending in pending_migrations.items():
+            code, start_text, adjust = key
+            # 同键取数据最新的 legacy 迁移为 canonical，其余随后按常规规则删除。
+            pending.sort(key=lambda item: (item[1], _meta_mtime(item[0])), reverse=True)
+            newest_path, newest_end = pending[0]
+            canonical = cache_dir / f"{code}_{start_text}_{adjust}.csv"
+            shutil.copyfile(newest_path, canonical)
+            latest_date = _latest_date_of(newest_path)
+            meta = {"stored_at": beijing_now().isoformat(), "latest_date": latest_date}
+            meta_path = _history_meta_path(canonical)
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+            canonical_latest[(code, start_text, adjust)] = latest_date or ""
+            migrated.append((newest_path, canonical, len(pending)))
+            # 常规判定：同键其余 legacy 现在可删（canonical 数据取自最新一份）
+            for stale_path, _ in pending[1:]:
+                deletable.append((stale_path, _latest_date_of(stale_path), canonical_latest[(code, start_text, adjust)]))
+    return deletable, keep_reasons, migrated
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--apply", action="store_true", help="实际删除（默认只预览）")
+    parser.add_argument("--migrate-missing", action="store_true", help="canonical 缺失时取同键最新 legacy 迁移补齐（需配合 --apply 才写盘）")
     parser.add_argument("--cache-dir", default=None, help="覆盖缓存目录")
     parser.add_argument("--limit", type=int, default=None, help="最多处理 N 个文件")
     args = parser.parse_args(argv)
 
-    deletable, keep_reasons = classify_legacy_files(args.cache_dir)
+    deletable, keep_reasons, migrated = classify_legacy_files(args.cache_dir, migrate_missing=args.migrate_missing)
+    if migrated:
+        print(f"已迁移 legacy → canonical: {len(migrated)} 组")
+        for src, dst, _ in migrated[:5]:
+            print(f"  {src.name} -> {dst.name}")
+        if len(migrated) > 5:
+            print(f"  ... 其余 {len(migrated) - 5} 组略")
     total_bytes = sum(path.stat().st_size for path, _, _ in deletable)
     print(f"缓存目录: {Path(args.cache_dir or CACHE_DIR)}")
     print(f"可删除 legacy 文件: {len(deletable)} 个，约 {total_bytes / 1024 / 1024:.1f} MB")
