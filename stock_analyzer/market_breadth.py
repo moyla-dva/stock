@@ -13,7 +13,7 @@ from stock_analyzer.versioning import DATA_ADJUST
 
 def _history_file_key(path):
     parts = path.stem.split("_")
-    end_text = parts[2] if len(parts) >= 3 and parts[2].isdigit() else ""
+    end_text = parts[2] if len(parts) >= 4 and parts[2].isdigit() and len(parts[2]) == 8 else "99999999"
     try:
         mtime = path.stat().st_mtime
     except OSError:

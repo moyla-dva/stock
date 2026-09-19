@@ -1,6 +1,8 @@
 """Daily market data access and local history cache."""
 
+import json
 import os
+import uuid
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
@@ -61,7 +63,96 @@ def date_range_for_fetch(days=120, start_date=None):
 
 def cache_path_for_history(code, start_text, end_text, adjust=""):
     adjust_key = adjust or "none"
+    return CACHE_DIR / f"{code}_{start_text}_{adjust_key}.csv"
+
+
+def legacy_cache_path_for_history(code, start_text, end_text, adjust=""):
+    adjust_key = adjust or "none"
     return CACHE_DIR / f"{code}_{start_text}_{end_text}_{adjust_key}.csv"
+
+
+def _history_cache_path_key(path):
+    parts = path.stem.split("_")
+    end_text = parts[2] if len(parts) >= 4 and parts[2].isdigit() and len(parts[2]) == 8 else ""
+    latest_text = end_text or _read_latest_history_date_text(path)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0
+    is_canonical = 1 if len(parts) == 3 else 0
+    return latest_text or "", is_canonical, mtime
+
+
+def _read_latest_history_date_text(path):
+    meta_path = _history_meta_path(path)
+    try:
+        with meta_path.open("r", encoding="utf-8") as handle:
+            meta = json.load(handle)
+        latest = str(meta.get("latest_date") or "").replace("-", "")
+        if len(latest) == 8 and latest.isdigit():
+            return latest
+    except Exception:
+        pass
+    try:
+        frame = pd.read_csv(path, usecols=lambda column: column in {"date", "日期"})
+    except Exception:
+        return ""
+    return _latest_history_date_text(frame) or ""
+
+
+def _cached_history_candidates(code, start_text, end_text, adjust=""):
+    canonical = cache_path_for_history(code, start_text, end_text, adjust=adjust)
+    legacy_exact = legacy_cache_path_for_history(code, start_text, end_text, adjust=adjust)
+    adjust_key = adjust or "none"
+    candidates = []
+    seen = set()
+    for path in (canonical, legacy_exact):
+        if path.exists() and path not in seen:
+            candidates.append(path)
+            seen.add(path)
+    for path in CACHE_DIR.glob(f"{code}_{start_text}_*_{adjust_key}.csv"):
+        if path.is_file() and path not in seen:
+            candidates.append(path)
+            seen.add(path)
+    if canonical.exists() and canonical not in seen:
+        candidates.append(canonical)
+    return sorted(candidates, key=_history_cache_path_key, reverse=True)
+
+
+def _history_meta_path(path):
+    return path.with_suffix(path.suffix + ".meta.json")
+
+
+def _coerce_datetime(value):
+    if value is None:
+        return None
+    if hasattr(value, "to_pydatetime"):
+        value = value.to_pydatetime()
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _cache_written_at(path):
+    meta_path = _history_meta_path(path)
+    try:
+        with meta_path.open("r", encoding="utf-8") as handle:
+            meta = json.load(handle)
+        stored_at = _coerce_datetime(meta.get("stored_at"))
+        if stored_at is not None:
+            return stored_at
+    except Exception:
+        pass
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return None
 
 
 def _latest_history_date_text(frame):
@@ -76,7 +167,7 @@ def _latest_history_date_text(frame):
     return None
 
 
-def _current_day_cache_is_stale(frame, end_text):
+def _current_day_cache_is_stale(frame, end_text, cache_path=None):
     try:
         requested_end = datetime.strptime(str(end_text), "%Y%m%d")
     except ValueError:
@@ -91,27 +182,42 @@ def _current_day_cache_is_stale(frame, end_text):
         return False
 
     latest_text = _latest_history_date_text(frame)
-    return bool(latest_text and latest_text < str(end_text))
+    if not latest_text:
+        return False
+    if latest_text < str(end_text):
+        return True
+    if latest_text != str(end_text) or cache_path is None:
+        return False
+    written_at = _cache_written_at(Path(cache_path))
+    written_at = _coerce_datetime(written_at)
+    if written_at is None:
+        return False
+    return written_at.strftime("%Y%m%d") == str(end_text) and written_at.time() < time(15, 10)
 
 
 def read_cached_history(code, start_text, end_text, adjust="", logger=None):
-    path = cache_path_for_history(code, start_text, end_text, adjust=adjust)
-    if not path.exists():
+    candidates = _cached_history_candidates(code, start_text, end_text, adjust=adjust)
+    if not candidates:
         return None
-    try:
-        cached = pd.read_csv(path)
-        if _current_day_cache_is_stale(cached, end_text):
+    canonical_path = cache_path_for_history(code, start_text, end_text, adjust=adjust)
+    for path in candidates:
+        try:
+            cached = pd.read_csv(path)
+            if _current_day_cache_is_stale(cached, end_text, cache_path=path):
+                if logger:
+                    latest = _latest_history_date_text(cached) or "-"
+                    logger.info(f"日线缓存今日数据需刷新，重新拉取: {path.name}, latest={latest}, end={end_text}")
+                return None
+            if path != canonical_path:
+                write_cached_history(code, start_text, end_text, cached, adjust=adjust, logger=logger)
             if logger:
-                latest = _latest_history_date_text(cached) or "-"
-                logger.info(f"日线缓存缺少今日数据，重新拉取: {path.name}, latest={latest}, end={end_text}")
-            return None
-        if logger:
-            logger.info(f"命中日线缓存: {path.name}, shape={cached.shape}")
-        return cached
-    except Exception as e:
-        if logger:
-            logger.warning(f"读取日线缓存失败: {path.name}, error={e}")
-        return None
+                logger.info(f"命中日线缓存: {path.name}, shape={cached.shape}")
+            return cached
+        except Exception as e:
+            if logger:
+                logger.warning(f"读取日线缓存失败: {path.name}, error={e}")
+            continue
+    return None
 
 
 def write_cached_history(code, start_text, end_text, df, adjust="", logger=None):
@@ -120,10 +226,28 @@ def write_cached_history(code, start_text, end_text, df, adjust="", logger=None)
     path = cache_path_for_history(code, start_text, end_text, adjust=adjust)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(path, index=False)
+        tmp_path = path.with_suffix(f".{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp")
+        df.to_csv(tmp_path, index=False)
+        tmp_path.replace(path)
+        meta = {
+            "stored_at": beijing_now().isoformat(),
+            "latest_date": _latest_history_date_text(df),
+        }
+        meta_path = _history_meta_path(path)
+        tmp_meta_path = meta_path.with_suffix(f".{os.getpid()}_{uuid.uuid4().hex[:8]}.tmp")
+        with tmp_meta_path.open("w", encoding="utf-8") as handle:
+            json.dump(meta, handle, ensure_ascii=False, separators=(",", ":"))
+        tmp_meta_path.replace(meta_path)
         if logger:
             logger.info(f"写入日线缓存: {path.name}, shape={df.shape}")
     except Exception as e:
+        for tmp in ("tmp_path", "tmp_meta_path"):
+            tmp_value = locals().get(tmp)
+            if tmp_value is not None:
+                try:
+                    Path(tmp_value).unlink(missing_ok=True)
+                except OSError:
+                    pass
         if logger:
             logger.warning(f"写入日线缓存失败: {path.name}, error={e}")
 

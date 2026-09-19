@@ -1,6 +1,7 @@
 """Unified local data-source and cache status reporting."""
 
 import csv
+import json
 from collections import defaultdict
 from datetime import datetime, time
 from pathlib import Path
@@ -12,8 +13,60 @@ from stock_analyzer.scan_cache import scan_cache_status
 from stock_analyzer.versioning import DATA_ADJUST, DATA_START_DATE
 
 
+DATA_SOURCE_STATUS_CACHE_SCHEMA_VERSION = 1
+DATA_SOURCE_STATUS_CACHE_TTL_SECONDS = 300
+DATA_SOURCE_STATUS_CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "data_source_status"
+
+
 def _now_text():
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _start_key(start_date=None):
+    return str(start_date or "default").replace("-", "")
+
+
+def _cache_path(start_date=None):
+    return DATA_SOURCE_STATUS_CACHE_DIR / f"status_{_start_key(start_date)}_{DATA_ADJUST}.json"
+
+
+def _read_cached_status(start_date=None, ttl_seconds=DATA_SOURCE_STATUS_CACHE_TTL_SECONDS):
+    path = _cache_path(start_date)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    meta = payload.get("cache_meta") if isinstance(payload, dict) else {}
+    if not isinstance(meta, dict) or meta.get("schema_version") != DATA_SOURCE_STATUS_CACHE_SCHEMA_VERSION:
+        return None
+    try:
+        stored_at = float(meta.get("stored_at") or 0)
+    except (TypeError, ValueError):
+        return None
+    if ttl_seconds is not None and ttl_seconds >= 0:
+        if datetime.now().timestamp() - stored_at > ttl_seconds:
+            return None
+    payload["cache_meta"] = dict(meta, hit=True)
+    return payload
+
+
+def _write_cached_status(payload, start_date=None):
+    cached = dict(payload)
+    cached["cache_meta"] = {
+        "schema_version": DATA_SOURCE_STATUS_CACHE_SCHEMA_VERSION,
+        "stored_at": datetime.now().timestamp(),
+        "hit": False,
+    }
+    try:
+        DATA_SOURCE_STATUS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = _cache_path(start_date).with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(cached, handle, ensure_ascii=False, separators=(",", ":"))
+        tmp_path.replace(_cache_path(start_date))
+    except Exception:
+        return payload
+    return cached
 
 
 def _mtime_text(path):
@@ -65,9 +118,7 @@ def _source(key, label, status, available, count=0, updated_at="", detail="", **
 def _latest_history_end(files):
     latest = ""
     for path in files:
-        parts = path.stem.split("_")
-        if len(parts) >= 3 and parts[2].isdigit() and len(parts[2]) == 8:
-            latest = max(latest, parts[2])
+        latest = max(latest, _history_requested_end_key(path))
     if not latest:
         return ""
     return f"{latest[:4]}-{latest[4:6]}-{latest[6:8]}"
@@ -77,7 +128,7 @@ def _history_requested_end_key(path):
     parts = path.stem.split("_")
     if len(parts) >= 3 and parts[2].isdigit() and len(parts[2]) == 8:
         return parts[2]
-    return ""
+    return _read_latest_history_day_key(path)
 
 
 def _display_history_day(day_key):
@@ -316,8 +367,6 @@ def _scan_jobs_source():
     if path.exists():
         try:
             size_mb = round(path.stat().st_size / 1024 / 1024, 2)
-            import json
-
             with path.open("r", encoding="utf-8") as handle:
                 payload = json.load(handle)
             if isinstance(payload, dict) and isinstance(payload.get("jobs"), list):
@@ -340,7 +389,7 @@ def _scan_jobs_source():
     )
 
 
-def collect_data_source_status(start_date=DATA_START_DATE, logger=None):
+def _build_data_source_status(start_date=DATA_START_DATE, logger=None):
     """Return a compact status model for all local data sources used by the app."""
     sources = [
         _history_source(),
@@ -393,3 +442,21 @@ def collect_data_source_status(start_date=DATA_START_DATE, logger=None):
         },
         "sources": sources,
     }
+
+
+def collect_data_source_status(
+    start_date=DATA_START_DATE,
+    logger=None,
+    use_cache=False,
+    force_refresh=False,
+    cache_ttl_seconds=DATA_SOURCE_STATUS_CACHE_TTL_SECONDS,
+):
+    """Return a compact status model for all local data sources used by the app."""
+    if use_cache and not force_refresh:
+        cached = _read_cached_status(start_date=start_date, ttl_seconds=cache_ttl_seconds)
+        if cached is not None:
+            return cached
+    payload = _build_data_source_status(start_date=start_date, logger=logger)
+    if use_cache:
+        return _write_cached_status(payload, start_date=start_date)
+    return payload

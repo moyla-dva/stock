@@ -7,7 +7,9 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from stock_analyzer import data_sources
 from stock_analyzer.data_sources import collect_data_source_status
+from scripts.append_daily_quotes_to_history_cache import append_rejection_reason
 
 
 class DataSourcesTest(unittest.TestCase):
@@ -86,6 +88,83 @@ class DataSourcesTest(unittest.TestCase):
         self.assertEqual(history["latest_requested_end"], "2026-05-12")
         self.assertEqual(history["status"], "warning")
         self.assertTrue(history["current_day_lag"])
+
+    def test_history_status_accepts_stable_history_cache_key(self):
+        with TemporaryDirectory() as tmp_dir:
+            history_dir = Path(tmp_dir)
+            pd.DataFrame({
+                "date": ["2026-05-08", "2026-05-11"],
+                "open": [10, 11],
+                "high": [11, 12],
+                "low": [9, 10],
+                "close": [10.5, 11.5],
+                "volume": [1000, 1200],
+            }).to_csv(history_dir / "600063_20250429_qfq.csv", index=False)
+
+            with patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir):
+                status = collect_data_source_status(start_date="2025-04-29")
+
+        history = {item["key"]: item for item in status["sources"]}["history"]
+        self.assertEqual(history["latest_data_date"], "2026-05-11")
+        self.assertEqual(history["latest_requested_end"], "2026-05-11")
+        self.assertEqual(history["status"], "ready")
+
+    def test_collect_data_source_status_can_use_short_cache(self):
+        with TemporaryDirectory() as tmp_dir:
+            cached_payload = {
+                "updated_at": "2026-05-11T15:30:00",
+                "overall": {"status": "ready"},
+                "sources": [{"key": "history", "status": "ready"}],
+            }
+            with patch("stock_analyzer.data_sources.DATA_SOURCE_STATUS_CACHE_DIR", Path(tmp_dir)):
+                with patch("stock_analyzer.data_sources._build_data_source_status", return_value=cached_payload) as build:
+                    first = data_sources.collect_data_source_status(
+                        start_date="2025-04-29",
+                        use_cache=True,
+                    )
+                    second = data_sources.collect_data_source_status(
+                        start_date="2025-04-29",
+                        use_cache=True,
+                    )
+
+        self.assertEqual(build.call_count, 1)
+        self.assertFalse(first["cache_meta"]["hit"])
+        self.assertTrue(second["cache_meta"]["hit"])
+        self.assertEqual(second["overall"]["status"], "ready")
+
+    def test_append_daily_quote_rejects_cache_gap_without_override(self):
+        previous = pd.DataFrame({
+            "date": ["2026-09-14"],
+            "close": [10.0],
+        })
+        bar = {
+            "date": "2026-09-16",
+            "close": 10.5,
+        }
+
+        self.assertEqual(
+            append_rejection_reason(previous, bar, "20260916"),
+            "cache_gap_detected",
+        )
+        self.assertEqual(
+            append_rejection_reason(previous, bar, "20260916", allow_gap=True),
+            "",
+        )
+
+    def test_append_daily_quote_rejects_large_close_jump(self):
+        previous = pd.DataFrame({
+            "date": ["2026-09-14"],
+            "close": [10.0],
+        })
+        bar = {
+            "date": "2026-09-15",
+            "close": 14.0,
+        }
+
+        self.assertEqual(
+            append_rejection_reason(previous, bar, "20260915", max_close_jump_pct=30),
+            "close_jump_exceeds_limit",
+        )
 
 
 if __name__ == "__main__":

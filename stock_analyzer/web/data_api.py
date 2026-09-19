@@ -7,7 +7,13 @@ from stock_analyzer.code_utils import normalize_code
 
 def data_sources_response(jsonify, collect_data_source_status_func, start_date, logger):
     try:
-        return jsonify(collect_data_source_status_func(start_date=start_date, logger=logger))
+        force_refresh = str(request.args.get("refresh") or "").lower() in {"1", "true", "yes", "y"}
+        return jsonify(collect_data_source_status_func(
+            start_date=start_date,
+            logger=logger,
+            use_cache=True,
+            force_refresh=force_refresh,
+        ))
     except Exception as exc:
         print(f"[数据源状态] 异常: {exc}")
         return jsonify({"error": str(exc)}), 500

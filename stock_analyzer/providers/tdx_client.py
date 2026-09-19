@@ -4,6 +4,8 @@ pytdx speaks TDX's private protocol over raw TCP, so HTTP proxy environment
 variables do not apply and Eastmoney-style WAF fingerprinting is not a factor.
 """
 
+import threading
+
 import pandas as pd
 from pytdx.hq import TdxHq_API
 
@@ -16,39 +18,43 @@ TDX_HOSTS = (
 MINUTE_CATEGORY = {"1": 7, "5": 0, "15": 1, "30": 2, "60": 3}
 
 _api = None
+_API_LOCK = threading.RLock()
 
 
 def _connect():
     """Return a connected module-level API instance, rotating across hosts."""
     global _api
-    if _api is not None:
-        return _api
-    api = TdxHq_API()
-    for ip, port in TDX_HOSTS:
-        try:
-            if api.connect(ip, port, time_out=6):
-                _api = api
-                return _api
-        except Exception:
-            continue
-    raise ConnectionError("无法连接任何通达信行情主站")
+    with _API_LOCK:
+        if _api is not None:
+            return _api
+        api = TdxHq_API()
+        for ip, port in TDX_HOSTS:
+            try:
+                if api.connect(ip, port, time_out=6):
+                    _api = api
+                    return _api
+            except Exception:
+                continue
+        raise ConnectionError("无法连接任何通达信行情主站")
 
 
 def _reset():
     global _api
-    try:
-        if _api is not None:
-            _api.disconnect()
-    except Exception:
-        pass
-    _api = None
+    with _API_LOCK:
+        try:
+            if _api is not None:
+                _api.disconnect()
+        except Exception:
+            pass
+        _api = None
 
 
 def _call(fn, *args, retries=2, **kwargs):
     last_error = None
     for _ in range(retries + 1):
         try:
-            result = fn(*args, **kwargs)
+            with _API_LOCK:
+                result = fn(*args, **kwargs)
             if result is not None:
                 return result
         except Exception as e:
@@ -147,11 +153,13 @@ def fetch_tdx_daily_bars(code, start_text, end_text, logger=None, verbose=False)
     api = _connect()
     rows = []
     start_ts = pd.to_datetime(str(start_text), errors="coerce")
+    offset = 0
     for _ in range(40):
-        page = _call(api.get_security_bars, 9, market, code, 0, 700)
+        page = _call(api.get_security_bars, 9, market, code, offset, 700)
         if not page:
             break
         rows = page + rows
+        offset += len(page)
         oldest = pd.to_datetime(str(page[0].get("datetime") or "")[:10], errors="coerce")
         if (not pd.isna(start_ts) and not pd.isna(oldest) and oldest <= start_ts) or len(page) < 700:
             break
@@ -203,11 +211,13 @@ def fetch_tdx_minute_bars(code, start_text, end_text, period="60", logger=None, 
     api = _connect()
     rows = []
     start_ts = pd.to_datetime(str(start_text), errors="coerce")
+    offset = 0
     for _ in range(12):
-        page = _call(api.get_security_bars, category, market, code, 0, 700)
+        page = _call(api.get_security_bars, category, market, code, offset, 700)
         if not page:
             break
         rows = page + rows
+        offset += len(page)
         oldest = pd.to_datetime(str(page[0].get("datetime") or "")[:10], errors="coerce")
         if (not pd.isna(start_ts) and not pd.isna(oldest) and oldest <= start_ts) or len(page) < 700:
             break
