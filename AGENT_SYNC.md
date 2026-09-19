@@ -1155,3 +1155,11 @@
 - **验证：240 tests OK**、全部 JS `node --check` 通过、compileall + `import app` 通过。
 
 - [2026-09-19 23:20] ZCode：**认领提前生效批次（用户确认不等周一）**：versioning bump → 2026.09.19.2（周线 MACD 完整周 + 60 周门槛）；用现有 09-18 本地缓存离线 rebuild --force-current 全量重刷（append/backfill 等周一收盘后例行补 09-21 即可）；重启服务并在新口径上验证入池/周线/风险分布；cleanup 脚本增加 --migrate-missing（主动迁移 legacy→canonical），补齐后执行 --apply 回收 8.8 万文件。
+
+## ZCode 完成记录：2026.09.19.2 提前生效 + 缓存迁移回收（2026-09-19 深夜）
+
+- **结果**：版本 bump → 2026.09.19.2（周线 MACD 完整周 + 60 周门槛），用 09-18 本地缓存离线全量重刷 5499/5499 成功（357s，0 失败）；服务已重启，工作台 healthy。**周一收盘后只需例行 append 09-21 + rebuild，无需再做 bump。**
+- **重刷前的必要修复**：rebuild 脚本读缓存只找 canonical 新键名导致 5499 全部 missing——已补 legacy 候选回退（复用 data_fetcher._cached_history_candidates，取数据最新一份）。
+- **新口径验证（全池离线统计）**：opportunity 2082→2288（+206 = 196 C回 + 9 C突 + 1 C爆，正是入池缺口修复后回归的计划就绪股）；plan ready 206 / blocked 299 / waiting 11；周线 unknown 73 只（次新股待核，不再误判逆风）；风险池 1047 全部以 v2_exit_gate_sell/v2_strong_resistance_scale_out 正确入池。候选池前排已出现 breakout_allowed 的 C突（301683/603882/688082 等）。
+- **缓存迁移与回收**：cleanup 脚本新增 --migrate-missing（同键取最新 legacy 补齐 canonical + meta）；执行后删除 88,150 个 legacy 文件、回收 1.19GB，.cache/history 现为 11,048 个 canonical CSV + meta（202MB）。
+- **验证：240 tests OK**；服务重启后工作台 API 正常（lite 冷构建 8.2s，暖缓存 1-3s）。
