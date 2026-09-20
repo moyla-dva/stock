@@ -2,7 +2,7 @@
 
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
-from stock_analyzer.events import build_v2_signal_events
+from stock_analyzer.events import build_v2_signal_events, build_v2_signal_events_cached
 from stock_analyzer.intraday_fetcher import fetch_stock_minute_history
 from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_fields
 from stock_analyzer.normalizer import normalize_price_frame
@@ -229,8 +229,8 @@ def _timeframe_fetch_failure(period_key, exc):
     }
 
 
-def _build_chart_payload(frame, *, event_lookback):
-    events = build_v2_signal_events(frame, lookback=event_lookback)
+def _build_chart_payload(frame, *, event_lookback, cache_scope=""):
+    events = build_v2_signal_events_cached(frame, lookback=event_lookback, cache_scope=cache_scope)
     facts = build_c_signal_v2_facts(frame)
     return analysis_frame_to_chart_payload(
         frame,
@@ -250,7 +250,9 @@ def _timeframe_chart_payload(
     use_chart_cache,
     force_chart_cache_refresh,
 ):
-    factory = lambda: _build_chart_payload(frame, event_lookback=event_lookback)
+    factory = lambda: _build_chart_payload(
+        frame, event_lookback=event_lookback, cache_scope=f"mtf:{code}:{period_key}"
+    )
     if use_chart_cache:
         return get_cached_timeframe_chart_payload(
             code,

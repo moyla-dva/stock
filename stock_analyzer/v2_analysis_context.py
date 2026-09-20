@@ -1,7 +1,7 @@
 """Shared V2 analysis context for single-stock and scan flows."""
 
 from stock_analyzer.c_signal_v2 import build_c_signal_v2_state, build_c_signal_v2_state_components
-from stock_analyzer.events import build_v2_signal_events
+from stock_analyzer.events import build_v2_signal_events, build_v2_signal_events_cached
 from stock_analyzer.serializers import latest_score_summary
 from stock_analyzer.trade_plan import build_trade_plan
 
@@ -28,6 +28,7 @@ def build_v2_analysis_context(
     include_events=True,
     include_state=True,
     include_trade_plan=False,
+    events_cache_scope="",
 ):
     """Build reusable V2 facts/state/events/plan context for one analyzed frame."""
     components = build_c_signal_v2_state_components(df_display, context=context) or {}
@@ -37,7 +38,9 @@ def build_v2_analysis_context(
 
     events = []
     if include_events:
-        events = build_v2_signal_events(df_display, lookback=event_lookback)
+        events = build_v2_signal_events_cached(
+            df_display, lookback=event_lookback, cache_scope=events_cache_scope
+        )
 
     state = None
     if include_state:

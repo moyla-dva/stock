@@ -1555,6 +1555,120 @@ def _rectangle_quality_score(width_pct, max_width_pct, upper_touches, lower_touc
     return int(min(100, 10 + width_score + touch_score + exchange_score))
 
 
+def _bounded_extremes(values):
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    return min(values), max(values)
+
+
+def _rectangle_candidate_from_bars(bars, *, family, lookback, max_width_pct, normalization):
+    """_rectangle_candidate_from_window 的列表版：与 pandas 路径逐字段等价，纯 Python 计数。"""
+    if len(bars) < 10:
+        return {
+            "available": False,
+            "family": family,
+            "lookback": int(len(bars)),
+            "requested_lookback": int(lookback),
+            "summary": "样本不足，无法估算矩形。",
+        }
+    highs = [_as_float(bar.get("high")) for bar in bars]
+    lows = [_as_float(bar.get("low")) for bar in bars]
+    closes = [_as_float(bar.get("close")) for bar in bars]
+    upper_pair = _bounded_extremes(highs)
+    lower_pair = _bounded_extremes(lows)
+    if upper_pair is None or lower_pair is None:
+        return {
+            "available": False,
+            "family": family,
+            "lookback": int(len(bars)),
+            "requested_lookback": int(lookback),
+            "summary": "样本不足，无法估算矩形。",
+        }
+    upper = upper_pair[1]
+    lower = lower_pair[0]
+    close_pairs = [value for value in closes if value is not None]
+    lowest_close = min(close_pairs) if close_pairs else None
+    close = _as_float(bars[-1].get("close"))
+    previous_bars = bars[:-1]
+    previous_upper = None
+    previous_lower = None
+    if previous_bars:
+        prev_highs = [_as_float(bar.get("high")) for bar in previous_bars]
+        prev_lows = [_as_float(bar.get("low")) for bar in previous_bars]
+        prev_high_pair = _bounded_extremes(prev_highs)
+        prev_low_pair = _bounded_extremes(prev_lows)
+        previous_upper = prev_high_pair[1] if prev_high_pair else None
+        previous_lower = prev_low_pair[0] if prev_low_pair else None
+    mid = (upper + lower) / 2 if upper is not None and lower is not None else None
+    width_pct = None if mid in {None, 0} else round((upper - lower) / mid * 100, 2)
+    available = bool(width_pct is not None and width_pct <= max_width_pct)
+    tolerance = abs(upper) * 1.5 / 100
+    upper_touches = sum(1 for value in highs if value is not None and abs(value - upper) <= tolerance)
+    lower_tolerance = abs(lower) * 1.5 / 100
+    lower_touches = sum(1 for value in lows if value is not None and abs(value - lower) <= lower_tolerance)
+    touch_count = int(upper_touches + lower_touches)
+    latest_position = _rectangle_latest_position(close, upper, lower)
+    sorted_closes = sorted(close_pairs)
+    median = (
+        sorted_closes[len(sorted_closes) // 2]
+        if len(sorted_closes) % 2
+        else (sorted_closes[len(sorted_closes) // 2 - 1] + sorted_closes[len(sorted_closes) // 2]) / 2
+    ) if sorted_closes else None
+    exchange_score = 0
+    if len(sorted_closes) >= 6 and median:
+        above = sum(1 for value in close_pairs if value >= median)
+        below = len(close_pairs) - above
+        exchange_score = min(20, min(above, below) * 4)
+    width_value = _as_float(width_pct)
+    max_width_value = _as_float(max_width_pct)
+    if width_value is None or max_width_value in {None, 0}:
+        quality_score = 0
+    else:
+        width_score = max(0, min(35, int(round((1 - min(width_value, max_width_value) / max_width_value) * 35))))
+        quality_score = int(min(100, 10 + width_score + min(35, touch_count * 5) + exchange_score))
+    start_date = bars[0].get("source_start_date") or bars[0].get("date")
+    end_date = bars[-1].get("source_end_date") or bars[-1].get("date")
+
+    return {
+        "available": available,
+        "family": family,
+        "lookback": int(len(bars)),
+        "requested_lookback": int(lookback),
+        "source_kind": "normalized",
+        "normalization_merge_count": normalization["merge_count"],
+        "max_width_pct": _round(max_width_pct),
+        "start_date": _format_date(start_date),
+        "end_date": _format_date(end_date),
+        "upper": _round(upper),
+        "lower": _round(lower),
+        "previous_upper": _round(previous_upper),
+        "previous_lower": _round(previous_lower),
+        "lowest_close": _round(lowest_close),
+        "mid": _round(mid),
+        "width_pct": width_pct,
+        "inside": bool(available and lower <= close <= upper) if close is not None else False,
+        "breaks_previous_upper": bool(close is not None and previous_upper is not None and close > previous_upper),
+        "breaks_previous_lower": bool(close is not None and previous_lower is not None and close < previous_lower),
+        "near_upper_pct": _pct_distance(upper, close),
+        "near_lower_pct": _pct_distance(close, lowest_close),
+        "breakout_price": _round(upper),
+        "c_point": _round(lowest_close),
+        "c_point_source": "lowest_close",
+        "invalidation_price": _round(lowest_close),
+        "touch_count": touch_count,
+        "upper_touch_count": int(upper_touches),
+        "lower_touch_count": int(lower_touches),
+        "latest_position": latest_position,
+        "quality_score": quality_score,
+        "summary": (
+            f"{family}近{len(bars)}根结构K线矩形宽度 {width_pct:.2f}%，质量 {quality_score}。"
+            if width_pct is not None
+            else f"{family}近{len(bars)}根结构K线无法计算稳定宽度。"
+        ),
+    }
+
+
 def _rectangle_candidate_from_window(window, *, family, lookback, max_width_pct):
     if window is None or window.empty or len(window) < 10 or not {"high", "low", "close"}.issubset(window.columns):
         return {
@@ -1565,11 +1679,16 @@ def _rectangle_candidate_from_window(window, *, family, lookback, max_width_pct)
         }
     normalization = _normalize_kline_inclusion_frame(window, lookback=lookback)
     if normalization["available"] and normalization["normalized_count"] >= 10:
-        scan = normalization["frame"]
-        source_kind = "normalized"
-    else:
-        scan = window.tail(lookback).copy()
-        source_kind = "raw_fallback"
+        # 快路径：直接消费归一化 bars 列表，避免每根 K 线事件重放时反复构建 DataFrame。
+        return _rectangle_candidate_from_bars(
+            [bar for bar in normalization["bars"] if isinstance(bar, dict)],
+            family=family,
+            lookback=lookback,
+            max_width_pct=max_width_pct,
+            normalization=normalization,
+        )
+    scan = window.tail(lookback).copy()
+    source_kind = "raw_fallback"
     if len(scan) < 10:
         return {
             "available": False,

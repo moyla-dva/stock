@@ -1530,7 +1530,7 @@ class ProjectSmokeTest(unittest.TestCase):
         payload = stock_service.fetch_and_process_data("600063", verbose=False)
 
         self.assertEqual(payload["stock_code"], "600063")
-        mock_context.assert_called_once_with(frame, include_trade_plan=True)
+        mock_context.assert_called_once_with(frame, include_trade_plan=True, events_cache_scope="single:600063")
         self.assertIs(mock_chart.call_args.kwargs["v2_events"], events)
         self.assertIs(mock_chart.call_args.kwargs["facts"], facts)
         self.assertFalse(mock_chart.call_args.kwargs["include_legacy"])

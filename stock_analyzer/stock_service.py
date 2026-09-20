@@ -30,7 +30,11 @@ def fetch_and_process_data(code, logger=None, verbose=True, include_legacy_chart
     )
     if df_display is None or df_display.empty:
         return None
-    v2_context = build_v2_analysis_context(df_display, include_trade_plan=True)
+    v2_context = build_v2_analysis_context(
+        df_display,
+        include_trade_plan=True,
+        events_cache_scope=f"single:{normalized}",
+    )
     v2_facts = v2_context.get("facts")
     v2_events = v2_context.get("events")
     payload = analysis_frame_to_chart_payload(

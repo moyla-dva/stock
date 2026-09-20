@@ -1191,3 +1191,13 @@
 - **P2 口径切换未贯通**：setScanEntryModel 改为真正重新请求工作台；分页（loadScanCandidatesForCurrentFilters）与详情（fetchScanCandidateDetail）透传 entryModel。浏览器实测：切回收盘口径触发 `entry_model=event_close` 请求，详情请求带 `entry_model=next_open`，按钮态与 state/localStorage 一致。
 - **P2 文档冲突**：README 两处与 data-operations 的"bottom_div 非一级 tab"表述更新为三池现状。
 - **验证：245 tests OK**（+4）；全部 JS node --check 通过。
+
+- [2026-09-20 02:10] ZCode：**认领第二批反馈修复**：①四处现行文档的两池表述改为三池（已完成）；②事件逐根 facts 重建的性能收尾——矩形候选改用归一化 bars 列表快路径（消除 13 次/根的 DataFrame 构建，差分验证零差异）+ 事件结果按 (code维度键, 最新bar, lookback) 缓存（同股同数据重复访问零开销）；③candidates/主工作台缓存键合并涉及 collect/trim 解耦，留待单独批次。
+
+## ZCode 完成记录：第二批反馈修复（2026-09-20 凌晨二）
+
+- **文档三池同步（4 处）**：README 当前工作区段、current-feature-flow、design-direction、refactor-plan 的两池表述全部改为三池现状（均为现行文档，非档案）。
+- **事件重放性能收尾**：①矩形候选快路径 `_rectangle_candidate_from_bars`——直接消费归一化 bars 列表，跳过每根 K 线的 DataFrame 构建，3 只真实股票差分验证零差异（实测收益 -7%，归一化本体仍是主体成本）；②事件结果缓存 `build_v2_signal_events_cached`——按（scope, 首末bar, 行数, lookback）缓存，仅显式 scope 启用（单股页 `single:{code}`、多周期 `mtf:{code}:{period}`），扫描路径与测试零影响。**live 实测 /api/analyze 600063：首次 2.18s → 重复 0.13s（约 20 倍）**。
+- **结构性说明**：首屏首次事件重放 ~2.1s 是当前设计的固有成本（60 根 × 每根 ~35ms 的多窗口归一化）；进一步压缩需要增量归一化（链式语义变更）或缩小 lookback（产品决策），均需单独评估。
+- **candidates/主工作台缓存键合并**：涉及 collect/trim 解耦重构，维持"遗留优化项"定位，未在本批处理。
+- **验证：245 tests OK**；服务已重启，重复访问实测通过。

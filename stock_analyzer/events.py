@@ -1,5 +1,6 @@
 """Signal event model and builders shared by serializers, scans, and UI payloads."""
 
+import threading
 from dataclasses import dataclass
 
 from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
@@ -404,6 +405,39 @@ def build_old_signal_events(df_display):
                 value="底背离",
             ))
     return sorted(events, key=lambda event: (event.date, event.definition["order"]))
+
+
+_V2_EVENTS_CACHE = {}
+_V2_EVENTS_CACHE_LOCK = threading.Lock()
+_V2_EVENTS_CACHE_MAX = 256
+
+
+def build_v2_signal_events_cached(df_display, lookback=None, cache_scope=""):
+    """按（scope, 首末bar, 行数, lookback）缓存事件重放；未提供 scope 时不缓存。
+
+    事件重放对同一份行情是纯函数：行情未推进（最新 bar 不变）时，单股页/
+    多周期页的重复访问直接命中缓存，跳过每根 K 线的 facts 重算。
+    """
+    if not cache_scope:
+        return build_v2_signal_events(df_display, lookback=lookback)
+    if df_display is None or df_display.empty or "date" not in df_display.columns:
+        return build_v2_signal_events(df_display, lookback=lookback)
+    try:
+        first_key = str(df_display["date"].iloc[0])
+        latest_key = str(df_display["date"].iloc[-1])
+    except Exception:
+        return build_v2_signal_events(df_display, lookback=lookback)
+    key = (cache_scope, first_key, latest_key, len(df_display), lookback)
+    with _V2_EVENTS_CACHE_LOCK:
+        cached = _V2_EVENTS_CACHE.get(key)
+    if cached is not None:
+        return list(cached)
+    events = build_v2_signal_events(df_display, lookback=lookback)
+    with _V2_EVENTS_CACHE_LOCK:
+        if len(_V2_EVENTS_CACHE) >= _V2_EVENTS_CACHE_MAX:
+            _V2_EVENTS_CACHE.clear()
+        _V2_EVENTS_CACHE[key] = list(events)
+    return events
 
 
 def build_v2_signal_events(df_display, lookback=None):

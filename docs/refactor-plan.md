@@ -23,8 +23,8 @@ Provider -> Local Cache -> Scan Snapshot -> Candidate Workspace -> Single Stock 
 
 ## Current Decisions
 
-1. 候选池保留两个一级入口：参与候选、风险验证。
-2. `bottom_div` 保留为历史快照和内部扫描兼容，不再作为一级 tab。
+1. 候选池保留三个一级入口：参与候选、风险验证、修复观察（2026-09-20 起恢复 `bottom_div` 为一级 tab）。
+2. `bottom_div` 的历史快照与内部扫描兼容继续保留。
 3. 同步批扫 `/api/scan_batch` 退役，统一使用后台任务 `/api/scan_jobs`。
 4. 概念图谱保留 API 和本地文件能力，但在数据源健康中标记为实验项，不参与核心可用率。
 5. 候选详情只读展示画像证据；人工编辑从默认决策流移出。
