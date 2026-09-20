@@ -99,9 +99,10 @@ def _read_latest_history_date_text(path):
     return _latest_history_date_text(frame) or ""
 
 
-def _cached_history_candidates(code, start_text, end_text, adjust=""):
-    canonical = cache_path_for_history(code, start_text, end_text, adjust=adjust)
-    legacy_exact = legacy_cache_path_for_history(code, start_text, end_text, adjust=adjust)
+def _cached_history_candidates(code, start_text, end_text, adjust="", cache_dir=None):
+    cache_dir = Path(cache_dir or CACHE_DIR)
+    canonical = cache_dir / f"{code}_{start_text}_{adjust or 'none'}.csv"
+    legacy_exact = cache_dir / f"{code}_{start_text}_{end_text}_{adjust or 'none'}.csv" if end_text else canonical
     adjust_key = adjust or "none"
     candidates = []
     seen = set()
@@ -109,7 +110,7 @@ def _cached_history_candidates(code, start_text, end_text, adjust=""):
         if path.exists() and path not in seen:
             candidates.append(path)
             seen.add(path)
-    for path in CACHE_DIR.glob(f"{code}_{start_text}_*_{adjust_key}.csv"):
+    for path in cache_dir.glob(f"{code}_{start_text}_*_{adjust_key}.csv"):
         if path.is_file() and path not in seen:
             candidates.append(path)
             seen.add(path)

@@ -890,6 +890,28 @@ class ScanWorkspaceTest(unittest.TestCase):
         self.assertEqual(result["score_confidence"]["replay_5d_win_rate"], 100.0)
         self.assertIn("胜率 100.0%", result["score_confidence"]["basis"])
 
+    def test_replay_history_reader_supports_canonical_cache_naming(self):
+        from stock_analyzer.resonance_calibration import _read_history
+
+        dates = pd.bdate_range("2025-12-25", periods=8)
+        frame = pd.DataFrame({
+            "date": dates.strftime("%Y-%m-%d"),
+            "open": [10, 11, 12, 13, 14, 15, 16, 17],
+            "close": [10, 11, 12, 13, 14, 15, 16, 17],
+            "high": [10, 11, 12, 13, 14, 15, 16, 17],
+            "low": [10, 11, 12, 13, 14, 15, 16, 17],
+            "amount": [1000] * 8,
+        })
+
+        with TemporaryDirectory() as tmp_dir:
+            history_dir = Path(tmp_dir)
+            frame.to_csv(history_dir / "600063_20250429_qfq.csv", index=False)
+
+            history = _read_history("600063", cache_dir=history_dir, start_date="2025-04-29")
+
+        self.assertIsNotNone(history)
+        self.assertEqual(len(history), 8)
+
     def test_scan_workspace_api_returns_cached_pool_summary(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")

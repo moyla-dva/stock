@@ -47,10 +47,10 @@ def _history_files(code, cache_dir=None, start_date=None):
     cache_dir = Path(cache_dir or data_fetcher.CACHE_DIR)
     start_key = str(start_date or "").replace("-", "")
     if start_key:
-        pattern = f"{code}_{start_key}_*_{DATA_ADJUST}.csv"
-    else:
-        pattern = f"{code}_*_{DATA_ADJUST}.csv"
-    return sorted(cache_dir.glob(pattern), reverse=True)
+        # 缓存键重构后 canonical（{code}_{start}_{adjust}.csv）与旧命名可能并存，
+        # 统一走 data_fetcher 的候选解析（canonical 优先，按数据新旧排序）。
+        return list(data_fetcher._cached_history_candidates(code, start_key, "", adjust=DATA_ADJUST, cache_dir=cache_dir))
+    return sorted(cache_dir.glob(f"{code}_*_{DATA_ADJUST}.csv"), reverse=True)
 
 
 def _read_history(code, cache_dir=None, start_date=None):

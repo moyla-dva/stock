@@ -112,6 +112,7 @@ async function loadScanCandidatesForCurrentFilters(scanType, offset, limit) {
         concept: filters.concept || '',
         query: filters.query || '',
         reason: filters.reason || '',
+        entryModel: scanWorkspaceState.entryModel,
         offset: offset || 0,
         limit: limit || SCAN_RESULT_PAGE_SIZE,
         lite: true

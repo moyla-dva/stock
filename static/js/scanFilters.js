@@ -542,7 +542,8 @@ function setScanEntryModel(entryModel) {
         button.classList.toggle('active', active);
         button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
-    renderScanWorkspace();
+    // 口径变更必须重新请求工作台/回放，仅重渲染旧状态毫无意义
+    loadScanWorkspace(scanWorkspaceState.activeType, scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '', false);
 }
 
 function renderScanEntryModelToggle() {

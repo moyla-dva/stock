@@ -83,7 +83,8 @@ async function loadScanCandidateDetailForSelection() {
             scanType: selected._scan_type || selected.scan_type || scanWorkspaceState.activeType,
             snapshotDay: selected._history_snapshot_day || (scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : ''),
             code: selected.code || '',
-            eventDate: selected.event_date || selected.date || ''
+            eventDate: selected.event_date || selected.date || '',
+            entryModel: scanWorkspaceState.entryModel
         });
         var current = scanWorkspaceState.selectedResult;
         if (!current || scanCandidateDetailKey(current) !== requestKey) return;

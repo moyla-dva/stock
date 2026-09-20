@@ -1181,3 +1181,13 @@
 - **④入场口径切换**：工作台筛选区新增"入场口径 信号日收盘/次日开盘"按钮组（localStorage 持久化，`setScanEntryModel`），fetchScanWorkspace/fetchScanCandidates 透传 `entry_model`（后端缓存键本就区分口径）。UI 实测按钮组渲染正常。
 - **验证：241 tests OK**（+1）；服务已重启，工作台 healthy。
 - **下一批**：③仓位轻量本地输入（本金/风险偏好 → /api/analyze 透传 → _position_plan 激活）。
+
+- [2026-09-20 01:30] ZCode：**认领外部 review 反馈修复（四条均核实属实）**：P1 cleanup 脚本 migrate_missing 在 dry-run 写盘（我昨晚 dry-run 确实提前写了 11047 个 canonical——终态碰巧正确但契约违约）→ 迁移写盘严格绑定 --apply；P1 resonance_calibration._history_files 带 start_date 时只匹配旧命名 → 改用 data_fetcher._cached_history_candidates 统一解析 + 补 canonical 命名测试；P2 setScanEntryModel 只改状态未重新请求 + 分页/详情请求未透传 entry_model → 全链路贯通；P2 README/data-operations 三池表述与已恢复的第三 tab 冲突 → 文档更新。
+
+## ZCode 完成记录：外部 review 四项反馈修复（2026-09-20 凌晨，全部核实属实）
+
+- **P1 cleanup dry-run 写盘**：迁移写盘严格绑定 --apply（classify 增加 apply 参数；dry-run 输出"将迁移（dry-run 不写盘）"）。真实目录实测 dry-run 前后文件数 22096→22096 零写盘。新增 tests/test_cleanup_legacy_history_cache.py（3 用例：dry-run 零写盘/apply 迁移最新+其余可删/legacy 更新时保留）。
+- **P1 校准只读旧命名**：`_history_files` 带 start_date 改走 `_cached_history_candidates` 统一解析（canonical 优先）；顺带发现并修复该函数忽略 cache_dir 参数的作用域问题（加 cache_dir 透传，data_fetcher 签名扩展）。新增 canonical 命名回放读取回归测试。
+- **P2 口径切换未贯通**：setScanEntryModel 改为真正重新请求工作台；分页（loadScanCandidatesForCurrentFilters）与详情（fetchScanCandidateDetail）透传 entryModel。浏览器实测：切回收盘口径触发 `entry_model=event_close` 请求，详情请求带 `entry_model=next_open`，按钮态与 state/localStorage 一致。
+- **P2 文档冲突**：README 两处与 data-operations 的"bottom_div 非一级 tab"表述更新为三池现状。
+- **验证：245 tests OK**（+4）；全部 JS node --check 通过。

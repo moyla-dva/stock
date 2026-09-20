@@ -43,7 +43,7 @@ def _meta_mtime(path):
         return 0.0
 
 
-def classify_legacy_files(cache_dir=None, migrate_missing=False):
+def classify_legacy_files(cache_dir=None, migrate_missing=False, apply=False):
     """Return (deletable, keep_reasons, migrated) for legacy cache files in cache_dir."""
     cache_dir = Path(cache_dir or CACHE_DIR)
     if not cache_dir.exists():
@@ -91,11 +91,15 @@ def classify_legacy_files(cache_dir=None, migrate_missing=False):
             pending.sort(key=lambda item: (item[1], _meta_mtime(item[0])), reverse=True)
             newest_path, newest_end = pending[0]
             canonical = cache_dir / f"{code}_{start_text}_{adjust}.csv"
-            shutil.copyfile(newest_path, canonical)
-            latest_date = _latest_date_of(newest_path)
-            meta = {"stored_at": beijing_now().isoformat(), "latest_date": latest_date}
-            meta_path = _history_meta_path(canonical)
-            meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+            if apply:
+                # 写盘严格绑定 --apply；dry-run 只报告计划，不产生任何文件
+                shutil.copyfile(newest_path, canonical)
+                latest_date = _latest_date_of(newest_path)
+                meta = {"stored_at": beijing_now().isoformat(), "latest_date": latest_date}
+                meta_path = _history_meta_path(canonical)
+                meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+            else:
+                latest_date = _latest_date_of(newest_path)
             canonical_latest[(code, start_text, adjust)] = latest_date or ""
             migrated.append((newest_path, canonical, len(pending)))
             # 常规判定：同键其余 legacy 现在可删（canonical 数据取自最新一份）
@@ -112,9 +116,12 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None, help="最多处理 N 个文件")
     args = parser.parse_args(argv)
 
-    deletable, keep_reasons, migrated = classify_legacy_files(args.cache_dir, migrate_missing=args.migrate_missing)
+    apply = bool(args.apply)
+    deletable, keep_reasons, migrated = classify_legacy_files(
+        args.cache_dir, migrate_missing=args.migrate_missing, apply=apply
+    )
     if migrated:
-        print(f"已迁移 legacy → canonical: {len(migrated)} 组")
+        print(f"{'已迁移' if apply else '将迁移（dry-run 不写盘）'} legacy → canonical: {len(migrated)} 组")
         for src, dst, _ in migrated[:5]:
             print(f"  {src.name} -> {dst.name}")
         if len(migrated) > 5:
