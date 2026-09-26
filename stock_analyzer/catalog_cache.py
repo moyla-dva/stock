@@ -1,6 +1,7 @@
 """Local JSON cache repository for stock profiles and concepts."""
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ DEFAULT_CATALOG_CACHE_DIR = Path(os.environ.get(
 ))
 PROFILE_CACHE_FILENAME = "stock_profiles.json"
 CONCEPT_CACHE_FILENAME = "stock_concepts.json"
+LOGGER = logging.getLogger(__name__)
 
 
 def profile_cache_path(cache_dir=DEFAULT_CATALOG_CACHE_DIR):
@@ -36,7 +38,7 @@ def read_profile_cache(cache_dir=DEFAULT_CATALOG_CACHE_DIR):
     except FileNotFoundError:
         return {}
     except Exception as e:
-        print(f"[get_stock_profile] 读取股票画像缓存失败: {e}")
+        LOGGER.debug("读取股票画像缓存失败: %s", e, exc_info=True)
     return {}
 
 
@@ -56,7 +58,7 @@ def read_concept_cache(cache_dir=DEFAULT_CATALOG_CACHE_DIR):
     except FileNotFoundError:
         return {}
     except Exception as e:
-        print(f"[get_stock_profile] 读取股票概念缓存失败: {e}")
+        LOGGER.debug("读取股票概念缓存失败: %s", e, exc_info=True)
     return {}
 
 
@@ -81,7 +83,7 @@ def write_profile_cache(cache, cache_dir=DEFAULT_CATALOG_CACHE_DIR):
             json.dump(cache, handle, ensure_ascii=False, separators=(",", ":"))
         tmp_path.replace(path)
     except Exception as e:
-        print(f"[get_stock_profile] 写入股票画像缓存失败: {e}")
+        LOGGER.debug("写入股票画像缓存失败: %s", e, exc_info=True)
 
 
 def write_concept_cache(cache, source=CONCEPT_SOURCE_THS, cache_dir=DEFAULT_CATALOG_CACHE_DIR):
@@ -98,4 +100,4 @@ def write_concept_cache(cache, source=CONCEPT_SOURCE_THS, cache_dir=DEFAULT_CATA
             json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
         tmp_path.replace(path)
     except Exception as e:
-        print(f"[get_stock_profile] 写入股票概念缓存失败: {e}")
+        LOGGER.debug("写入股票概念缓存失败: %s", e, exc_info=True)

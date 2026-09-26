@@ -103,6 +103,30 @@ class TradePlanTest(unittest.TestCase):
         self.assertFalse(plan["permission"]["can_open"])
         self.assertIn("风险", plan["status_label"])
 
+    def test_trade_plan_keeps_hold_permission_for_strong_resistance_scale_out(self):
+        frame = _base_frame()
+        facts = {
+            "scores": {"setup": 0, "confirm": 0, "risk": 1},
+            "setup": {},
+            "structure": {},
+            "trigger": {},
+            "risk": {},
+            "macro_tide": {},
+            "exit_gate": {
+                "action": "scale_out",
+                "summary": "触及核心强阻，先减仓保护利润",
+            },
+        }
+
+        plan = build_trade_plan(frame, context={"c_signal_v2_facts": facts})
+
+        self.assertEqual(plan["status"], "risk_control")
+        self.assertEqual(plan["permission"]["permission"], "risk_only")
+        self.assertEqual(plan["permission"]["mode"], "risk_control")
+        self.assertTrue(plan["permission"]["can_hold"])
+        self.assertFalse(plan["permission"]["can_open"])
+        self.assertIn("减仓", plan["detail"])
+
     @patch(
         "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",
         new=lambda *args, **kwargs: {

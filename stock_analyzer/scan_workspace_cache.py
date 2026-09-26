@@ -28,13 +28,20 @@ def _build_lock_for_key(key):
         return lock
 
 
-def get_cached_scan_workspace(key, factory, ttl_seconds=12, force_refresh=False):
-    """Return a deep-copied cached workspace payload for short-lived page refresh reuse."""
+def get_cached_scan_workspace(
+    key,
+    factory,
+    ttl_seconds=12,
+    force_refresh=False,
+    *,
+    copy_payload=True,
+):
+    """Return a cached workspace, copying by default to protect mutable consumers."""
     requested_at = _now()
     with _CACHE_LOCK:
         cached = _CACHE.get(key)
         if not force_refresh and cached and requested_at - cached["created_at"] <= ttl_seconds:
-            return copy.deepcopy(cached["payload"])
+            return copy.deepcopy(cached["payload"]) if copy_payload else cached["payload"]
 
     build_lock = _build_lock_for_key(key)
     with build_lock:
@@ -45,13 +52,13 @@ def get_cached_scan_workspace(key, factory, ttl_seconds=12, force_refresh=False)
                 fresh = now - cached["created_at"] <= ttl_seconds
                 refreshed_after_request = cached["created_at"] >= requested_at
                 if (not force_refresh and fresh) or (force_refresh and refreshed_after_request):
-                    return copy.deepcopy(cached["payload"])
+                    return copy.deepcopy(cached["payload"]) if copy_payload else cached["payload"]
 
         payload = factory()
         created_at = _now()
         with _CACHE_LOCK:
             _CACHE[key] = {
                 "created_at": created_at,
-                "payload": copy.deepcopy(payload),
+                "payload": copy.deepcopy(payload) if copy_payload else payload,
             }
     return payload

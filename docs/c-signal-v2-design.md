@@ -1,7 +1,7 @@
 # C 信号 V2 设计契约
 
-> 更新日期：2026-09-14<br>
-> 当前状态：V2 已成为唯一主链；旧 C 策略层、composite 图面事件与旧 C/V2 展示切换已下线。P1-P12、P18、P19、P22、P23-A/P23-B/P23-C、P24 已完成第一阶段，2026-09-14 当前策略快照已可用。P25-A/P25-B/P25-C/P25-D 已完成第一阶段。<br>
+> 更新日期：2026-09-20<br>
+> 当前状态：V2 已成为唯一主链；旧 C 策略层、composite 图面事件与旧 C/V2 展示切换已下线。P1-P12、P18、P19、P22、P23-A/P23-B/P23-C、P24、P25-A/P25-B/P25-C/P25-D 已完成第一阶段。当前策略版本为 `2026.09.20.1`，已纳入突破/破位 previous 口径、周线 MACD 完整周、宏观样本待核和三池工作台口径。<br>
 > 依据：已完整阅读 `/Users/vainve/obsidian/奇衡-dk/以短线交易秘诀为生/` 原文笔记<br>
 > 边界：本文只描述当前 V2 主链。旧 C 逻辑仅作为备用素材，单独记录在 `docs/legacy-c-signal-reference.md`，不得绕过 V2 许可层。
 
@@ -593,7 +593,7 @@ P9-A 最小验收标准：
 
 - facts 中输出 `rectangle_candidates / active_rectangle / macro_rectangle`；
 - 短线、波段、一年候选都带有 `lookback / upper / lower / mid / width_pct / c_point / touch_count / latest_position / quality_score`；
-- 候选同时输出 `previous_upper / previous_lower / breaks_previous_upper / breaks_previous_lower`，为后续判断是否突破或跌破前一结构边界做准备；
+- 候选同时输出 `previous_upper / previous_lower / breaks_previous_upper / breaks_previous_lower`，并已作为突破触发与破位风险的核心参照；
 - `active_rectangle` 明确说明选择原因；
 - `C回` 默认使用短线或波段矩形，不直接使用一年矩形当短线止损；
 - 单股页现有 C 信号分析保留，只新增结构解释，不删除旧对照。
@@ -841,11 +841,11 @@ P25 待修正：
 docs/c-signal-v2-coupling-audit.md
 ```
 
-当前快照重刷状态（版本演进：2026.09.09.2 → 2026.09.19.1 突破/破位口径修正 → 2026.09.19.2 待重刷生效，含周线 MACD 完整周修正）：
+当前快照重刷状态（版本演进：2026.09.09.2 → 2026.09.19.1 突破/破位口径修正 → 2026.09.19.2 周线 MACD 完整周修正 → 2026.09.20.1 宏观样本待核）：
 
 - 已新增离线重建脚本 `scripts/rebuild_scan_snapshots_from_history_cache.py`，直接复用本地日线缓存和旧快照里的名称/行业/概念，避免全市场重刷逐只联网；
-- 截至 2026-09-14 收盘复核，本地最新工作台口径为 `2026-09-14`：当前策略快照 5499，旧策略快照 0；
-- `2026-09-14` 当前池计数：`opportunity 2389 / risk 1417 / bottom_div 650`；
+- 截至 2026-09-20 凌晨复核，本地最新工作台口径为 `2026-09-18` 数据、`2026.09.20.1` 策略快照：5499/5499 重建成功，旧策略快照 0；
+- 当前工作台为三池一级入口：`opportunity / risk / bottom_div`；`bottom_div` 是修复观察池，不授予入场许可；
 - `2026-09-11` 至 `2026-09-14` 复盘：严格 `trade_ready / plan_ready` 为 0；若误把 `C候` 当买点，2369 只可评估样本平均收盘涨幅 `+0.189%`、胜率 `48.92%`，弱于全市场 `+0.509%`、胜率 `56.08%`；
 - P25-A/P25-B 第一阶段已基于 2026-09-11 快照兼容回填子状态：opportunity 池约为 `候? 527 / 候 1695 / 触 98 / 待触 50`；
 - 该复盘结论支持后续 P25-C/D：`C候` 不能作为买点，强修复待触发必须从普通候选里分离出来，并且空仓/持仓图面语义必须拆开。
@@ -1195,7 +1195,7 @@ docs/c-signal-v2-event-coverage-audit.md       （已删除）
 - `analysisStore.beginAnalysis()` 为每次单股分析生成 request id，旧请求返回后不能覆盖当前股票；
 - `analysisStore.beginTimeframeLoad()` 为 60m/4H 延后加载生成独立 request id，切换股票后旧分时响应会被丢弃；
 - 周期懒加载响应现在只补充 chart 数据；只有当用户最后选择仍是该周期时，响应才允许触发图表切换；
-- `analysisStore` 统一保存 `rootData / viewData / activePeriod / timeframeRequests / timeframeErrors`；
+- `analysisStore` 统一保存 `rootData / viewData / activePeriod / timeframeRequests`；
 - 已移除 `lastData / lastAnalysisData / activeChartPeriod / timeframeLoadPromises / timeframeLoadErrors` 旧裸全局分析态；
 - `app.js` 的 `analyzeStock()` 已接入 analysis request token；
 - `chartView.js` 的周期切换、分时懒加载、图表渲染和信号聚焦已优先读取 `analysisStore`；
@@ -1284,7 +1284,7 @@ docs/c-signal-v2-event-coverage-audit.md       （已删除）
 - 新增 V2 事件 `v2_repair_watch`，用于 bottom_div 池独立展示 `C修`；
 - bottom_div 池命中 `v2_repair_watch` 时阶段显示为“修复观察”；
 - `C修` 明确 `requires_trade_plan = false`、`requires_stop_loss = false`，不生成入场计划；
-- 策略版本升级为 `2026.09.09.2`（P19 语义）；后续版本演进见文首版本说明。
+- P19 初始策略版本为 `2026.09.09.2`；后续突破/破位、周线 MACD 和宏观样本待核版本演进见文首版本说明。
 
 边界：
 

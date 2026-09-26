@@ -8,13 +8,14 @@ A股短线结构工作台 Web版 (Flask)
 import logging  # 【新增】日志支持
 import math
 import os
+import threading
+from datetime import datetime, timedelta
 from numbers import Integral, Real
 
 from flask import Flask, render_template, request, jsonify as flask_jsonify
 
 from stock_analyzer import catalog, scan_service, stock_service
-from stock_analyzer.board_market_refresh import refresh_board_market_cache
-from stock_analyzer.catalog import get_stock_codes, get_stock_name, get_stock_profile
+from stock_analyzer.catalog import get_stock_name, get_stock_profile
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.concept_graph import (
     build_concept_graph,
@@ -23,7 +24,9 @@ from stock_analyzer.concept_graph import (
 )
 from stock_analyzer.concept_jobs import ConceptRefreshJobManager
 from stock_analyzer.data_sources import collect_data_source_status
-from stock_analyzer.market_boards import get_board_market, unavailable_board_market_payload
+from stock_analyzer.current_universe_audit import audit_current_universe_scan
+from stock_analyzer.current_universe import get_current_stock_universe
+from stock_analyzer.market_metadata_store import MarketMetadataStore
 from stock_analyzer.profile_relations import (
     delete_profile_relation_evidence,
     profile_relation_evidence_status,
@@ -32,7 +35,11 @@ from stock_analyzer.profile_relations import (
 )
 from stock_analyzer.scan_cache import prune_scan_cache, scan_cache_status
 from stock_analyzer.scan_history import list_scan_history
+from stock_analyzer.scan_index_store import ScanIndexStore
 from stock_analyzer.scan_jobs import ScanJobManager
+from stock_analyzer.scan_rank_context_materializer import (
+    materialize_workspace_rank_context,
+)
 from stock_analyzer.scan_workspace_cache import clear_scan_workspace_cache
 from stock_analyzer.scan_snapshot import (
     build_scan_snapshot,
@@ -40,12 +47,14 @@ from stock_analyzer.scan_snapshot import (
     is_recent_snapshot,
     read_latest_scan_snapshot,
     read_scan_snapshot,
+    scan_snapshot_paths_for_codes,
     scan_result_from_snapshot,
+    snapshot_day_text,
     snapshot_has_scan_type,
     write_scan_snapshot,
 )
 from stock_analyzer.scan_workspace import collect_scan_workspace
-from stock_analyzer.versioning import DATA_START_DATE
+from stock_analyzer.versioning import DATA_START_DATE, SCAN_STRATEGY_VERSION
 from stock_analyzer.web import concept_api, data_api, scan_api, stock_api
 
 app = Flask(__name__)
@@ -83,12 +92,13 @@ def jsonify(*args, **kwargs):
     safe_kwargs = {key: _json_safe(value) for key, value in kwargs.items()}
     return flask_jsonify(*safe_args, **safe_kwargs)
 
-def fetch_and_process_data(code, include_legacy_chart=False):
+def fetch_and_process_data(code, include_legacy_chart=False, force_refresh=False):
     return stock_service.fetch_and_process_data(
         code,
         logger=app.logger,
-        verbose=True,
+        verbose=False,
         include_legacy_chart=include_legacy_chart,
+        force_refresh=force_refresh,
     )
 
 
@@ -96,13 +106,141 @@ def fetch_multi_timeframe_data(code, period=None, force_refresh=False):
     return stock_service.fetch_multi_timeframe_data(
         code,
         logger=app.logger,
-        verbose=True,
+        verbose=False,
         period=period,
         force_refresh=force_refresh,
     )
 
 
-scan_job_manager = ScanJobManager(max_jobs=2, max_workers=5, batch_size=50, batch_delay=1.0, request_delay=0.05)
+scan_index_store = ScanIndexStore()
+market_metadata_store = MarketMetadataStore()
+_scan_index_sync_lock = threading.Lock()
+
+
+def audit_scan_job_universe(job):
+    """Record whether a full-market job used the current pinned universe."""
+    if not isinstance(job, dict):
+        return {"status": "not_applicable"}
+    if job.get("scope") != "market" or job.get("code_source") != "market":
+        return {"status": "not_applicable"}
+    as_of = str(job.get("universe_as_of") or "")
+    if not as_of:
+        return {"status": "missing_job_provenance"}
+    try:
+        report = audit_current_universe_scan(as_of, market_metadata_store, [job])
+    except Exception as exc:
+        app.logger.warning("当前股票池一致性审计失败: as_of=%s, error=%s", as_of, exc)
+        return {"status": "audit_error", "error": str(exc)}
+    if report.get("status") != "consistent":
+        app.logger.warning(
+            "当前股票池一致性审计未通过: as_of=%s, status=%s",
+            as_of,
+            report.get("status"),
+        )
+    return report
+
+
+def sync_scan_job_index(job, codes):
+    """Index touched snapshots, then publish an optional contextual rank overlay."""
+
+    universe_consistency = audit_scan_job_universe(job)
+    current_day = datetime.strptime(snapshot_day_text(), "%Y%m%d").date()
+    try:
+        first_day = datetime.fromisoformat(str((job or {}).get("started_at"))).date()
+    except (TypeError, ValueError):
+        first_day = current_day
+    first_day = min(first_day, current_day)
+    first_day = max(first_day, current_day - timedelta(days=7))
+    snapshot_days = []
+    day = first_day
+    while day <= current_day:
+        snapshot_days.append(day.strftime("%Y%m%d"))
+        day += timedelta(days=1)
+    paths = scan_snapshot_paths_for_codes(
+        codes,
+        start_date=DATA_START_DATE,
+        snapshot_days=snapshot_days,
+    )
+    if not paths:
+        return {
+            "status": "no_snapshots",
+            "snapshot_count": 0,
+            "universe_consistency": universe_consistency,
+            "index": {"status": "skipped", "reason": "no_snapshots"},
+            "rank_context": {"status": "skipped", "reason": "no_snapshots"},
+        }
+    with _scan_index_sync_lock:
+        stats = scan_index_store.index_snapshot_files(paths)
+        reconciliation = scan_index_store.reconcile_source_directory(paths[0].parent)
+        index_result = {
+            "status": "indexed",
+            "snapshot_count": len(paths),
+            **stats.to_dict(),
+            "reconciliation": reconciliation,
+        }
+        try:
+            strategy_version = (job or {}).get("strategy_version") or SCAN_STRATEGY_VERSION
+            rank_context_scopes = {}
+            for context_scope in ("snapshot", "latest_fresh"):
+                try:
+                    rank_context_scopes[context_scope] = materialize_workspace_rank_context(
+                        scan_index_store,
+                        start_date=DATA_START_DATE,
+                        strategy_version=strategy_version,
+                        context_scope=context_scope,
+                        logger=app.logger,
+                    )
+                except Exception as exc:
+                    app.logger.warning(
+                        "候选上下文排名物化失败: scope=%s, error=%s",
+                        context_scope,
+                        exc,
+                    )
+                    rank_context_scopes[context_scope] = {
+                        "status": "failed",
+                        "error": str(exc),
+                        "fallback": "snapshot_local",
+                    }
+            rank_context_result = dict(
+                rank_context_scopes.get("latest_fresh") or {}
+            )
+            rank_context_result["contexts"] = {
+                scope: result.get("rank_context")
+                for scope, result in rank_context_scopes.items()
+            }
+            current_context = rank_context_scopes.get("latest_fresh") or {}
+            if (current_context.get("rank_context") or {}).get("available"):
+                overall_status = "indexed"
+            else:
+                rank_context_result["status"] = "failed"
+                rank_context_result["fallback"] = "snapshot_local"
+                overall_status = "indexed_context_failed"
+        except Exception as exc:
+            app.logger.warning("候选上下文排名物化失败，保留快照本地排序: %s", exc)
+            rank_context_result = {
+                "status": "failed",
+                "error": str(exc),
+                "fallback": "snapshot_local",
+            }
+            overall_status = "indexed_context_failed"
+    return {
+        "status": overall_status,
+        "snapshot_count": len(paths),
+        "universe_consistency": universe_consistency,
+        **stats.to_dict(),
+        "index": index_result,
+        "rank_context": rank_context_result,
+    }
+
+
+scan_job_manager = ScanJobManager(
+    max_jobs=2,
+    max_workers=5,
+    batch_size=50,
+    batch_delay=1.0,
+    request_delay=0.05,
+    completion_hook=sync_scan_job_index,
+)
 concept_refresh_job_manager = ConceptRefreshJobManager(max_workers=1)
 
 
@@ -126,7 +264,10 @@ def get_stock_dataframe(code):
     """
     return stock_service.get_stock_dataframe(code)
 
-def check_stock_signal(code, scan_type='opportunity', force_refresh=False, refresh_policy=None):
+def get_stock_dataframe_with_diagnostics(code):
+    return stock_service.get_stock_dataframe_with_diagnostics(code)
+
+def check_stock_signal(code, scan_type='opportunity', force_refresh=False, refresh_policy=None, return_outcome=False):
     """
     检查单只股票是否触发信号
     返回: (code, name, price, has_signal)
@@ -144,16 +285,18 @@ def check_stock_signal(code, scan_type='opportunity', force_refresh=False, refre
         snapshot_has_scan_type_func=snapshot_has_scan_type,
         scan_result_from_snapshot_func=scan_result_from_snapshot,
         get_stock_dataframe_func=get_stock_dataframe,
+        get_stock_dataframe_outcome_func=get_stock_dataframe_with_diagnostics,
         get_stock_profile_func=get_stock_profile,
         build_scan_snapshot_func=build_scan_snapshot,
         write_scan_snapshot_func=write_scan_snapshot,
         enrich_result_func=enrich_scan_result_with_profile,
+        return_outcome=return_outcome,
     )
 
 @app.route('/api/stock_list')
 def get_stock_list():
-    """获取全市场股票列表 (增强版：多接口备用)"""
-    return stock_api.stock_list_response(jsonify, get_stock_codes)
+    """返回带来源与 revision 的当前股票池名单。"""
+    return stock_api.stock_list_response(jsonify, get_current_stock_universe)
 
 @app.route('/api/scan_batch', methods=['POST'])
 def scan_batch():
@@ -172,6 +315,7 @@ def api_scan_workspace():
         collect_scan_workspace,
         DATA_START_DATE,
         app.logger,
+        index_store=scan_index_store,
     )
 
 
@@ -183,6 +327,35 @@ def api_scan_workspace_candidates():
         collect_scan_workspace,
         DATA_START_DATE,
         app.logger,
+    )
+
+
+@app.route('/api/scan_index/candidates')
+def api_scan_index_candidates():
+    """Read the default CandidateSummary projection from SQLite."""
+    return scan_api.scan_index_candidates_response(
+        jsonify,
+        scan_index_store,
+        DATA_START_DATE,
+        app.logger,
+    )
+
+
+@app.route('/api/scan_index/status')
+def api_scan_index_status():
+    """Return SQLite scan-index health without reading snapshot JSON."""
+    return scan_api.scan_index_status_response(jsonify, scan_index_store, app.logger)
+
+
+@app.route('/api/scan_index/candidates/<code>')
+def api_scan_index_candidate_detail(code):
+    """Read one stable CandidateDetail through its indexed snapshot identity."""
+    return scan_api.scan_index_candidate_detail_response(
+        jsonify,
+        scan_index_store,
+        DATA_START_DATE,
+        app.logger,
+        code,
     )
 
 
@@ -254,26 +427,20 @@ def api_get_stock_concept_job(job_id):
 
 @app.route('/api/board_market')
 def api_board_market():
-    """Return market-level industry/concept board trend metrics."""
-    return data_api.board_market_response(
-        jsonify,
-        get_board_market,
-        unavailable_board_market_payload,
-        DATA_START_DATE,
-    )
+    """Return an explicit retirement response for the old board-market API."""
+    return jsonify({
+        "error": "板块/概念行情功能已退役；行业和概念候选分布仍可在候选池查看。",
+        "status": "retired",
+    }), 410
 
 
 @app.route('/api/board_market/refresh', methods=['POST'])
 def api_refresh_board_market_cache():
-    """Refresh top-priority industry/concept board market caches."""
-    return data_api.board_market_refresh_response(
-        jsonify,
-        collect_scan_workspace,
-        refresh_board_market_cache,
-        clear_scan_workspace_cache,
-        DATA_START_DATE,
-        app.logger,
-    )
+    """Return an explicit retirement response for the old refresh API."""
+    return jsonify({
+        "error": "板块/概念行情刷新入口已退役。",
+        "status": "retired",
+    }), 410
 
 
 @app.route('/api/profile_relations/evidence')
@@ -347,22 +514,18 @@ def build_scan_request_plan(data):
         scan_job_manager=scan_job_manager,
         get_stock_codes_func=get_scan_universe_codes,
         logger=app.logger,
+        scan_index_store=scan_index_store,
     )
 
 
 def get_scan_universe_codes():
-    """Use the local profile universe for scans before falling back to network lists."""
-    profiles = catalog.get_cached_stock_profiles()
-    codes = sorted(
-        {
-            normalize_code(code)
-            for code in profiles.keys()
-            if normalize_code(code)
-        }
-    )
-    if len(codes) >= 1000:
-        return codes
-    return get_stock_codes()
+    """Return a revision-pinned SQLite universe for market scans."""
+    return get_current_stock_universe()
+
+
+def get_current_stock_codes():
+    """Return codes from the revision-pinned SQLite universe."""
+    return list(get_current_stock_universe().codes)
 
 
 @app.route('/api/scan_plan', methods=['POST'])
@@ -395,12 +558,24 @@ def api_cancel_scan_job(job_id):
 
 @app.route('/')
 def index():
-    print(f"收到根路径请求: {request.method} {request.path} from {request.remote_addr}")
+    app.logger.debug("收到根路径请求: %s %s from %s", request.method, request.path, request.remote_addr)
     return render_template('index.html')
 
 @app.route('/api/analyze')
 def api_analyze():
     return stock_api.analyze_response(
+        jsonify,
+        normalize_code,
+        fetch_and_process_data,
+        get_stock_profile,
+        get_stock_name,
+    )
+
+
+@app.route('/api/single_stock_analysis')
+def api_single_stock_analysis():
+    """Return the default stable SingleStockAnalysis projection."""
+    return stock_api.single_stock_analysis_response(
         jsonify,
         normalize_code,
         fetch_and_process_data,
@@ -422,22 +597,20 @@ def api_analyze_timeframes():
 def not_found(e):
     """
     处理404错误
-    【P2-1修复】原代码返回200状态码是错误的，改为返回404
-    但为了用户体验，仍然返回首页HTML（这可能需要根据实际需求调整）
+    页面路由返回 SPA 首页，API 路由返回 JSON 错误契约。
     """
-    print(f"404错误: {request.method} {request.path} from {request.remote_addr}")
-    # 注意：按HTTP规范，404应返回404状态码
-    # 但若希望用户在访问不存在路径时仍看到首页，可保持返回200
-    # 这里遵守HTTP规范，返回404状态码
+    app.logger.debug("404错误: %s %s from %s", request.method, request.path, request.remote_addr)
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "not_found", "path": request.path}), 404
     return render_template('index.html'), 404
 
 @app.before_request
 def log_request_info():
     """记录所有请求信息"""
-    print(f"[请求] {request.method} {request.path} from {request.remote_addr}")
-    print(f"  - Host: {request.host}")
-    print(f"  - User-Agent: {request.headers.get('User-Agent', 'N/A')[:50]}")
-    print(f"  - Referer: {request.headers.get('Referer', 'N/A')[:50]}")
+    app.logger.debug("[请求] %s %s from %s", request.method, request.path, request.remote_addr)
+    app.logger.debug("  - Host: %s", request.host)
+    app.logger.debug("  - User-Agent: %s", request.headers.get('User-Agent', 'N/A')[:50])
+    app.logger.debug("  - Referer: %s", request.headers.get('Referer', 'N/A')[:50])
 
 if __name__ == '__main__':
     # 默认只监听本机；如需局域网/devtunnel 访问，显式设置 STOCK_ANALYZER_BIND_HOST=0.0.0.0

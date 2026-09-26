@@ -133,12 +133,10 @@ def calculate_anchored_vwap(df):
 
     try:
         if df.empty:
-            print("[VWAP] 数据为空，无法计算")
             df["vwap"] = np.nan
             return df
 
         if "low" not in df.columns or "volume" not in df.columns:
-            print("[VWAP] 缺少必要列（low/volume），无法计算")
             df["vwap"] = np.nan
             return df
 
@@ -149,15 +147,12 @@ def calculate_anchored_vwap(df):
 
         subset = df.loc[min_idx:].copy()
         if subset.empty or subset["volume"].sum() == 0:
-            print("[VWAP] 数据不足以计算VWAP（成交量为0）")
             return df
 
         subset["cum_pv"] = subset["pv"].cumsum()
         subset["cum_vol"] = subset["volume"].cumsum().replace(0, np.nan)
         subset["vwap"] = subset["cum_pv"] / subset["cum_vol"]
         df.loc[min_idx:, "vwap"] = subset["vwap"]
-        print(f"[VWAP] 计算成功，从行 {min_idx} 开始")
-    except Exception as e:
-        print(f"[VWAP] 计算失败: {e}")
+    except Exception:
         df["vwap"] = np.nan
     return df

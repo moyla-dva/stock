@@ -30,21 +30,37 @@ function renderCandidateDeskBrief(pool, visibleCount, meta) {
     var total = meta && meta.totalCount != null ? meta.totalCount : scanPoolTotalCount(pool);
     var loaded = meta && meta.loadedCount != null ? meta.loadedCount : scanPoolLoadedCount(pool);
     var hasMore = meta ? meta.hasMore : scanPoolHasMore(pool);
-    var modeLabel = scanWorkspaceState.historyMode ? '历史快照' : '本地快照';
+    var sqliteSource = scanWorkspaceState.readSource === 'sqlite_index';
+    var fallbackSource = scanWorkspaceState.readSource === 'json_fallback';
+    var modeLabel = sqliteSource
+        ? 'SQLite 摘要'
+        : (fallbackSource ? 'JSON 回退' : (scanWorkspaceState.historyMode ? '历史快照' : '本地快照'));
     var recommendation = typeof scanSystemRecommendation === 'function'
         ? scanSystemRecommendation()
         : {title: '读取结构', detail: '系统按当前语境整理名单。'};
 
     node.className = 'candidate-desk-brief candidate-desk-brief--' + config.variant;
-    label.textContent = modeLabel + ' ' + snapshotDay + ' · ' + (snapshotMeta.health_label || snapshotMeta.health_summary || '读取中');
+    label.textContent = modeLabel + ' ' + snapshotDay + ' · ' + (sqliteSource
+        ? '索引完整'
+        : (fallbackSource ? 'SQLite 读取失败，已恢复原读链' : (snapshotMeta.health_label || snapshotMeta.health_summary || '读取中')));
     title.textContent = config.title + ' · 当前可见 ' + (visibleCount || 0) + ' 只';
     detail.textContent = recommendation.title
         + ' · 已载入 ' + loaded + '/' + total
         + (hasMore ? ' · 可继续扩展名单' : ' · 已覆盖当前名单');
     if (statusMeta) {
-        statusMeta.textContent = '策略 ' + (snapshotMeta.strategy_version || strategyMeta.strategy_version || '-')
-            + ' · 当前快照 ' + (snapshotMeta.current_strategy_snapshot_count || scanWorkspaceState.current_strategy_snapshot_count || 0)
-            + ' · 旧策略 ' + (snapshotMeta.legacy_snapshot_count || scanWorkspaceState.legacy_snapshot_count || 0);
+        if (sqliteSource) {
+            var indexHealth = (scanWorkspaceState.readSourceMeta || {}).index_health || {};
+            var ranking = (scanWorkspaceState.readSourceMeta || {}).ranking || {};
+            statusMeta.textContent = 'SQLite · ' + (indexHealth.valid_snapshot_count || 0) + ' 份快照'
+                + ' · ' + (ranking.mode || 'contextual') + ' 排序';
+        } else if (fallbackSource) {
+            statusMeta.textContent = 'SQLite 暂不可用'
+                + (scanWorkspaceState.readSourceError ? ' · ' + scanWorkspaceState.readSourceError : '');
+        } else {
+            statusMeta.textContent = '策略 ' + (snapshotMeta.strategy_version || strategyMeta.strategy_version || '-')
+                + ' · 当前快照 ' + (snapshotMeta.current_strategy_snapshot_count || scanWorkspaceState.current_strategy_snapshot_count || 0)
+                + ' · 旧策略 ' + (snapshotMeta.legacy_snapshot_count || scanWorkspaceState.legacy_snapshot_count || 0);
+        }
     }
 }
 
@@ -101,10 +117,7 @@ function renderActiveScanPool() {
     var config = getScanConfig(scanWorkspaceState.activeType);
     var pool = getScanPool(scanWorkspaceState.activeType);
     var results = pool.results || [];
-    var sectorStats = Array.isArray(pool.sector_stats) && pool.sector_stats.length
-        ? pool.sector_stats
-        : buildScanSectorStats(results);
-    renderScanFilters(results, sectorStats);
+    renderScanFilters(results);
     var visibleResults = getVisibleScanResults();
     if (!list) return;
 
@@ -137,12 +150,17 @@ function renderActiveScanPool() {
     if (!previewStillVisible) {
         scanWorkspaceState.previewResult = null;
     }
+    if (scanWorkspaceState.selectedResult) {
+        rememberScanPoolSelection(scanWorkspaceState.selectedResult);
+    }
     if (!scanWorkspaceState.selectedResult || scanWorkspaceState.selectedResult._scan_type !== scanWorkspaceState.activeType || !selectedStillVisible) {
-        scanWorkspaceState.selectedResult = visibleResults.length
-            ? Object.assign({}, visibleResults[0], {
+        var rememberedSelection = findRememberedScanPoolSelection(visibleResults, scanWorkspaceState.activeType);
+        var nextSelection = rememberedSelection || visibleResults[0];
+        scanWorkspaceState.selectedResult = nextSelection
+            ? Object.assign({}, nextSelection, {
                 _variant: config.variant,
                 _scan_type: scanWorkspaceState.activeType,
-                _visible_rank: 1,
+                _visible_rank: visibleResults.indexOf(nextSelection) + 1,
                 _history_snapshot_day: scanWorkspaceState.historySnapshotDay || ''
             })
             : null;
@@ -378,7 +396,7 @@ function getScanDataGovernanceDecision(meta, concept, conceptJob, sourceOverall,
             title: '决策结果可用，但底层数据还没完全收口',
             detail: '今天可以先看候选名单，但概念底座或数据源仍建议补齐，避免标签解释不完整。',
             tags: tags,
-            actionDetail: '先处理提示里的异常项，再考虑概念行情刷新或过期清理。'
+            actionDetail: '先处理提示里的数据异常，再按需刷新概念库或清理过期结果。'
         };
     }
     return {

@@ -1012,7 +1012,11 @@ def build_c_signal_v2_state_from_result(result):
     elif fields.get("requires_trade_plan"):
         plan_status = result.get("v2_plan_status")
         is_attack = signal_key in {"v2_attack_day", "v2_ignition"}
-        is_breakout = signal_key in {"composite_breakout", "v2_bear_trap_recovery"}
+        is_breakout = signal_key in {
+            "v2_breakout",
+            "composite_breakout",
+            "v2_bear_trap_recovery",
+        }
         state = "attack_trigger" if is_attack else ("entry_breakout" if is_breakout else "entry_pullback")
         state_label = "攻击触发" if is_attack else ("突破待核" if is_breakout else "回踩待核")
         if plan_status == "ready":
@@ -1236,28 +1240,21 @@ def build_c_signal_v2_priority(result):
     ):
         group_key = "structure_watch"
     group = _V2_PRIORITY_GROUPS[group_key]
-    final_score = _as_float(result.get("final_score"), _as_float(result.get("rank_score"), 0.0)) or 0.0
+    # final_score may be a legacy workspace-enrichment value containing retired
+    # sector/concept adjustments. The ranking base is now strictly stock-local.
+    final_score = _as_float(result.get("rank_score"), 0.0) or 0.0
     confirm_score = _as_float(result.get("confirm_score"), 0.0) or 0.0
     setup_score = _as_float(result.get("setup_score"), 0.0) or 0.0
     risk_score = _as_float(result.get("risk_score"), 0.0) or 0.0
-    sector_score = _as_float(result.get("sector_score"), 0.0) or 0.0
-    concept_score = _as_float(result.get("concept_score"), 0.0) or 0.0
-    confidence = result.get("score_confidence") if isinstance(result.get("score_confidence"), dict) else {}
-    replay_avg = _as_float(confidence.get("replay_5d_avg_ret"), 0.0) or 0.0
-    replay_sample_count = _as_int(confidence.get("replay_5d_sample_count"), 0)
 
     score = _v2_priority_base(scan_type, group_key, permission)
     score += final_score * 0.72
-    score += max(sector_score, concept_score) * 0.18
-    score += min(sector_score, concept_score) * 0.06
     score += confirm_score * 7
     score += setup_score * 3
     if scan_type == "risk":
         score += risk_score * 18
     else:
         score -= risk_score * 12
-    if replay_sample_count:
-        score += max(-8.0, min(8.0, replay_avg * 1.5))
     if scan_type == "opportunity":
         if environment_permission == "forbidden":
             score -= 140

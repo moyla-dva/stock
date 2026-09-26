@@ -21,8 +21,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from stock_analyzer.data_fetcher import CACHE_DIR, cache_path_for_history
-from stock_analyzer.providers.stock_history import market_symbol_for_tx
+from stock_analyzer.data_fetcher import (
+    CACHE_DIR,
+    read_history_cache_file,
+    write_cached_history,
+)
+from stock_analyzer.providers.stock_history import market_symbol_for_tx, tencent_volume_to_shares
 from stock_analyzer.versioning import DATA_ADJUST, DATA_START_DATE
 
 QUOTE_URL = "https://qt.gtimg.cn/q="
@@ -151,7 +155,7 @@ def bar_from_quote(fields, target_date_text):
     open_price = _number(fields[5])
     high = _number(fields[33])
     low = _number(fields[34])
-    volume = _number(fields[6])
+    volume = tencent_volume_to_shares(fields[2], _number(fields[6]))
     quote_date = str(fields[30])[:8]
     if quote_date != target_date_text:
         return None
@@ -221,7 +225,7 @@ def main(argv=None):
                 continue
             end_text, path = latest[code]
             try:
-                previous = pd.read_csv(path)
+                previous, _ = read_history_cache_file(path, code)
             except Exception:
                 failed += 1
                 continue
@@ -240,8 +244,15 @@ def main(argv=None):
             merged = pd.concat([previous, pd.DataFrame([bar])], ignore_index=True)
             merged = merged.drop_duplicates(subset=["date"], keep="last").sort_values("date")
             if not args.dry_run:
-                out_path = cache_path_for_history(code, start_text, target_date, adjust=DATA_ADJUST)
-                merged.to_csv(out_path, index=False)
+                if not write_cached_history(
+                    code,
+                    start_text,
+                    target_date,
+                    merged,
+                    adjust=DATA_ADJUST,
+                ):
+                    failed += 1
+                    continue
             appended += 1
 
         if (offset // batch_size) % 10 == 0:

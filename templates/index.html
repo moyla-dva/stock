@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>A股短线结构工作台</title>
     <link rel="icon" href="data:,">
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/echarts.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/scan-command.css') }}">
@@ -44,9 +44,10 @@
                     <section class="command-cluster" aria-label="分析命令">
                         <div class="code-control">
                             <label for="stock-code">股票代码</label>
-                            <input type="text" id="stock-code" placeholder="600063" value="600063" onkeypress="handleKeyPress(event)">
+                            <input type="text" id="stock-code" placeholder="600063" value="600063" oninput="handleStockCodeInput(event)" onkeypress="handleKeyPress(event)">
                         </div>
                         <button class="primary-action" onclick="analyzeStock()" id="btn-analyze">开始分析</button>
+                        <button class="secondary-action" onclick="analyzeStock({forceRefresh: true})" id="btn-refresh-analysis">刷新行情</button>
                     </section>
                 </div>
 
@@ -66,7 +67,7 @@
             <div class="metric-rail">
                 <div class="metric-tile">
                     <span>综合</span>
-                    <strong id="stat-composite">0</strong>
+                    <strong id="stat-signals">0</strong>
                 </div>
                 <div class="metric-tile metric-tile--wide">
                     <span>回测</span>
@@ -471,7 +472,6 @@
                                 <summary>展开治理动作</summary>
                                 <div class="scan-data-actions-panel">
                                     <button type="button" data-scan-action="refresh-data-sources" onclick="refreshDataSourceStatus()">刷新数据源状态</button>
-                                    <button type="button" id="btn-refresh-board-market" data-scan-action="refresh-board-market" onclick="refreshConceptBoardMarketCache()">刷新概念行情</button>
                                     <button type="button" data-scan-action="refresh-concepts" onclick="refreshStockConceptLibrary()">刷新概念库</button>
                                     <button type="button" id="scan-cache-prune" onclick="pruneExpiredScanCache()">清理过期结果</button>
                                 </div>
@@ -516,6 +516,8 @@
     <script src="{{ url_for('static', filename='js/chartView.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanState.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanWorkspaceStore.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/scanReadModelAdapter.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/singleStockReadModelAdapter.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanFeedback.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanControls.js') }}"></script>
     <script src="{{ url_for('static', filename='js/scanExplain.js') }}"></script>

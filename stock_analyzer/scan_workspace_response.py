@@ -5,15 +5,17 @@ from stock_analyzer.scan_explainer import attach_scan_explanation
 from stock_analyzer.scan_snapshot import display_snapshot_day
 from stock_analyzer.scan_snapshot_meta import build_snapshot_meta
 from stock_analyzer.scan_strategy_health import build_strategy_health
-from stock_analyzer.scan_workspace_history_compare import rank_value
+from stock_analyzer.scan_workspace_index import iter_workspace_pool_indexes
+from stock_analyzer.scan_workspace_history_compare import rank_value, v2_priority_value
 from stock_analyzer.versioning import build_strategy_meta
 
 
-def v2_priority_value(result):
-    try:
-        return float(result.get("v2_priority_score"))
-    except (TypeError, ValueError):
-        return rank_value(result)
+def _remove_legacy_market_context(result):
+    """Prevent persisted pre-policy enrichment fields from affecting new reads."""
+    for key in tuple(result):
+        if key == "market_boost" or key.startswith(("sector_", "concept_")):
+            result.pop(key, None)
+    result["final_score"] = result.get("rank_score")
 
 
 def sort_scan_results(results):
@@ -32,6 +34,9 @@ def sort_scan_results(results):
 
 def trim_workspace_pools(pools, max_items):
     """Sort pools, preserve full counts, and cap the displayed result payload."""
+    for pool in pools.values():
+        for result in pool.get("results", []):
+            _remove_legacy_market_context(result)
     apply_c_signal_v2_priority(pools)
     for pool in pools.values():
         for result in pool["results"]:
@@ -57,13 +62,11 @@ def trim_workspace_overview(overview, limit=None):
 
 
 def _pool_stat_priority(stat, name_key):
-    score_key = f"{name_key}_score"
     return (
-        float(stat.get(score_key) or stat.get("candidate_score") or stat.get("structure_score") or 0.0),
-        int(stat.get("signal_count") or stat.get("candidate_signal_count") or 0),
         int(stat.get("count") or stat.get("candidate_count") or 0),
-        float(stat.get("avg_rank") or 0.0),
+        int(stat.get("signal_count") or stat.get("candidate_signal_count") or 0),
         str(stat.get("latest_event") or ""),
+        str(stat.get(name_key) or ""),
     )
 
 
@@ -106,38 +109,6 @@ COMPACT_RESULT_KEYS = {
     "candidate_substate_label",
     "candidate_trigger_plan",
     "code",
-    "concept_avg_rank",
-    "concept_bottom_div_count",
-    "concept_breadth_label",
-    "concept_breadth_latest_date",
-    "concept_breadth_ma20_rate",
-    "concept_breadth_sample_count",
-    "concept_breadth_up_rate",
-    "concept_candidate_density",
-    "concept_candidate_width_label",
-    "concept_focus",
-    "concept_latest_event",
-    "concept_market_boost",
-    "concept_market_cache_stale",
-    "concept_market_latest_date",
-    "concept_market_ret_20",
-    "concept_market_ret_5",
-    "concept_market_score",
-    "concept_market_source",
-    "concept_market_trend",
-    "concept_member_count",
-    "concept_opportunity_count",
-    "concept_opportunity_density",
-    "concept_relation_quality_label",
-    "concept_relation_quality_score",
-    "concept_relation_verified_count",
-    "concept_relation_weak_count",
-    "concept_risk_count",
-    "concept_risk_density",
-    "concept_score",
-    "concept_signal_count",
-    "concept_width_label",
-    "concept_width_score",
     "concepts",
     "confirm_score",
     "custom_z",
@@ -147,7 +118,6 @@ COMPACT_RESULT_KEYS = {
     "explanation",
     "final_score",
     "history_delta",
-    "market_boost",
     "momentum_efficiency",
     "name",
     "pool_stage_detail",
@@ -175,29 +145,6 @@ COMPACT_RESULT_KEYS = {
     "score_confidence_label",
     "score_confidence_level",
     "sector",
-    "sector_avg_rank",
-    "sector_bottom_div_count",
-    "sector_breadth_label",
-    "sector_breadth_latest_date",
-    "sector_breadth_ma20_rate",
-    "sector_breadth_sample_count",
-    "sector_breadth_up_rate",
-    "sector_candidate_density",
-    "sector_candidate_width_label",
-    "sector_latest_event",
-    "sector_member_count",
-    "sector_opportunity_count",
-    "sector_opportunity_density",
-    "sector_relation_quality_label",
-    "sector_relation_quality_score",
-    "sector_relation_verified_count",
-    "sector_relation_weak_count",
-    "sector_risk_count",
-    "sector_risk_density",
-    "sector_score",
-    "sector_signal_count",
-    "sector_width_label",
-    "sector_width_score",
     "setup_score",
     "signal",
     "signal_category",
@@ -260,31 +207,6 @@ COMPACT_RESULT_KEYS = {
     "williams_r_cross_bear",
     "williams_r_cross_bull",
     "win_rate",
-}
-
-
-COMPACT_TRADE_PLAN_KEYS = {
-    "detail",
-    "entry",
-    "execution_constraints",
-    "forbidden_reasons",
-    "invalidation_conditions",
-    "latest_date",
-    "latest_price",
-    "next_actions",
-    "permission",
-    "plan_type",
-    "plan_type_label",
-    "position",
-    "protection_rules",
-    "required_confirmations",
-    "risk_reward",
-    "status",
-    "status_label",
-    "stop",
-    "targets",
-    "title",
-    "version",
 }
 
 
@@ -460,14 +382,6 @@ def compact_v2_state_model(model):
     return compact
 
 
-def compact_trade_plan(plan):
-    compact = _copy_keys(plan, COMPACT_TRADE_PLAN_KEYS)
-    structures = plan.get("technical_structures") if isinstance(plan, dict) else {}
-    if isinstance(structures, dict) and isinstance(structures.get("williams_clock"), dict):
-        compact["technical_structures"] = {"williams_clock": structures["williams_clock"]}
-    return compact
-
-
 def compact_explanation(explanation):
     explanation = explanation if isinstance(explanation, dict) else {}
     compact = _copy_keys(explanation, {"card_summary", "headline", "summary", "version"})
@@ -500,15 +414,15 @@ def compact_workspace_response(workspace, active_scan_type=None):
         return workspace
     compact = dict(workspace)
     pools = {}
-    for pool_key, pool in (workspace.get("pools") or {}).items():
-        next_pool = dict(pool)
-        if active_scan_type and pool_key != active_scan_type:
+    for index in iter_workspace_pool_indexes(workspace):
+        next_pool = dict(index.pool)
+        if active_scan_type and index.scan_type != active_scan_type:
             next_pool["results"] = []
             next_pool["loaded_count"] = 0
             next_pool["has_more"] = bool(next_pool.get("count"))
         else:
-            next_pool["results"] = [compact_scan_result(result) for result in pool.get("results", [])]
-        pools[pool_key] = next_pool
+            next_pool["results"] = [compact_scan_result(result) for result in index.results]
+        pools[index.scan_type] = next_pool
     compact["pools"] = pools
     compact["compact"] = True
     return compact

@@ -230,8 +230,14 @@ def _timeframe_fetch_failure(period_key, exc):
 
 
 def _build_chart_payload(frame, *, event_lookback, cache_scope=""):
-    events = build_v2_signal_events_cached(frame, lookback=event_lookback, cache_scope=cache_scope)
     facts = build_c_signal_v2_facts(frame)
+    known_facts_by_idx = {len(frame) - 1: facts} if frame is not None and not frame.empty else None
+    events = build_v2_signal_events_cached(
+        frame,
+        lookback=event_lookback,
+        cache_scope=cache_scope,
+        known_facts_by_idx=known_facts_by_idx,
+    )
     return analysis_frame_to_chart_payload(
         frame,
         v2_event_lookback=event_lookback,

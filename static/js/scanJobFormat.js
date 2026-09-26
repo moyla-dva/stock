@@ -63,6 +63,39 @@ function formatJobCoverage(job) {
     return text;
 }
 
+function formatMarketDataCoverage(job) {
+    var coverage = job && job.data_coverage;
+    if (!coverage || !Number(coverage.checked_count || 0)) return '';
+    var parts = [];
+    if (job.universe_as_of) parts.push('股票池 ' + job.universe_as_of);
+    parts.push('行情核对 ' + coverage.checked_count + ' 只');
+    if (coverage.current_session_closed_count) parts.push('当日收盘 ' + coverage.current_session_closed_count);
+    if (coverage.intraday_preview_count) parts.push('盘中预览 ' + coverage.intraday_preview_count);
+    if (coverage.stale_or_no_new_bar_count) {
+        parts.push('旧数据/无新K线 ' + coverage.stale_or_no_new_bar_count);
+    }
+    var detailedNoDataCount = Number(coverage.provider_empty_count || 0) +
+        Number(coverage.provider_error_count || 0) +
+        Number(coverage.provider_partial_failure_count || 0);
+    if (coverage.provider_empty_count) parts.push('源无数据 ' + coverage.provider_empty_count);
+    if (coverage.provider_error_count) parts.push('源请求失败 ' + coverage.provider_error_count);
+    if (coverage.provider_partial_failure_count) {
+        parts.push('源部分异常 ' + coverage.provider_partial_failure_count);
+    }
+    if (coverage.no_data_count && !detailedNoDataCount) {
+        parts.push('无数据/源未返回 ' + coverage.no_data_count);
+    } else if (coverage.no_data_count > detailedNoDataCount) {
+        parts.push('其他无数据 ' + (coverage.no_data_count - detailedNoDataCount));
+    }
+    if (coverage.stale_cache_count) parts.push('陈旧缓存 ' + coverage.stale_cache_count);
+    if (coverage.analysis_error_count) parts.push('分析失败 ' + coverage.analysis_error_count);
+    if (coverage.unknown_count) parts.push('状态未知 ' + coverage.unknown_count);
+    if (coverage.stale_or_no_new_bar_count || coverage.no_data_count || coverage.stale_cache_count) {
+        parts.push('未更新不等于停牌');
+    }
+    return parts.join(' · ');
+}
+
 function formatJobDetail(job) {
     if (!job) return '-';
     var parts = [

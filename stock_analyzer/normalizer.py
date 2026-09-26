@@ -2,6 +2,8 @@
 
 import pandas as pd
 
+from stock_analyzer.market_data_identity import copy_market_data_identity
+
 
 PRICE_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
 
@@ -11,6 +13,7 @@ def normalize_price_frame(df):
     if df is None or df.empty:
         return df
 
+    source = df
     df = df.copy()
     if "日期" in df.columns:
         df = df.rename(columns={
@@ -32,9 +35,6 @@ def normalize_price_frame(df):
         })
     elif "day" in df.columns:
         df = df.rename(columns={"day": "date"})
-    elif "date" in df.columns and "amount" in df.columns and "volume" not in df.columns:
-        df = df.rename(columns={"amount": "volume"})
-
     missing = [column for column in PRICE_COLUMNS if column not in df.columns]
     if missing:
         raise ValueError(f"行情数据缺少必要字段: {', '.join(missing)}")
@@ -43,8 +43,8 @@ def normalize_price_frame(df):
     df["date"] = pd.to_datetime(df["date"])
     for column in ("open", "high", "low", "close", "volume"):
         df[column] = pd.to_numeric(df[column], errors="coerce")
-    df.dropna(subset=["date", "open", "high", "low", "close"], inplace=True)
-    df["volume"] = df["volume"].fillna(0)
+    df.dropna(subset=["date", "open", "high", "low", "close", "volume"], inplace=True)
     df = df.sort_values("date")
     df.reset_index(drop=True, inplace=True)
+    copy_market_data_identity(source, df)
     return df

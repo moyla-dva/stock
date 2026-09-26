@@ -10,61 +10,12 @@ from stock_analyzer.c_signal_v2 import (
 from stock_analyzer.events import SignalEvent
 from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_fields
 from stock_analyzer.scan_explainer import attach_scan_explanation
+from stock_analyzer.signal_registry import build_event_weights, build_scan_config
 from stock_analyzer.v2_analysis_context import build_v2_analysis_context
 
 
-SCAN_CONFIG = {
-    "opportunity": {
-        "groups": (),
-        "keys": {
-            "v2_ignition",
-            "v2_attack_day",
-            "v2_bear_trap_recovery",
-            "v2_breakout",
-            "v2_pullback",
-            "v2_structure_candidate",
-        },
-        "lookback": 0,
-        "title": "参与候选",
-    },
-    "risk": {
-        "groups": (),
-        "keys": {
-            "v2_exit_gate_sell",
-            "v2_strong_resistance_scale_out",
-            "v2_risk_break",
-            "v2_risk_heat",
-            "v2_top_fractal_observe",
-            "v2_top_fractal_risk",
-        },
-        "lookback": 0,
-        "title": "风险验证",
-    },
-    "bottom_div": {
-        "groups": (),
-        "keys": {"v2_repair_watch", "v2_bottom_research", "v2_bearish_new_low"},
-        "lookback": 2,
-        "title": "修复观察",
-    },
-}
-
-EVENT_WEIGHTS = {
-    "v2_ignition": 28,
-    "v2_attack_day": 24,
-    "v2_structure_candidate": 16,
-    "v2_bottom_research": 12,
-    "v2_repair_watch": 14,
-    "v2_bearish_new_low": 10,
-    "v2_top_fractal_observe": 8,
-    "v2_top_fractal_risk": 8,
-    "v2_strong_resistance_scale_out": 18,
-    "v2_exit_gate_sell": 24,
-    "v2_bear_trap_recovery": 20,
-    "v2_breakout": 18,
-    "v2_pullback": 16,
-    "v2_risk_break": 20,
-    "v2_risk_heat": 14,
-}
+SCAN_CONFIG = build_scan_config()
+EVENT_WEIGHTS = build_event_weights()
 
 
 
@@ -144,18 +95,6 @@ def normalize_scan_type(scan_type):
 
 def _scan_config(scan_type):
     return SCAN_CONFIG[normalize_scan_type(scan_type)]
-
-
-def scan_events_for_type(df_display, scan_type):
-    scan_type = normalize_scan_type(scan_type)
-    if df_display is None or df_display.empty or "date" not in df_display.columns:
-        return []
-
-    config = _scan_config(scan_type)
-    event, _ = build_v2_latest_scan_event(df_display, scan_type)
-    if event is None or event.key not in config["keys"]:
-        return []
-    return [event]
 
 
 def latest_scan_score_summary(df_display, components=None):

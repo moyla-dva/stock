@@ -3,6 +3,40 @@ function setActiveScanType(scanType) {
     return scanWorkspaceState.activeType;
 }
 
+function scanPoolSelectionIdentity(item, scanType) {
+    if (!item) return '';
+    scanType = normalizeScanPoolType(scanType || item._scan_type || item.scan_type);
+    return [
+        scanType,
+        item.code || '',
+        item.event_date || item.date || '',
+        item.signal_key || '',
+        item.v2_signal || item.signal_label || item.signal || '',
+        item.snapshot_day || item._history_snapshot_day || scanWorkspaceState.historySnapshotDay || scanWorkspaceState.latest_snapshot_day || ''
+    ].join('|');
+}
+
+function rememberScanPoolSelection(item, scanType) {
+    if (!item) return '';
+    scanType = normalizeScanPoolType(scanType || item._scan_type || item.scan_type);
+    if (!scanWorkspaceState.selectedResultIdentitiesByPool) {
+        scanWorkspaceState.selectedResultIdentitiesByPool = {};
+    }
+    var identity = scanPoolSelectionIdentity(item, scanType);
+    scanWorkspaceState.selectedResultIdentitiesByPool[scanType] = identity;
+    return identity;
+}
+
+function findRememberedScanPoolSelection(results, scanType) {
+    scanType = normalizeScanPoolType(scanType || scanWorkspaceState.activeType);
+    var identities = scanWorkspaceState.selectedResultIdentitiesByPool || {};
+    var rememberedIdentity = identities[scanType];
+    if (!rememberedIdentity) return null;
+    return (results || []).find(function(item) {
+        return scanPoolSelectionIdentity(item, scanType) === rememberedIdentity;
+    }) || null;
+}
+
 function normalizeScanSideView(view) {
     return SCAN_SIDE_VIEWS.indexOf(view) >= 0 ? view : 'detail';
 }
@@ -33,7 +67,10 @@ function applyScanNavigationState(route) {
     if (next.sideView) scanWorkspaceState.sideView = normalizeScanSideView(next.sideView);
     if (next.resultLimit) scanWorkspaceState.resultLimit = Math.min(SCAN_RESULT_MAX_LIMIT, Math.max(1, Number(next.resultLimit) || SCAN_RESULT_PAGE_SIZE));
     scanWorkspaceState.previewResult = null;
-    if (next.clearSelection) scanWorkspaceState.selectedResult = null;
+    if (next.clearSelection) {
+        scanWorkspaceState.selectedResult = null;
+        scanWorkspaceState.selectedResultIdentitiesByPool = {};
+    }
     if (next.filters) {
         scanWorkspaceState.filters = Object.assign({}, scanWorkspaceState.filters, next.filters);
     }
@@ -174,6 +211,9 @@ function applyScanWorkspacePayload(workspace) {
     scanWorkspaceState.snapshotMeta = workspace.snapshot_meta || null;
     scanWorkspaceState.strategyMeta = workspace.strategy_meta || null;
     scanWorkspaceState.strategyHealth = workspace.strategy_health || null;
+    scanWorkspaceState.readSource = workspace.read_source || 'json_snapshot';
+    scanWorkspaceState.readSourceMeta = workspace.read_source_meta || null;
+    scanWorkspaceState.readSourceError = workspace.read_source_error || '';
     scanWorkspaceState.workspaceMaxItems = workspace.max_items || scanWorkspaceState.resultLimit || SCAN_RESULT_PAGE_SIZE;
     scanWorkspaceState.resultLimit = scanWorkspaceState.workspaceMaxItems;
     scanWorkspaceState.filteredCandidateLoads = {};
@@ -182,9 +222,6 @@ function applyScanWorkspacePayload(workspace) {
     scanWorkspaceState.pools = workspace.pools || {};
     scanWorkspaceState.sectorOverview = workspace.sector_overview || [];
     scanWorkspaceState.conceptOverview = workspace.concept_overview || [];
-    scanWorkspaceState.marketStructureMeta = workspace.market_structure_meta || null;
-    scanWorkspaceState.resonanceCalibration = workspace.resonance_calibration || null;
-    scanWorkspaceState.replayCalibration = workspace.replay_calibration || null;
     resetScanProfileRequestState();
     return true;
 }

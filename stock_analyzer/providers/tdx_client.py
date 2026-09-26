@@ -5,6 +5,7 @@ variables do not apply and Eastmoney-style WAF fingerprinting is not a factor.
 """
 
 import threading
+import logging
 
 import pandas as pd
 from pytdx.hq import TdxHq_API
@@ -19,6 +20,12 @@ MINUTE_CATEGORY = {"1": 7, "5": 0, "15": 1, "30": 2, "60": 3}
 
 _api = None
 _API_LOCK = threading.RLock()
+LOGGER = logging.getLogger(__name__)
+
+
+def _log(logger, level, message):
+    target = logger or LOGGER
+    getattr(target, level)(message)
 
 
 def _connect():
@@ -194,10 +201,8 @@ def fetch_tdx_daily_bars(code, start_text, end_text, logger=None, verbose=False)
         frame = frame[frame["date"] <= end_date]
     frame.reset_index(drop=True, inplace=True)
     frame["date"] = frame["date"].dt.date
-    if verbose:
-        print(f"[TDX] 日线 {code}: {len(frame)} 根", flush=True)
-    if logger:
-        logger.info(f"TDX 日线 {code}: {len(frame)} 根")
+    if verbose or logger:
+        _log(logger, "info", f"TDX 日线 {code}: {len(frame)} 根")
     return frame if not frame.empty else None
 
 
@@ -250,8 +255,6 @@ def fetch_tdx_minute_bars(code, start_text, end_text, period="60", logger=None, 
     if not pd.isna(end_at):
         mask &= dates <= end_at
     frame = frame[mask].reset_index(drop=True)
-    if verbose:
-        print(f"[TDX] 分钟线 {code}: {len(frame)} 根", flush=True)
-    if logger:
-        logger.info(f"TDX 分钟线 {code}: {len(frame)} 根")
+    if verbose or logger:
+        _log(logger, "info", f"TDX 分钟线 {code}: {len(frame)} 根")
     return frame if not frame.empty else None

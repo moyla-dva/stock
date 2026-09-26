@@ -27,7 +27,7 @@ class StockCatalogProvider:
     """Fetch raw stock catalog data from external providers."""
 
     def fetch_primary_stock_codes(self):
-        """Authoritative SH/SZ/BJ list from the exchanges themselves."""
+        """Current aggregated SH/SZ/BJ listing from AkShare."""
         frame = ak.stock_info_a_code_name()
         return frame["code"].tolist()
 

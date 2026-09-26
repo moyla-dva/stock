@@ -22,8 +22,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.code_utils import normalize_code
-from stock_analyzer.data_fetcher import CACHE_DIR as HISTORY_CACHE_DIR
-from stock_analyzer.data_fetcher import _cached_history_candidates, cache_path_for_history
+from stock_analyzer.data_fetcher import (
+    CACHE_DIR as HISTORY_CACHE_DIR,
+    _cached_history_candidates,
+    cache_path_for_history,
+    read_history_cache_file,
+)
 from stock_analyzer.scan_snapshot import (
     build_scan_snapshot,
     is_current_strategy_snapshot,
@@ -124,7 +128,7 @@ def _rebuild_one(args: tuple[str, str, str, str | None, bool]) -> dict:
         return {"status": "missing_history_cache", "code": code, "cache": cache_path.name}
 
     try:
-        raw = pd.read_csv(cache_path)
+        raw, _ = read_history_cache_file(cache_path, code)
         with contextlib.redirect_stdout(io.StringIO()):
             frame = prepare_analysis_frame(raw, fill_initial_ma20=False)
     except Exception as exc:
@@ -181,7 +185,7 @@ def _build_from_cache_one(args: tuple[str, str, str, str | None, bool]) -> dict:
     if not isinstance(profile, dict):
         profile = {}
     try:
-        raw = pd.read_csv(cache_path)
+        raw, _ = read_history_cache_file(cache_path, code)
         with contextlib.redirect_stdout(io.StringIO()):
             frame = prepare_analysis_frame(raw, fill_initial_ma20=False)
     except Exception as exc:

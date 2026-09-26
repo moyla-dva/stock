@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>单票优先原型 · A股短线结构工作台</title>
+  <link rel="stylesheet" href="prototype.css">
+  <script src="../../static/vendor/echarts.min.js"></script>
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <main class="prototype-shell">
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark">A</div><div><div class="eyebrow">市场研究工作台</div><strong>A股短线结构工作台</strong></div></div>
+      <div class="search-command" role="search"><input class="search-input" id="prototype-code-input" value="300829" aria-label="股票代码" placeholder="输入 6 位股票代码"><button class="primary-button" onclick="analyzePrototypeCode()">查看样例</button></div>
+      <nav class="top-actions" aria-label="原型切换"><a class="text-link" href="candidate-first.html">候选优先</a><a class="text-link active" href="single-stock-first.html">单票优先</a></nav>
+    </header>
+    <section class="status-band" aria-label="数据状态">
+      <div class="status-item"><span>行情状态</span><strong class="freshness">2026-09-22 · closed</strong></div>
+      <div class="status-item"><span>来源</span><strong id="stock-source"></strong></div>
+      <div class="status-item grow"><span>revision</span><strong id="stock-revision"></strong></div>
+      <div class="status-item"><span>原型数据</span><strong>仅用于交互验证</strong></div>
+    </section>
+    <section class="single-layout">
+      <section class="stock-workspace" aria-label="单票分析">
+        <header class="instrument-head">
+          <div><div class="section-kicker">单票分析 · <span id="stock-sector"></span></div><h1><span id="stock-name"></span> <small id="stock-code"></small></h1><p id="stock-reason"></p></div>
+          <div class="instrument-actions"><div class="segment period-switch"><button class="active" data-period="daily" onclick="setPeriod('daily', this)">日线</button><button data-period="60m" onclick="setPeriod('60m', this)">60m</button><button data-period="4h" onclick="setPeriod('4h', this)">4h</button></div></div>
+        </header>
+        <div class="chart-wrap"><div class="chart-label">价格结构 · 信号地图 · 样例行情</div><div class="chart" id="prototype-chart"></div></div>
+        <div class="stock-facts"><div class="stock-fact"><span>当前定位</span><strong id="stock-signal"></strong></div><div class="stock-fact"><span>当前处理</span><strong id="stock-action"></strong></div><div class="stock-fact"><span>失效条件</span><strong id="stock-invalidation"></strong></div><div class="stock-fact"><span>缺少确认</span><strong id="stock-missing"></strong></div></div>
+      </section>
+      <aside class="context-rail" aria-label="单票上下文">
+        <div class="section-head"><div><div class="section-kicker">当前研判</div><h3>研判上下文</h3></div><span class="tag" data-stock-tone>V2</span></div>
+        <section class="detail-section"><h3>条件化计划</h3><ul class="fact-list"><li><span>许可</span><strong id="stock-permission"></strong></li><li><span>参考止损</span><strong id="stock-stop"></strong></li><li><span>结构目标</span><strong id="stock-target"></strong></li></ul></section>
+        <section class="detail-section"><h3>证据链</h3><div class="rule"><i class="rule-dot"></i><span>日线结构事实已确认</span></div><div class="rule"><i class="rule-dot"></i><span>计划参数已经进入校验</span></div><div class="rule"><i class="rule-dot muted"></i><span data-bind="stock-missing"></span></div></section>
+        <section class="detail-section"><h3>候选上下文</h3><p class="prototype-note">这只票若来自扫描，保留原队列角色；直接输入代码时，也能查看同日相邻候选，但不强迫先进入候选池。</p></section>
+        <div id="compact-candidates"></div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

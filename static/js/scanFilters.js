@@ -35,6 +35,13 @@ var SCAN_REASON_FILTERS = [
     {key: 'exit_scale_out', label: '减仓', tone: 'warning', pools: ['risk']},
     {key: 'exit_sell', label: '卖出', tone: 'danger', pools: ['risk']}
 ];
+var SCAN_REASON_SIGNAL_ALIASES = {
+    c_pullback: {labels: ['C回'], keys: ['v2_pullback']},
+    c_breakout: {labels: ['C突'], keys: ['v2_breakout', 'v2_bear_trap_recovery']},
+    c_attack: {labels: ['C爆'], keys: ['v2_attack_day', 'v2_ignition']}
+};
+var SCAN_FILTER_QUERY_DEBOUNCE_MS = 180;
+var scanFilterQueryTimer = null;
 
 function normalizeScanSortMode(value) {
     return SCAN_SORT_MODES.indexOf(value) >= 0 ? value : 'system';
@@ -137,6 +144,12 @@ function scanTextContainsAny(text, phrases) {
     });
 }
 
+function scanSignalMatchesReason(reason, signal, signalKey) {
+    var alias = SCAN_REASON_SIGNAL_ALIASES[reason];
+    if (!alias) return null;
+    return (alias.labels || []).indexOf(signal) >= 0 || (alias.keys || []).indexOf(signalKey) >= 0;
+}
+
 function scanReasonFilterOptionsForPool(scanType) {
     scanType = scanType || scanWorkspaceState.activeType || 'opportunity';
     return SCAN_REASON_FILTERS.filter(function(option) {
@@ -167,12 +180,11 @@ function scanResultMatchesReasonFilter(item, reason) {
     if (reason === 'chase') return text.indexOf('追高') >= 0 || text.indexOf('距 MA20') >= 0 || text.indexOf('攻击日涨幅') >= 0;
     if (reason === 'heat') return text.indexOf('过热') >= 0;
     if (reason === 'wide_stop') return text.indexOf('止损距离超过') >= 0 || text.indexOf('止损过宽') >= 0;
-    if (reason === 'c_pullback') return signal === 'C回' || signalKey === 'v2_pullback';
-    if (reason === 'c_breakout') return signal === 'C突' || signalKey === 'v2_breakout' || signalKey === 'v2_bear_trap_recovery';
-    if (reason === 'c_attack') return signal === 'C爆' || signalKey === 'v2_attack_day' || signalKey === 'v2_ignition';
+    var signalMatch = scanSignalMatchesReason(reason, signal, signalKey);
+    if (signalMatch != null) return signalMatch;
     if (reason === 'exit_sell') return markerRole === 'sell';
     if (reason === 'exit_scale_out') return markerRole === 'scale_out';
-    return true;
+    return false;
 }
 
 function scanCandidateRole(item) {
@@ -184,8 +196,6 @@ function scanCandidateRole(item) {
     var risk = scanNumericValue(item, 'risk_score', 0);
     var confirm = scanNumericValue(item, 'confirm_score', 0);
     var composite = scanCompositeScore(item);
-    var sectorScore = scanNumericValue(item, 'sector_score', 0);
-    var conceptScore = scanNumericValue(item, 'concept_score', 0);
 
     if (scanType === 'risk') {
         return {
@@ -218,14 +228,14 @@ function scanCandidateRole(item) {
             action: '打开图表确认入场结构、止损距离和仓位。'
         };
     }
-    if (Math.max(sectorScore, conceptScore, composite) >= 60) {
+    if (composite >= 60) {
         return {
             kind: 'structure_candidate',
             label: '结构候选',
             tone: risk > 2 ? 'warning' : 'muted',
             score: 52,
-            detail: '个股或板块存在结构线索，但还需要补确认。',
-            action: '先观察共振是否继续增强。'
+            detail: '个股存在结构线索，但还需要补确认。',
+            action: '回到个股结构与触发条件继续确认。'
         };
     }
     return {
@@ -281,7 +291,7 @@ function scanCandidateQueue(item) {
         return {
             key: 'structure',
             label: '结构备选',
-            detail: '有结构或共振线索，但确认不足。',
+            detail: '个股结构线索存在，但确认不足。',
             tone: 'muted',
             priority: 2
         };
@@ -300,20 +310,20 @@ function scanSystemRecommendation() {
     if (scanType === 'risk') {
         return {
             title: '先处理风险验证',
-            detail: '按 V2 风控状态、风险分、板块风险和事件新近度排序。',
+            detail: '按 V2 风控状态、个股风险分和事件新近度排序。',
             mode: 'risk'
         };
     }
     if (scanType === 'bottom_div') {
         return {
             title: '先看修复是否成形',
-            detail: '按 V2 修复/研究状态、确认分、低风险和共振强度排序。',
+            detail: '按 V2 修复/研究状态、个股确认分和风险排序。',
             mode: 'repair'
         };
     }
     return {
         title: '先看可参与候选',
-        detail: '按 V2 许可状态、综合分、确认分、低风险和行业/概念共振排序。',
+        detail: '按 V2 许可状态、综合分、个股确认分和风险排序。',
         mode: 'opportunity'
     };
 }
@@ -340,16 +350,12 @@ function scanSystemRankScore(item) {
     var scanType = scanPoolTypeFromItem(item);
     var roleScore = scanCandidateRole(item).score || 0;
     var composite = scanCompositeScore(item);
-    var conceptScore = scanNumericValue(item, 'concept_score', 0);
-    var sectorScore = scanNumericValue(item, 'sector_score', 0);
     var riskScore = scanNumericValue(item, 'risk_score', 0);
     var confirmScore = scanNumericValue(item, 'confirm_score', 0);
     var setupScore = scanNumericValue(item, 'setup_score', 0);
     if (scanType === 'risk') {
         return roleScore
             + riskScore * 18
-            + scanNumericValue(item, 'sector_risk_count', 0) * 4
-            + scanNumericValue(item, 'concept_risk_count', 0) * 4
             + composite * 0.35;
     }
     if (scanType === 'bottom_div') {
@@ -357,14 +363,10 @@ function scanSystemRankScore(item) {
             + Math.max(0, 8 - riskScore) * 8
             + confirmScore * 8
             + setupScore * 3
-            + conceptScore * 0.35
-            + sectorScore * 0.2
             + composite * 0.45;
     }
     return roleScore
         + composite
-        + conceptScore * 0.35
-        + sectorScore * 0.25
         + confirmScore * 6
         - riskScore * 8;
 }
@@ -372,6 +374,12 @@ function scanSystemRankScore(item) {
 function compareScanResults(a, b) {
     var sort = normalizeScanSortMode(scanWorkspaceState.filters.sort);
     if (sort === 'system') {
+        if (scanWorkspaceState.readSource === 'sqlite_index'
+            && a && b
+            && Number.isFinite(Number(a._read_rank))
+            && Number.isFinite(Number(b._read_rank))) {
+            return Number(a._read_rank) - Number(b._read_rank);
+        }
         return scanSortScore(b) - scanSortScore(a)
             || scanCandidateQueue(b).priority - scanCandidateQueue(a).priority
             || scanStrategyRank(b) - scanStrategyRank(a)
@@ -384,17 +392,13 @@ function compareScanResults(a, b) {
             || scanCompositeScore(b) - scanCompositeScore(a);
     }
     if (sort === 'sector') {
-        return scanStrategyRank(b) - scanStrategyRank(a)
-            || scanNumericValue(b, 'sector_score', 0) - scanNumericValue(a, 'sector_score', 0)
-            || scanNumericValue(b, 'sector_market_score', 0) - scanNumericValue(a, 'sector_market_score', 0)
-            || scanNumericValue(b, 'concept_score', 0) - scanNumericValue(a, 'concept_score', 0)
+        return String(a && a.sector || '').localeCompare(String(b && b.sector || ''), 'zh-CN')
+            || scanSystemRankScore(b) - scanSystemRankScore(a)
             || scanCompositeScore(b) - scanCompositeScore(a);
     }
     if (sort === 'concept') {
-        return scanStrategyRank(b) - scanStrategyRank(a)
-            || scanNumericValue(b, 'concept_score', 0) - scanNumericValue(a, 'concept_score', 0)
-            || scanNumericValue(b, 'concept_market_score', 0) - scanNumericValue(a, 'concept_market_score', 0)
-            || scanNumericValue(b, 'sector_score', 0) - scanNumericValue(a, 'sector_score', 0)
+        return String(scanConceptText(a, 1) || '').localeCompare(String(scanConceptText(b, 1) || ''), 'zh-CN')
+            || scanSystemRankScore(b) - scanSystemRankScore(a)
             || scanCompositeScore(b) - scanCompositeScore(a);
     }
     if (sort === 'risk') {
@@ -447,45 +451,6 @@ function getVisibleScanResults() {
         .filter(scanResultMatchesFilters)
         .slice()
         .sort(compareScanResults);
-}
-
-function buildScanSectorStats(results) {
-    var stats = {};
-    (results || []).forEach(function(item) {
-        var sector = item.sector || UNKNOWN_SCAN_SECTOR;
-        if (!stats[sector]) {
-            stats[sector] = {
-                sector: sector,
-                count: 0,
-                totalRank: 0,
-                totalSectorScore: 0,
-                sectorScoreCount: 0,
-                riskCount: 0,
-                signalCount: 0,
-                latestEvent: ''
-            };
-        }
-        stats[sector].count += 1;
-        stats[sector].totalRank += scanNumericValue(item, 'rank_score', 0);
-        if (item.sector_score != null) {
-            stats[sector].totalSectorScore += scanNumericValue(item, 'sector_score', 0);
-            stats[sector].sectorScoreCount += 1;
-        }
-        stats[sector].riskCount = Math.max(stats[sector].riskCount, scanNumericValue(item, 'sector_risk_count', 0));
-        stats[sector].signalCount = Math.max(stats[sector].signalCount, scanNumericValue(item, 'sector_signal_count', 0));
-        var eventDate = scanEventDate(item);
-        if (eventDate && eventDate > stats[sector].latestEvent) {
-            stats[sector].latestEvent = eventDate;
-        }
-    });
-    return Object.keys(stats).map(function(sector) {
-        var item = stats[sector];
-        item.avgRank = item.count ? item.totalRank / item.count : 0;
-        item.sectorScore = item.sectorScoreCount ? item.totalSectorScore / item.sectorScoreCount : 0;
-        return item;
-    }).sort(function(a, b) {
-        return b.sectorScore - a.sectorScore || b.count - a.count || b.avgRank - a.avgRank || a.sector.localeCompare(b.sector);
-    });
 }
 
 function renderScanReasonFilters(poolResults) {
@@ -555,7 +520,7 @@ function renderScanEntryModelToggle() {
     });
 }
 
-function renderScanFilters(poolResults, sectorStats) {
+function renderScanFilters(poolResults) {
     var filters = scanWorkspaceState.filters;
     renderScanEntryModelToggle();
     var search = document.getElementById('scan-search');
@@ -573,32 +538,52 @@ function renderAfterScanFilterChange() {
     enrichActiveScanProfiles();
 }
 
+function clearScanFilterQueryDebounce() {
+    if (scanFilterQueryTimer) {
+        clearTimeout(scanFilterQueryTimer);
+        scanFilterQueryTimer = null;
+    }
+}
+
+function scheduleScanFilterQueryRender() {
+    clearScanFilterQueryDebounce();
+    scanFilterQueryTimer = setTimeout(function() {
+        scanFilterQueryTimer = null;
+        renderAfterScanFilterChange();
+    }, SCAN_FILTER_QUERY_DEBOUNCE_MS);
+}
+
 function setScanFilterQuery(value) {
     scanWorkspaceState.filters.query = value || '';
-    renderAfterScanFilterChange();
+    scheduleScanFilterQueryRender();
 }
 
 function setScanSectorFilter(value) {
+    clearScanFilterQueryDebounce();
     scanWorkspaceState.filters.sector = value || '';
     renderAfterScanFilterChange();
 }
 
 function setScanConceptFilter(value) {
+    clearScanFilterQueryDebounce();
     scanWorkspaceState.filters.concept = value || '';
     renderAfterScanFilterChange();
 }
 
 function setScanReasonFilter(value) {
+    clearScanFilterQueryDebounce();
     scanWorkspaceState.filters.reason = value || '';
     renderAfterScanFilterChange();
 }
 
 function setScanSort(value) {
+    clearScanFilterQueryDebounce();
     scanWorkspaceState.filters.sort = normalizeScanSortMode(value);
     renderAfterScanFilterChange();
 }
 
 function resetScanFilters() {
+    clearScanFilterQueryDebounce();
     scanWorkspaceState.filters.query = '';
     scanWorkspaceState.filters.sector = '';
     scanWorkspaceState.filters.concept = '';

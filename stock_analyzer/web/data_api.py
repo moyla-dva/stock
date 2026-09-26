@@ -1,8 +1,12 @@
-"""Data-source and board-market API handlers."""
+"""Data-source, profile-relation, and concept-graph API handlers."""
+
+import logging
 
 from flask import request
 
 from stock_analyzer.code_utils import normalize_code
+
+LOGGER = logging.getLogger(__name__)
 
 
 def data_sources_response(jsonify, collect_data_source_status_func, start_date, logger):
@@ -15,67 +19,7 @@ def data_sources_response(jsonify, collect_data_source_status_func, start_date, 
             force_refresh=force_refresh,
         ))
     except Exception as exc:
-        print(f"[数据源状态] 异常: {exc}")
-        return jsonify({"error": str(exc)}), 500
-
-
-def board_market_response(jsonify, get_board_market_func, unavailable_payload_func, start_date):
-    try:
-        board_type = request.args.get("type", "industry")
-        name = request.args.get("name") or None
-        index_code = request.args.get("index_code") or None
-        query_start_date = request.args.get("start_date") or start_date
-        if board_type not in {"industry", "concept"}:
-            return jsonify({"error": "type必须为industry或concept"}), 400
-        payload = get_board_market_func(
-            board_type,
-            name=name,
-            index_code=index_code,
-            start_date=query_start_date,
-        )
-        return jsonify(payload)
-    except Exception as exc:
-        print(f"[板块行情] 异常: {exc}")
-        return jsonify(unavailable_payload_func(
-            request.args.get("type", "industry"),
-            name=request.args.get("name") or None,
-            index_code=request.args.get("index_code") or None,
-            error=exc,
-        ))
-
-
-def board_market_refresh_response(
-    jsonify,
-    collect_scan_workspace_func,
-    refresh_board_market_cache_func,
-    clear_workspace_cache_func,
-    start_date,
-    logger,
-):
-    try:
-        data = request.get_json(silent=True) or {}
-        board_type = data.get("type") or data.get("board_type") or "industry"
-        limit = data.get("limit", 8)
-        force = bool(data.get("force", False))
-        if board_type not in {"industry", "concept"}:
-            return jsonify({"error": "type必须为industry或concept"}), 400
-        workspace = collect_scan_workspace_func(
-            start_date=start_date,
-            max_items=1,
-            logger=logger,
-            include_replay=False,
-        )
-        result = refresh_board_market_cache_func(
-            workspace,
-            board_type=board_type,
-            limit=limit,
-            start_date=start_date,
-            force=force,
-        )
-        clear_workspace_cache_func()
-        return jsonify(result)
-    except Exception as exc:
-        print(f"[板块行情刷新] 异常: {exc}")
+        LOGGER.debug("数据源状态异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -101,7 +45,7 @@ def profile_relation_evidence_response(jsonify, read_evidence_func, evidence_sta
             "status": status,
         })
     except Exception as exc:
-        print(f"[画像证据] 查询异常: {exc}")
+        LOGGER.debug("画像证据查询异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -121,7 +65,7 @@ def upsert_profile_relation_evidence_response(
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        print(f"[画像证据] 写入异常: {exc}")
+        LOGGER.debug("画像证据写入异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -141,7 +85,7 @@ def delete_profile_relation_evidence_response(
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        print(f"[画像证据] 删除异常: {exc}")
+        LOGGER.debug("画像证据删除异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -159,7 +103,7 @@ def concept_graph_response(jsonify, build_graph_func, cache_dir):
         )
         return jsonify(payload)
     except Exception as exc:
-        print(f"[概念图谱] 查询异常: {exc}")
+        LOGGER.debug("概念图谱查询异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -178,7 +122,7 @@ def upsert_concept_graph_edge_response(
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        print(f"[概念图谱] 写入异常: {exc}")
+        LOGGER.debug("概念图谱写入异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -204,5 +148,5 @@ def delete_concept_graph_edge_response(
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        print(f"[概念图谱] 删除异常: {exc}")
+        LOGGER.debug("概念图谱删除异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500

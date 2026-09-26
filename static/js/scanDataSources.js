@@ -82,35 +82,3 @@ async function syncDataGovernanceStatus() {
         }
     }
 }
-
-async function refreshConceptBoardMarketCache() {
-    if (typeof setScanActionButtonState === 'function') {
-        setScanActionButtonState('refresh-board-market', true, '刷新中');
-    }
-    try {
-        setScanStatus('刷新概念板块行情');
-        var result = await refreshBoardMarketCache('concept', 8, false);
-        if (result.error) throw new Error(result.error);
-        var changed = (result.updated_count || 0) + (result.fallback_count || 0);
-        setScanStatus(
-            '概念行情完成 · 更新 ' + (result.updated_count || 0)
-            + ' · 旧缓存 ' + (result.fallback_count || 0)
-            + ' · 跳过 ' + (result.skipped_count || 0)
-            + ' · 失败 ' + (result.failed_count || 0)
-        );
-        await loadDataSourceStatus();
-        await loadScanWorkspace(
-            scanWorkspaceState.activeType,
-            scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '',
-            changed > 0,
-            scanWorkspaceState.resultLimit
-        );
-    } catch (err) {
-        setScanStatus('概念行情刷新失败');
-        console.error('概念行情刷新失败:', err);
-    } finally {
-        if (typeof setScanActionButtonState === 'function') {
-            setScanActionButtonState('refresh-board-market', false, null);
-        }
-    }
-}

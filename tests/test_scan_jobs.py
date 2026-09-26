@@ -9,54 +9,38 @@ from unittest.mock import patch
 import pandas as pd
 
 import app
+from tests.fixtures import apply_legacy_entry, build_minimal_signal_frame
 from stock_analyzer.scan_jobs import ScanJobManager
-from stock_analyzer.scan_snapshot import build_scan_snapshot, write_scan_snapshot
+from stock_analyzer.scan_snapshot import (
+    build_scan_snapshot,
+    scan_snapshot_path,
+    scan_snapshot_paths_for_codes,
+    write_scan_snapshot,
+)
 from stock_analyzer.versioning import SCAN_STRATEGY_VERSION
 
 
 class ScanJobsTest(unittest.TestCase):
+    def test_scan_snapshot_paths_for_codes_checks_expected_days_without_glob(self):
+        with TemporaryDirectory() as tmp_dir:
+            snapshot_dir = Path(tmp_dir)
+            with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", snapshot_dir):
+                first = scan_snapshot_path("600001", start_date="2026-09-01", snapshot_day="20260922")
+                latest = scan_snapshot_path("600001", start_date="2026-09-01", snapshot_day="20260923")
+                unrelated = scan_snapshot_path("600002", start_date="2026-09-01", snapshot_day="20260923")
+                for path in (first, latest, unrelated):
+                    path.write_text("{}", encoding="utf-8")
+
+                paths = scan_snapshot_paths_for_codes(
+                    ["600001", "600001", "600003"],
+                    start_date="2026-09-01",
+                    snapshot_days=["20260922", "20260923", "20260922"],
+                )
+
+        self.assertEqual(paths, [first, latest])
+
     def _minimal_signal_frame(self, rows=10):
-        frame = pd.DataFrame({
-            "date": pd.date_range("2026-01-01", periods=rows, freq="D"),
-            "open": [10.0] * rows,
-            "high": [10.5] * rows,
-            "low": [9.8] * rows,
-            "close": [10.0 + i * 0.1 for i in range(rows)],
-            "custom": [0.0] * rows,
-            "dif": [0.0] * rows,
-            "dea": [0.0] * rows,
-            "macd_hist": [0.0] * rows,
-            "ma20": [10.0] * rows,
-            "vwap": [10.0] * rows,
-        })
-        for column in [
-            "is_b_point",
-            "is_pullback_b",
-            "is_s_point",
-            "touch_upper",
-            "break_ma5",
-            "is_bottom_divergence",
-            "is_top_divergence",
-            "new_is_b_point",
-            "new_is_pullback_b",
-            "new_is_s_point",
-            "opt_is_b_point",
-            "opt_is_pullback_b",
-            "opt_is_s_warn",
-            "opt_is_s_confirm",
-            "opt_is_s_point",
-            "composite_entry",
-            "composite_risk_warn",
-            "composite_exit",
-            "composite_risk",
-        ]:
-            frame[column] = False
-        frame["composite_entry_type"] = ""
-        frame["composite_risk_type"] = ""
-        frame["composite_exit_type"] = ""
-        frame["composite_entry_reason"] = ""
-        frame["composite_risk_reason"] = ""
-        return frame
+        return build_minimal_signal_frame(rows=rows)
 
     def test_scan_batch_api_is_retired(self):
         client = app.app.test_client()
@@ -104,6 +88,144 @@ class ScanJobsTest(unittest.TestCase):
         self.assertEqual(finished["results"][0]["code"], "000002")
         self.assertEqual(finished["results"][0]["refresh_policy"], "auto")
         self.assertGreaterEqual(finished["duration_seconds"], 0)
+
+    def test_scan_job_cancellation_keeps_completed_result(self):
+        entered = threading.Event()
+        release = threading.Event()
+        job_id = []
+        manager = ScanJobManager(
+            max_jobs=1,
+            max_workers=1,
+            batch_size=1,
+            batch_delay=0,
+            request_delay=0,
+            history_path=None,
+        )
+
+        def scan_one(code, _scan_type, force_refresh=False, refresh_policy="auto"):
+            entered.set()
+            release.wait(timeout=2)
+            manager.cancel_job(job_id[0])
+            return {"code": code, "signal_key": "demo"}
+
+        try:
+            started = manager.start_job(["600001", "600002"], "opportunity", scan_one)
+            job_id.append(started["id"])
+            self.assertTrue(entered.wait(timeout=1))
+            release.set()
+            finished = manager.wait_job(started["id"], timeout=2)
+        finally:
+            release.set()
+            manager.shutdown(wait=True)
+
+        self.assertEqual(finished["status"], "cancelled")
+        self.assertEqual(finished["completed"], 1)
+        self.assertEqual(finished["matched"], 1)
+        self.assertEqual([item["code"] for item in finished["results"]], ["600001"])
+
+    def test_history_retention_never_evicts_active_jobs(self):
+        entered = threading.Event()
+        release = threading.Event()
+        tmp_dir = TemporaryDirectory()
+        manager = ScanJobManager(
+            max_jobs=4,
+            max_workers=4,
+            batch_size=1,
+            batch_delay=0,
+            request_delay=0,
+            history_path=Path(tmp_dir.name) / "jobs.json",
+            max_history=2,
+        )
+
+        def scan_one(code, _scan_type, force_refresh=False, refresh_policy="auto"):
+            if code == "600001":
+                entered.set()
+                release.wait(timeout=2)
+            return {"code": code}
+
+        try:
+            active = manager.start_job(
+                ["600001"],
+                "opportunity",
+                scan_one,
+                plan_summary={"scope": "long-running"},
+            )
+            self.assertTrue(entered.wait(timeout=1))
+            for index in range(3):
+                code = f"60000{index + 2}"
+                started = manager.start_job(
+                    [code],
+                    "opportunity",
+                    scan_one,
+                    plan_summary={"scope": f"finished-{index}"},
+                )
+                self.assertEqual(manager.wait_job(started["id"], timeout=2)["status"], "completed")
+            still_active = manager.get_job(active["id"])
+            release.set()
+            finished = manager.wait_job(active["id"], timeout=2)
+        finally:
+            release.set()
+            manager.shutdown(wait=True)
+            tmp_dir.cleanup()
+
+        self.assertIsNotNone(still_active)
+        self.assertEqual(finished["status"], "completed")
+
+    def test_scan_job_manager_runs_completion_hook_before_terminal_status(self):
+        calls = []
+
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            return None
+
+        def completion_hook(job, codes):
+            calls.append((job["status"], codes))
+            return {"indexed": len(codes)}
+
+        manager = ScanJobManager(
+            max_jobs=1,
+            max_workers=1,
+            batch_size=1,
+            batch_delay=0,
+            request_delay=0,
+            history_path=None,
+            completion_hook=completion_hook,
+        )
+        try:
+            started = manager.start_job(["600063"], "opportunity", scan_one)
+            finished = manager.wait_job(started["id"], timeout=2)
+        finally:
+            manager.shutdown(wait=True)
+
+        self.assertEqual(calls, [("running", ("600063",))])
+        self.assertEqual(finished["status"], "completed")
+        self.assertEqual(finished["postprocess"]["status"], "completed")
+        self.assertEqual(finished["postprocess"]["result"], {"indexed": 1})
+
+    def test_scan_job_manager_reports_completion_hook_failure_separately(self):
+        def scan_one(code, scan_type, force_refresh=False, refresh_policy="auto"):
+            return None
+
+        def completion_hook(_job, _codes):
+            raise RuntimeError("index unavailable")
+
+        manager = ScanJobManager(
+            max_jobs=1,
+            max_workers=1,
+            batch_size=1,
+            batch_delay=0,
+            request_delay=0,
+            history_path=None,
+            completion_hook=completion_hook,
+        )
+        try:
+            started = manager.start_job(["600063"], "opportunity", scan_one)
+            finished = manager.wait_job(started["id"], timeout=2)
+        finally:
+            manager.shutdown(wait=True)
+
+        self.assertEqual(finished["status"], "completed")
+        self.assertEqual(finished["postprocess"]["status"], "failed")
+        self.assertEqual(finished["postprocess"]["error"], "index unavailable")
 
     def test_scan_job_manager_reuses_duplicate_active_job(self):
         entered = threading.Event()
@@ -554,19 +676,13 @@ class ScanJobsTest(unittest.TestCase):
         self.assertEqual(status["requested_count"], 1)
         self.assertEqual(status["queued_count"], 1)
         self.assertEqual(history["jobs"][0]["id"], payload["id"])
-        mock_check.assert_called_once_with("600063", "opportunity", False, "force")
+        mock_check.assert_called_once_with("600063", "opportunity", False, "force", return_outcome=True)
 
     @patch("app.check_stock_signal")
     def test_scan_jobs_api_auto_skips_cached_codes(self, mock_check):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame["composite_setup_score"] = [1] * 12
-        frame["composite_confirm_score"] = [3] * 12
-        frame["composite_risk_score"] = [0] * 12
-        frame["composite_watch"] = [False] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame, setup=1, confirm=3, risk=0, watch=False)
 
         with TemporaryDirectory() as tmp_dir:
             manager = ScanJobManager(
@@ -605,9 +721,7 @@ class ScanJobsTest(unittest.TestCase):
     def test_scan_plan_api_estimates_legacy_strategy_migration(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame)
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
@@ -616,7 +730,7 @@ class ScanJobsTest(unittest.TestCase):
                     snapshot.pop("strategy_version", None)
                     snapshot.pop("strategy_meta", None)
                     write_scan_snapshot(snapshot, start_date="2025-04-29", snapshot_day="2026-05-10")
-                    with patch("app.get_stock_codes") as mock_stock_codes:
+                    with patch("app.get_current_stock_universe") as mock_stock_codes:
                         response = app.app.test_client().post("/api/scan_plan", json={
                             "scan_type": "opportunity",
                             "refresh_policy": "auto",
@@ -649,9 +763,7 @@ class ScanJobsTest(unittest.TestCase):
         }
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame)
 
         with TemporaryDirectory() as tmp_dir:
             manager = ScanJobManager(
@@ -670,7 +782,7 @@ class ScanJobsTest(unittest.TestCase):
                         snapshot.pop("strategy_meta", None)
                         write_scan_snapshot(snapshot, start_date="2025-04-29", snapshot_day="2026-05-10")
                         with patch("app.scan_job_manager", manager):
-                            with patch("app.get_stock_codes") as mock_stock_codes:
+                            with patch("app.get_current_stock_universe") as mock_stock_codes:
                                 client = app.app.test_client()
                                 response = client.post("/api/scan_jobs", json={
                                     "scan_type": "opportunity",
@@ -698,4 +810,4 @@ class ScanJobsTest(unittest.TestCase):
         self.assertEqual(finished["batch_count"], 1)
         self.assertTrue(finished["resume_supported"])
         self.assertEqual(finished["cache_hit_count"], 0)
-        mock_check.assert_called_once_with("600063", "opportunity", False, "auto")
+        mock_check.assert_called_once_with("600063", "opportunity", False, "auto", return_outcome=True)

@@ -1,4 +1,3 @@
-var signalMode = 'composite';
 var chartSignalView = 'focus';
 var workspaceView = 'candidates';
 var deskView = 'scan';
@@ -9,8 +8,12 @@ var activeInspectorSignalDate = null;
 var activeHoverSignalDate = null;
 var activeSignalKeys = {};
 var signalMeta = {};
+var activeAnalysisController = null;
+var autoAnalyzeTimer = null;
+var lastAutoAnalyzedCode = '';
+var AUTO_ANALYZE_DEBOUNCE_MS = 500;
 
-function getModeText(mode) {
+function getModeText() {
     return '综合研判';
 }
 
@@ -79,8 +82,6 @@ function setActiveScanChartFocus(item) {
         rank_score: item.rank_score,
         risk_score: item.risk_score,
         confirm_score: item.confirm_score,
-        sector_score: item.sector_score,
-        concept_score: item.concept_score,
         _scan_type: item._scan_type || item.scan_type || '',
         scan_type: item.scan_type || item._scan_type || '',
         signalLabel: signalText || item.signal_label || item.signal || '扫描',
@@ -117,7 +118,7 @@ function scanChartFocusMatchesCode(code) {
 }
 
 function updateModeState() {
-    var modeText = getModeText(signalMode);
+    var modeText = getModeText();
     setText('active-mode-label', modeText);
     setText('legend-mode-label', modeText);
     if (typeof updateScanButtonLabel === 'function') {
@@ -200,6 +201,7 @@ function syncWorkspaceContext(view, options) {
 
 function setWorkspaceView(view, options) {
     options = options || {};
+    var previousWorkspace = workspaceView;
     workspaceView = normalizeWorkspaceView(view);
     deskView = deskForWorkspace(workspaceView);
     updateDeskViewState();
@@ -212,24 +214,72 @@ function setWorkspaceView(view, options) {
             myChart.resize();
         }, 0);
     }
+    if (typeof isScanIndexReadRequested === 'function'
+        && isScanIndexReadRequested()
+        && typeof loadScanWorkspace === 'function'
+        && previousWorkspace !== workspaceView) {
+        var shouldRefreshReadSource = workspaceView === 'data'
+            || (workspaceView === 'candidates'
+                && scanWorkspaceState.readSource === 'json_snapshot'
+                && scanWorkspaceState.readSourceOverride !== 'json');
+        if (shouldRefreshReadSource) {
+            loadScanWorkspace(
+                scanWorkspaceState.activeType,
+                scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '',
+                false
+            );
+        }
+    }
+    if (
+        deskView === 'analysis'
+        && !options.skipInitialAnalysis
+        && typeof analysisStore !== 'undefined'
+        && !analysisStore.getRootData()
+        && !analysisStore.isAnalysisLoading()
+    ) {
+        analyzeStock({skipNavigation: true});
+    }
 }
 
 function setDeskView(view) {
     setWorkspaceView(view === 'analysis' ? 'analysis' : 'candidates');
 }
 
-function handleKeyPress(event) {
-    if (event.key === 'Enter') {
-        analyzeStock();
+function cancelAutoAnalyzeStock() {
+    if (autoAnalyzeTimer) {
+        clearTimeout(autoAnalyzeTimer);
+        autoAnalyzeTimer = null;
     }
 }
 
-function setSignalMode(mode) {
-    signalMode = 'composite';
-    updateModeState();
-    var data = analysisStore.getRootData() || analysisStore.getViewData();
-    if (data) {
-        renderChart(data);
+function stockCodeFromInputValue(value) {
+    var match = String(value || '').match(/\d{6}/);
+    return match ? match[0] : '';
+}
+
+function handleStockCodeInput(event) {
+    if (event && event.isComposing) return;
+    cancelAutoAnalyzeStock();
+    var input = event && event.target ? event.target : document.getElementById('stock-code');
+    var code = stockCodeFromInputValue(input ? input.value : '');
+    if (!code || String(input ? input.value : '').trim().length < 6 || code === lastAutoAnalyzedCode) {
+        return;
+    }
+    autoAnalyzeTimer = setTimeout(function() {
+        autoAnalyzeTimer = null;
+        var currentInput = document.getElementById('stock-code');
+        var currentCode = stockCodeFromInputValue(currentInput ? currentInput.value : '');
+        if (!currentCode || currentCode !== code || currentCode === lastAutoAnalyzedCode) return;
+        lastAutoAnalyzedCode = currentCode;
+        analyzeStock({forceRefresh: true});
+    }, AUTO_ANALYZE_DEBOUNCE_MS);
+}
+
+function handleKeyPress(event) {
+    if (event.key === 'Enter') {
+        cancelAutoAnalyzeStock();
+        lastAutoAnalyzedCode = stockCodeFromInputValue(event && event.target ? event.target.value : '');
+        analyzeStock();
     }
 }
 
@@ -237,17 +287,42 @@ function analyzeStock(options) {
     options = options || {};
     var code = document.getElementById('stock-code').value.trim();
     if (!code) return;
+    if (!options.skipNavigation && workspaceView !== 'analysis') {
+        setWorkspaceView('analysis', {skipInitialAnalysis: true});
+    }
+    var forceRefresh = options.forceRefresh !== false;
+    if (forceRefresh) {
+        cancelAutoAnalyzeStock();
+        lastAutoAnalyzedCode = stockCodeFromInputValue(code);
+    }
     if (activeScanChartFocus && !scanChartFocusMatchesCode(code)) {
         clearActiveScanChartFocus();
     }
 
-    var btn = document.getElementById('btn-analyze');
-    btn.disabled = true;
-    var analysisRequest = analysisStore.beginAnalysis(code);
-    setDeskStatus('分析中');
-    setChartState('加载数据');
+    if (activeAnalysisController) {
+        activeAnalysisController.abort();
+        activeAnalysisController = null;
+    }
+    if (typeof abortDeferredTimeframeRequests === 'function') {
+        abortDeferredTimeframeRequests();
+    }
+    var requestController = typeof AbortController !== 'undefined'
+        ? new AbortController()
+        : null;
+    activeAnalysisController = requestController;
 
-    return analyzeStockData(code)
+    var btn = document.getElementById('btn-analyze');
+    var refreshBtn = document.getElementById('btn-refresh-analysis');
+    if (btn) btn.disabled = true;
+    if (refreshBtn) refreshBtn.disabled = true;
+    var analysisRequest = analysisStore.beginAnalysis(code);
+    setDeskStatus(forceRefresh ? '刷新行情中' : '分析中');
+    setChartState(forceRefresh ? '刷新行情数据' : '加载数据');
+
+    return analyzeStockData(code, {
+        signal: requestController ? requestController.signal : undefined,
+        forceRefresh: forceRefresh
+    })
         .then(function(data) {
             if (!analysisStore.isAnalysisRequestCurrent(analysisRequest)) {
                 return;
@@ -280,8 +355,12 @@ function analyzeStock(options) {
             alert('请求失败: ' + err.message);
         })
         .finally(function() {
+            if (activeAnalysisController === requestController) {
+                activeAnalysisController = null;
+            }
             if (analysisStore.isAnalysisRequestCurrent(analysisRequest) || !analysisStore.isAnalysisLoading()) {
-                btn.disabled = false;
+                if (btn) btn.disabled = false;
+                if (refreshBtn) refreshBtn.disabled = false;
             }
         });
 }
@@ -308,5 +387,7 @@ window.onload = function() {
     if (typeof renderScanStrategyViewToggle === 'function') {
         renderScanStrategyViewToggle();
     }
-    analyzeStock();
+    if (workspaceView === 'analysis' && !analysisStore.getRootData()) {
+        analyzeStock({skipNavigation: true});
+    }
 };

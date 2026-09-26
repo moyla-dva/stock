@@ -1,11 +1,20 @@
 """Provider adapters for recent minute-level A-share price history."""
 
+import logging
+
 import akshare as ak
 import pandas as pd
 
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.provider_network import configure_default_socket_timeout
 from stock_analyzer.providers.tdx_client import fetch_tdx_minute_bars
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _log(logger, level, message):
+    target = logger or LOGGER
+    getattr(target, level)(message)
 
 
 def market_symbol_for_sina(code):
@@ -49,36 +58,22 @@ class StockMinuteHistoryProvider:
         sina_symbol = market_symbol_for_sina(code)
         configure_default_socket_timeout()
         try:
-            if verbose:
-                print(
-                    f"[DEBUG] 正在从新浪获取分时数据: symbol={sina_symbol}, period={period}",
-                    flush=True,
-                )
-            if logger:
-                logger.info(f"正在从新浪获取分时数据: symbol={sina_symbol}, period={period}")
+            if verbose or logger:
+                _log(logger, "info", f"正在从新浪获取分时数据: symbol={sina_symbol}, period={period}")
             df = ak.stock_zh_a_minute(symbol=sina_symbol, period=str(period), adjust=adjust or "")
             df = _filter_by_range(df, start_text, end_text)
-            if verbose:
-                print(f"[DEBUG] 新浪分时数据获取完成，shape={df.shape if df is not None else 'None/Empty'}", flush=True)
-            if logger:
-                logger.info(f"新浪分时数据获取完成，shape={df.shape if df is not None else 'None/Empty'}")
+            if verbose or logger:
+                _log(logger, "info", f"新浪分时数据获取完成，shape={df.shape if df is not None else 'None/Empty'}")
             if df is not None and not df.empty:
                 return df
         except Exception as exc:
-            if verbose:
-                print(f"[ERROR] stock_zh_a_minute 失败: {exc}", flush=True)
-            if logger:
-                logger.error(f"stock_zh_a_minute 失败: {exc}")
+            if verbose or logger:
+                _log(logger, "error", f"stock_zh_a_minute 失败: {exc}")
 
         if adjust in ("", "none", None):
             try:
-                if verbose:
-                    print(
-                        f"[DEBUG] 备选方案: 从 TDX 获取分时数据: code={code}, period={period}",
-                        flush=True,
-                    )
-                if logger:
-                    logger.info(f"备选方案: 从 TDX 获取分时数据: code={code}, period={period}")
+                if verbose or logger:
+                    _log(logger, "info", f"备选方案: 从 TDX 获取分时数据: code={code}, period={period}")
                 return fetch_tdx_minute_bars(
                     code,
                     start_text,
@@ -88,10 +83,8 @@ class StockMinuteHistoryProvider:
                     verbose=verbose,
                 )
             except Exception as exc:
-                if verbose:
-                    print(f"[ERROR] TDX 分时数据获取失败: {exc}", flush=True)
-                if logger:
-                    logger.error(f"TDX 分时数据获取失败: {exc}")
+                if verbose or logger:
+                    _log(logger, "error", f"TDX 分时数据获取失败: {exc}")
         return None
 
 

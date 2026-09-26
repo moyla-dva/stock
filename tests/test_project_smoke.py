@@ -8,11 +8,18 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 import app
+from tests.fixtures import (
+    add_legacy_scores,
+    add_legacy_signal_columns,
+    apply_legacy_entry,
+    build_minimal_signal_frame,
+    mark_legacy_signals,
+)
+from stock_analyzer import events as events_module
 from stock_analyzer import scan_snapshot as scan_snapshot_module
 from stock_analyzer import stock_service
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.backtest import evaluate_signal_events
-from stock_analyzer.board_market_refresh import refresh_board_market_cache
 from stock_analyzer.c_signal_v2 import (
     build_c_signal_v2_permission,
     build_c_signal_v2_priority,
@@ -23,6 +30,7 @@ from stock_analyzer.c_signal_v2 import (
 from stock_analyzer.c_signal_v2_contracts import V2_SIGNAL_CONTRACTS, v2_signal_fields
 from stock_analyzer.c_signal_v2_facts import (
     build_bear_trap_recovery_facts,
+    build_c_signal_v2_event_facts,
     build_c_signal_v2_facts,
     build_exit_gate_facts,
     build_legacy_experience_facts,
@@ -55,23 +63,18 @@ from stock_analyzer.concept_graph import (
     upsert_concept_graph_edge,
 )
 from stock_analyzer.concept_jobs import ConceptRefreshJobManager
-from stock_analyzer.data_fetcher import fetch_stock_history, market_symbol_for_tx
-from stock_analyzer.events import SignalEvent, build_v2_signal_events
+from stock_analyzer.data_fetcher import fetch_stock_history
+from stock_analyzer.events import SIGNAL_DEFINITIONS, SignalEvent, build_v2_signal_events
 from stock_analyzer.indicators import calculate_bull_bear_power, calculate_macd, calculate_williams_r
 from stock_analyzer.intraday_fetcher import fetch_stock_minute_history
 from stock_analyzer.legacy_c_signal_adapter import LEGACY_C_SIGNAL_CONTRACTS, legacy_c_signal_fields
-from stock_analyzer.market_boards import (
-    build_board_market_payload,
-    get_industry_board_market,
-    read_cached_board_market,
-    write_cached_board_market,
-)
 from stock_analyzer.market_permission import build_v2_environment_permission
 from stock_analyzer.multi_timeframe import build_multi_timeframe_payload, summarize_timeframe
 from stock_analyzer.normalizer import normalize_price_frame
 from stock_analyzer.providers.concepts import _stock_rows_from_ths_concept_html
 from stock_analyzer.providers import tdx_client
 from stock_analyzer.providers.stock_history_minute import StockMinuteHistoryProvider, market_symbol_for_sina
+from stock_analyzer.providers.stock_history import market_symbol_for_tx
 from stock_analyzer.profile_relations import (
     attach_profile_relations,
     build_stock_profile_relations,
@@ -82,7 +85,7 @@ from stock_analyzer.profile_relations import (
     upsert_profile_relation_evidence,
 )
 from stock_analyzer.tag_profile import build_stock_tag_profile
-from stock_analyzer.scanner import EVENT_WEIGHTS, SCAN_CONFIG, build_v2_latest_scan_event, scan_events_for_type, scan_stock_frame
+from stock_analyzer.scanner import EVENT_WEIGHTS, SCAN_CONFIG, build_v2_latest_scan_event, scan_stock_frame
 from stock_analyzer.scan_explainer import build_scan_explanation
 from stock_analyzer.scan_overview import build_sector_overview
 from stock_analyzer.scan_snapshot import (
@@ -94,57 +97,42 @@ from stock_analyzer.scan_snapshot import (
     write_scan_snapshot,
 )
 from stock_analyzer.scan_workspace_candidates import filter_workspace_candidates
+from stock_analyzer.scan_workspace_index import workspace_pool_index, workspace_pool_page
 from stock_analyzer.serializers import analysis_frame_to_chart_payload
 from stock_analyzer.signals import add_signal_columns
+from stock_analyzer.signal_registry import (
+    build_event_weights,
+    build_scan_config,
+    signal_keys_for_reason,
+    signal_labels_for_reason,
+)
+from stock_analyzer.v2_facts_timeline import (
+    V2FactsTimelineCache,
+    build_v2_facts_timeline,
+    v2_timeline_start_index,
+)
 from stock_analyzer.v2_analysis_context import build_v2_analysis_context
-from scripts import scan_batch
 from scripts import analyze_legacy_experience_ablation
-from scripts import scan_uptrend_divergence
+
+
+def _valid_history_frame(dates, closes=None, volumes=None):
+    dates = list(dates)
+    count = len(dates)
+    closes = list(closes or [10.0] * count)
+    volumes = list(volumes or [1000.0] * count)
+    return pd.DataFrame({
+        "date": dates,
+        "open": closes,
+        "high": [value + 0.2 for value in closes],
+        "low": [value - 0.2 for value in closes],
+        "close": closes,
+        "volume": volumes,
+    })
 
 
 class ProjectSmokeTest(unittest.TestCase):
     def _minimal_signal_frame(self, rows=10):
-        frame = pd.DataFrame({
-            "date": pd.date_range("2026-01-01", periods=rows, freq="D"),
-            "open": [10.0] * rows,
-            "high": [10.5] * rows,
-            "low": [9.8] * rows,
-            "close": [10.0 + i * 0.1 for i in range(rows)],
-            "custom": [0.0] * rows,
-            "dif": [0.0] * rows,
-            "dea": [0.0] * rows,
-            "macd_hist": [0.0] * rows,
-            "ma20": [10.0] * rows,
-            "vwap": [10.0] * rows,
-        })
-        for column in [
-            "is_b_point",
-            "is_pullback_b",
-            "is_s_point",
-            "touch_upper",
-            "break_ma5",
-            "is_bottom_divergence",
-            "is_top_divergence",
-            "new_is_b_point",
-            "new_is_pullback_b",
-            "new_is_s_point",
-            "opt_is_b_point",
-            "opt_is_pullback_b",
-            "opt_is_s_warn",
-            "opt_is_s_confirm",
-            "opt_is_s_point",
-            "composite_entry",
-            "composite_risk_warn",
-            "composite_exit",
-            "composite_risk",
-        ]:
-            frame[column] = False
-        frame["composite_entry_type"] = ""
-        frame["composite_risk_type"] = ""
-        frame["composite_exit_type"] = ""
-        frame["composite_entry_reason"] = ""
-        frame["composite_risk_reason"] = ""
-        return frame
+        return build_minimal_signal_frame(rows=rows)
 
     def _strategy_frame(self):
         rows = 8
@@ -167,20 +155,7 @@ class ProjectSmokeTest(unittest.TestCase):
             "break_ma5": [False, False, False, True, True, True, False, False],
             "touch_upper": [False] * rows,
         })
-        for column in [
-            "is_b_point",
-            "is_pullback_b",
-            "new_is_b_point",
-            "new_is_pullback_b",
-            "opt_is_b_point",
-            "opt_is_pullback_b",
-            "is_bottom_divergence",
-            "is_top_divergence",
-            "opt_is_s_warn",
-            "opt_is_s_confirm",
-        ]:
-            frame[column] = False
-        return frame
+        return add_legacy_signal_columns(frame)
 
     def _v2_trigger_frame(self):
         rows = 14
@@ -196,11 +171,7 @@ class ProjectSmokeTest(unittest.TestCase):
         frame["trend_ok"] = [True] * rows
         frame["williams_r"] = [70.0] * 13 + [35.0]
         frame["williams_r_cross_bull"] = [False] * 13 + [True]
-        frame["composite_setup_score"] = [0] * rows
-        frame["composite_confirm_score"] = [0] * rows
-        frame["composite_risk_score"] = [0] * rows
-        frame["composite_risk_break_score"] = [0] * rows
-        frame["composite_risk_heat_score"] = [0] * rows
+        add_legacy_scores(frame, setup=0, confirm=0, risk=0, break_score=0, heat_score=0)
         return frame
 
     def _v2_long_macro_frame(self, *, macro="down"):
@@ -223,33 +194,7 @@ class ProjectSmokeTest(unittest.TestCase):
             "ma20": closes,
             "vwap": closes,
         })
-        for column in [
-            "is_b_point",
-            "is_pullback_b",
-            "is_s_point",
-            "touch_upper",
-            "break_ma5",
-            "is_bottom_divergence",
-            "is_top_divergence",
-            "new_is_b_point",
-            "new_is_pullback_b",
-            "new_is_s_point",
-            "opt_is_b_point",
-            "opt_is_pullback_b",
-            "opt_is_s_warn",
-            "opt_is_s_confirm",
-            "opt_is_s_point",
-            "composite_entry",
-            "composite_risk_warn",
-            "composite_exit",
-            "composite_risk",
-        ]:
-            history[column] = False
-        history["composite_entry_type"] = ""
-        history["composite_risk_type"] = ""
-        history["composite_exit_type"] = ""
-        history["composite_entry_reason"] = ""
-        history["composite_risk_reason"] = ""
+        add_legacy_signal_columns(history)
         trigger = trigger.copy()
         trigger["date"] = pd.date_range(history["date"].iloc[-1] + pd.Timedelta(days=1), periods=len(trigger), freq="D")
         return pd.concat([history, trigger], ignore_index=True)
@@ -330,6 +275,21 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIsNone(normalize_code("abc"))
         self.assertIs(app.normalize_code, normalize_code)
 
+    def test_index_uses_local_echarts_bundle(self):
+        client = app.app.test_client()
+
+        index_response = client.get("/")
+        html = index_response.get_data(as_text=True)
+        vendor_response = client.get("/static/vendor/echarts.min.js")
+        vendor_head = vendor_response.data[:500]
+        vendor_response.close()
+
+        self.assertEqual(index_response.status_code, 200)
+        self.assertIn("/static/vendor/echarts.min.js", html)
+        self.assertNotIn("cdn.jsdelivr", html)
+        self.assertEqual(vendor_response.status_code, 200)
+        self.assertIn(b"Apache Software Foundation", vendor_head)
+
     def test_indicator_module_calculates_macd_shape(self):
         df = pd.DataFrame({"close": [10.0, 10.5, 10.2, 10.8, 11.0]})
 
@@ -354,6 +314,205 @@ class ProjectSmokeTest(unittest.TestCase):
 
         self.assertEqual(list(result.columns), ["date", "open", "high", "low", "close", "volume"])
         self.assertEqual(result["date"].dt.strftime("%Y-%m-%d").tolist(), ["2026-01-02", "2026-01-03"])
+
+    def test_normalizer_does_not_guess_amount_is_volume(self):
+        frame = pd.DataFrame({
+            "date": ["2026-09-24"],
+            "open": [10.0],
+            "high": [10.2],
+            "low": [9.8],
+            "close": [10.1],
+            "amount": [100000.0],
+        })
+
+        with self.assertRaisesRegex(ValueError, "volume"):
+            normalize_price_frame(frame)
+
+    def test_normalizer_drops_rows_with_unknown_volume_instead_of_fabricating_zero(self):
+        frame = _valid_history_frame(
+            ["2026-09-23", "2026-09-24"],
+            closes=[10.0, 10.1],
+            volumes=[None, 1200],
+        )
+
+        result = normalize_price_frame(frame)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["volume"], 1200)
+
+    def test_tencent_volume_contract_uses_security_specific_share_units(self):
+        from stock_analyzer.providers.stock_history import tencent_volume_to_shares
+
+        self.assertEqual(tencent_volume_to_shares("600000", 12), 1200)
+        self.assertEqual(tencent_volume_to_shares("300200", 12), 1200)
+        self.assertEqual(tencent_volume_to_shares("920046", 12), 1200)
+        self.assertEqual(tencent_volume_to_shares("688001", 12), 12)
+        self.assertEqual(tencent_volume_to_shares("000001", 12), 12)
+
+    @patch("stock_analyzer.providers.stock_history.requests.get")
+    def test_tencent_direct_history_returns_volume_in_shares(self, mock_get):
+        from stock_analyzer.providers.stock_history import _fetch_tx_history_direct
+
+        response = Mock()
+        response.text = (
+            'kline_day2026={"data":{"sh600000":{"day":'
+            '[["2026-09-24","10","10.5","10.8","9.9","12"]]}}}'
+        )
+        mock_get.return_value = response
+
+        result = _fetch_tx_history_direct("sh600000", "20260924", "20260924")
+
+        self.assertEqual(list(result.columns), ["date", "open", "close", "high", "low", "volume"])
+        self.assertEqual(float(result.iloc[0]["volume"]), 1200.0)
+
+    @patch("stock_analyzer.providers.stock_history._fetch_tx_history_direct")
+    @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
+    def test_partial_direct_history_merges_instead_of_replacing_akshare_range(
+        self,
+        mock_akshare,
+        mock_direct,
+    ):
+        from stock_analyzer.providers.stock_history import StockHistoryProvider
+
+        mock_akshare.return_value = pd.DataFrame({
+            "日期": ["2026-09-22", "2026-09-23"],
+            "开盘": [10.0, 10.2],
+            "最高": [10.4, 10.5],
+            "最低": [9.9, 10.1],
+            "收盘": [10.2, 10.3],
+            "成交量": [1000, 1100],
+        })
+        mock_direct.return_value = pd.DataFrame({
+            "date": [pd.Timestamp("2026-09-23").date(), pd.Timestamp("2026-09-24").date()],
+            "open": [10.3, 10.4],
+            "high": [10.6, 10.8],
+            "low": [10.2, 10.3],
+            "close": [10.5, 10.7],
+            "volume": [1200, 1300],
+        })
+
+        frame, _ = StockHistoryProvider().fetch_history_with_diagnostics(
+            "600001", "20260922", "20260924"
+        )
+
+        self.assertEqual(frame["date"].dt.strftime("%Y-%m-%d").tolist(), [
+            "2026-09-22", "2026-09-23", "2026-09-24",
+        ])
+        self.assertEqual(frame["close"].tolist(), [10.2, 10.5, 10.7])
+        self.assertEqual(
+            frame.attrs["market_data_identity"]["data_source"],
+            "tencent_via_akshare+tencent_direct",
+        )
+
+    def test_stale_history_cache_checks_older_candidates_and_reports_result(self):
+        from stock_analyzer.data_fetcher import read_cached_history
+
+        canonical = Path("/tmp/canonical-history.csv")
+        legacy = Path("/tmp/legacy-history.csv")
+        frame = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1000])
+        with (
+            patch("stock_analyzer.data_fetcher._cached_history_candidates", return_value=[canonical, legacy]),
+            patch("stock_analyzer.data_fetcher.cache_path_for_history", return_value=canonical),
+            patch("stock_analyzer.data_fetcher.read_history_cache_file", return_value=(frame, {})) as read_cache,
+            patch("stock_analyzer.data_fetcher._current_day_cache_is_stale", side_effect=[True, False]),
+            patch("stock_analyzer.data_fetcher.market_calendar_context", return_value={"is_session": True}),
+            patch("stock_analyzer.data_fetcher.write_cached_history", return_value=True),
+        ):
+            diagnostics = {}
+            result = read_cached_history(
+                "600001", "20250429", "20260511", now=pd.Timestamp("2026-05-11 16:00:00"),
+                diagnostics=diagnostics,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(read_cache.call_count, 2)
+        self.assertEqual(diagnostics["cache_status"], "hit")
+
+        stale_diagnostics = {}
+        with (
+            patch("stock_analyzer.data_fetcher._cached_history_candidates", return_value=[canonical]),
+            patch("stock_analyzer.data_fetcher.cache_path_for_history", return_value=canonical),
+            patch("stock_analyzer.data_fetcher.read_history_cache_file", return_value=(frame, {})),
+            patch("stock_analyzer.data_fetcher._current_day_cache_is_stale", return_value=True),
+            patch("stock_analyzer.data_fetcher.market_calendar_context", return_value={"is_session": True}),
+        ):
+            stale_result = read_cached_history(
+                "600001", "20250429", "20260511", now=pd.Timestamp("2026-05-11 16:00:00"),
+                diagnostics=stale_diagnostics,
+            )
+
+        self.assertIsNone(stale_result)
+        self.assertEqual(stale_diagnostics["cache_status"], "stale")
+
+    def test_tencent_realtime_quote_returns_volume_in_shares(self):
+        from stock_analyzer.providers.stock_quote import bar_from_quote_fields
+
+        fields = [""] * 39
+        fields[2] = "600000"
+        fields[3] = "10.5"
+        fields[5] = "10.0"
+        fields[6] = "12"
+        fields[30] = "20260924"
+        fields[33] = "10.8"
+        fields[34] = "9.9"
+        fields[37] = "120"
+        fields[38] = "0.5"
+
+        bar = bar_from_quote_fields(fields, target_date_text="20260924")
+
+        self.assertEqual(bar["volume"], 1200)
+
+    def test_realtime_merge_preserves_history_and_share_volume(self):
+        from stock_analyzer.data_fetcher import _canonical_history_frame
+        from stock_analyzer.providers.stock_quote import merge_quote_bar
+
+        history = pd.DataFrame({
+            "date": ["2026-09-23"],
+            "open": [10.0],
+            "close": [10.2],
+            "high": [10.4],
+            "low": [9.9],
+            "volume": [12300],
+        })
+        quote = {
+            "date": "2026-09-24",
+            "open": 10.2,
+            "close": 10.5,
+            "high": 10.8,
+            "low": 10.1,
+            "volume": 45600,
+        }
+
+        result = normalize_price_frame(merge_quote_bar(_canonical_history_frame(history), quote))
+
+        self.assertEqual(result["volume"].tolist(), [12300, 45600])
+
+    def test_legacy_tencent_cache_volume_is_migrated_to_shares(self):
+        from stock_analyzer.data_fetcher import cache_path_for_history, read_cached_history
+
+        legacy = pd.DataFrame({
+            "date": ["2026-09-23", "2026-09-24"],
+            "open": [10.0, 10.2],
+            "high": [10.4, 10.8],
+            "low": [9.9, 10.1],
+            "close": [10.2, 10.5],
+            "amount": [123, 0],
+            "volume": [None, 12],
+        })
+        with TemporaryDirectory() as tmp_dir:
+            with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)), patch(
+                "stock_analyzer.data_fetcher.market_calendar_context",
+                return_value={"is_session": True, "calendar_id": "XSHG"},
+            ):
+                path = cache_path_for_history("600000", "20260923", "20260924")
+                legacy.to_csv(path, index=False)
+                path.with_suffix(path.suffix + ".meta.json").write_text(
+                    json.dumps({"data_source": "tencent_direct+tencent_realtime"}),
+                    encoding="utf-8",
+                )
+                result = read_cached_history("600000", "20260923", "20260924")
+
+        self.assertEqual(result["volume"].tolist(), [12300, 1200])
 
     def test_normalizer_accepts_intraday_time_columns(self):
         df = pd.DataFrame({
@@ -448,14 +607,7 @@ class ProjectSmokeTest(unittest.TestCase):
     ):
         mock_now.return_value = pd.Timestamp("2026-05-10")
         mock_tx.side_effect = KeyError("day")
-        expected = pd.DataFrame({
-            "date": ["2026-05-08"],
-            "open": [10.0],
-            "close": [10.5],
-            "high": [10.8],
-            "low": [9.9],
-            "amount": [1000.0],
-        })
+        expected = _valid_history_frame(["2026-05-08"], closes=[10.5], volumes=[1000.0])
         mock_direct_tx.return_value = expected
 
         result = fetch_stock_history("920046", start_date="2025-04-29")
@@ -483,7 +635,14 @@ class ProjectSmokeTest(unittest.TestCase):
     @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
     def test_fetch_stock_history_uses_local_cache_when_enabled(self, mock_tx, mock_direct_tx, mock_now):
         mock_now.return_value = pd.Timestamp("2026-05-10")
-        expected = pd.DataFrame({"日期": ["2025-04-29"], "收盘": [10.0]})
+        expected = pd.DataFrame({
+            "日期": ["2025-04-29"],
+            "开盘": [9.8],
+            "最高": [10.2],
+            "最低": [9.7],
+            "收盘": [10.0],
+            "成交量": [1000],
+        })
         mock_tx.return_value = expected
         mock_direct_tx.return_value = pd.DataFrame()
 
@@ -494,12 +653,59 @@ class ProjectSmokeTest(unittest.TestCase):
 
         self.assertEqual(mock_tx.call_count, 1)
         pd.testing.assert_frame_equal(first, expected)
-        pd.testing.assert_frame_equal(second, expected)
+        self.assertEqual(second["volume"].tolist(), [1000])
+
+    @patch("stock_analyzer.data_fetcher.fetch_realtime_quote_bar")
+    def test_fetch_stock_history_force_refresh_merges_quote_without_persisting_intraday_bar(self, mock_quote):
+        from stock_analyzer.data_fetcher import cache_path_for_history
+
+        cached = _valid_history_frame(["2026-05-08"], closes=[6.71], volumes=[12300])
+        history = _valid_history_frame(["2026-05-08"], closes=[6.71], volumes=[12300])
+        quote_bar = {
+            "date": "2026-05-11",
+            "open": 6.80,
+            "close": 6.88,
+            "high": 6.90,
+            "low": 6.76,
+            "volume": 1200,
+        }
+        provider = Mock()
+        provider.fetch_history.return_value = history
+        mock_quote.return_value = quote_bar
+
+        with TemporaryDirectory() as tmp_dir:
+            with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)):
+                path = cache_path_for_history("600063", "20250429", "20260511", adjust="qfq")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                cached.to_csv(path, index=False)
+                with patch(
+                    "stock_analyzer.data_fetcher.date_range_for_fetch",
+                    return_value=(pd.Timestamp("2025-04-29"), pd.Timestamp("2026-05-11")),
+                ):
+                    with patch("stock_analyzer.data_fetcher.beijing_now", return_value=pd.Timestamp("2026-05-11 10:30:00")):
+                        result = fetch_stock_history(
+                            "600063",
+                            start_date="2025-04-29",
+                            adjust="qfq",
+                            use_cache=True,
+                            force_refresh=True,
+                            provider=provider,
+                        )
+                stored = pd.read_csv(path)
+
+        provider.fetch_history.assert_called_once()
+        mock_quote.assert_called_once_with("600063", target_date_text="20260511", logger=None)
+        self.assertEqual(
+            pd.to_datetime(result["date"]).dt.strftime("%Y-%m-%d").tolist(),
+            ["2026-05-08", "2026-05-11"],
+        )
+        self.assertEqual(float(result.iloc[-1]["close"]), 6.88)
+        pd.testing.assert_frame_equal(stored, cached)
 
     def test_fetch_stock_history_migrates_legacy_daily_cache_to_stable_key(self):
         from stock_analyzer.data_fetcher import cache_path_for_history, legacy_cache_path_for_history
 
-        expected = pd.DataFrame({"date": ["2026-05-11"], "close": [6.76]})
+        expected = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1000])
         provider = Mock()
 
         with TemporaryDirectory() as tmp_dir:
@@ -526,10 +732,11 @@ class ProjectSmokeTest(unittest.TestCase):
         provider.fetch_history.assert_not_called()
         self.assertTrue(stable_exists)
         self.assertEqual(stable_name, "600063_20250429_qfq.csv")
-        pd.testing.assert_frame_equal(result, expected)
+        self.assertEqual(result["volume"].tolist(), [1000])
+        self.assertEqual(pd.to_datetime(result.iloc[0]["date"]).strftime("%Y-%m-%d"), "2026-05-11")
 
     def test_fetch_stock_history_reuses_stable_cache_across_requested_end_dates(self):
-        first_frame = pd.DataFrame({"date": ["2026-05-11"], "close": [6.76]})
+        first_frame = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1000])
         provider = Mock()
         provider.fetch_history.return_value = first_frame
 
@@ -552,16 +759,17 @@ class ProjectSmokeTest(unittest.TestCase):
 
         self.assertEqual(provider.fetch_history.call_count, 1)
         self.assertEqual(csv_files, ["600063_20250429_qfq.csv"])
-        pd.testing.assert_frame_equal(first, first_frame)
-        pd.testing.assert_frame_equal(second, first_frame)
+        self.assertEqual(first["volume"].tolist(), [1000])
+        self.assertEqual(second["volume"].tolist(), [1000])
+        self.assertEqual(pd.to_datetime(first["date"]).tolist(), pd.to_datetime(second["date"]).tolist())
 
     @patch("stock_analyzer.data_fetcher.beijing_now")
     @patch("stock_analyzer.providers.stock_history._fetch_tx_history_direct")
     @patch("stock_analyzer.providers.stock_history.ak.stock_zh_a_hist_tx")
     def test_fetch_stock_history_refreshes_stale_current_day_cache(self, mock_tx, mock_direct_tx, mock_now):
         mock_now.return_value = pd.Timestamp("2026-05-11 16:00:00")
-        stale = pd.DataFrame({"date": ["2026-05-08"], "close": [6.71]})
-        fresh = pd.DataFrame({"date": ["2026-05-11"], "close": [6.76]})
+        stale = _valid_history_frame(["2026-05-08"], closes=[6.71], volumes=[1000])
+        fresh = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1200])
         mock_tx.return_value = stale
         mock_direct_tx.return_value = fresh
 
@@ -572,12 +780,12 @@ class ProjectSmokeTest(unittest.TestCase):
 
         self.assertEqual(mock_tx.call_count, 1)
         self.assertEqual(mock_direct_tx.call_count, 1)
-        pd.testing.assert_frame_equal(first, fresh)
-        pd.testing.assert_frame_equal(second, fresh)
+        self.assertEqual(first["volume"].tolist(), [1000, 1200])
+        self.assertEqual(second["volume"].tolist(), [1000, 1200])
 
     def test_fetch_stock_history_refreshes_intraday_current_day_cache_after_close(self):
-        morning_snapshot = pd.DataFrame({"date": ["2026-05-11"], "close": [6.70]})
-        closing_snapshot = pd.DataFrame({"date": ["2026-05-11"], "close": [6.76]})
+        morning_snapshot = _valid_history_frame(["2026-05-11"], closes=[6.70], volumes=[1000])
+        closing_snapshot = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1200])
         provider = Mock()
         provider.fetch_history.side_effect = [morning_snapshot, closing_snapshot]
 
@@ -597,14 +805,14 @@ class ProjectSmokeTest(unittest.TestCase):
                         second = fetch_stock_history("600063", start_date="2025-04-29", use_cache=True, provider=provider)
 
         self.assertEqual(provider.fetch_history.call_count, 2)
-        pd.testing.assert_frame_equal(first, morning_snapshot)
-        pd.testing.assert_frame_equal(second, closing_snapshot)
+        self.assertEqual(first["close"].tolist(), [6.70])
+        self.assertEqual(second["close"].tolist(), [6.76])
 
     @patch("stock_analyzer.data_fetcher.beijing_now", return_value=pd.Timestamp("2026-05-11 16:00:00"))
     def test_write_cached_history_is_atomic_and_writes_metadata(self, _mock_now):
         from stock_analyzer.data_fetcher import cache_path_for_history, write_cached_history
 
-        frame = pd.DataFrame({"date": ["2026-05-11"], "close": [6.76]})
+        frame = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1000])
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)):
                 write_cached_history("600063", "20250429", "20260511", frame, adjust="qfq")
@@ -618,7 +826,59 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(tmp_files, [])
         self.assertEqual(meta["latest_date"], "20260511")
         self.assertEqual(meta["stored_at"], "2026-05-11T16:00:00")
+        self.assertEqual(meta["volume_unit"], "shares")
+        self.assertTrue(meta["cache_payload_revision"].startswith("sha256:"))
+        self.assertEqual(list(cached.columns), ["date", "open", "high", "low", "close", "volume"])
         pd.testing.assert_frame_equal(cached, frame)
+
+    def test_history_cache_rejects_csv_and_metadata_revision_mismatch(self):
+        from stock_analyzer.data_fetcher import cache_path_for_history, read_cached_history, write_cached_history
+
+        frame = _valid_history_frame(["2026-05-11"], closes=[6.76], volumes=[1000])
+        with TemporaryDirectory() as tmp_dir:
+            with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)):
+                write_cached_history("600063", "20250429", "20260511", frame, adjust="qfq")
+                path = cache_path_for_history("600063", "20250429", "20260511", adjust="qfq")
+                changed = frame.copy()
+                changed.loc[0, "close"] = 6.81
+                changed.to_csv(path, index=False)
+                diagnostics = {}
+                cached = read_cached_history(
+                    "600063",
+                    "20250429",
+                    "20260511",
+                    adjust="qfq",
+                    diagnostics=diagnostics,
+                )
+
+        self.assertIsNone(cached)
+        self.assertEqual(diagnostics["cache_status"], "read_error")
+
+    def test_incomplete_history_is_not_written_to_cache(self):
+        from stock_analyzer.data_fetcher import (
+            _should_write_history_cache,
+            cache_path_for_history,
+            write_cached_history,
+        )
+
+        incomplete = pd.DataFrame({
+            "date": ["2026-09-24"],
+            "open": [10.0],
+            "high": [10.2],
+            "low": [9.8],
+            "close": [10.1],
+            "volume": [None],
+        })
+        with TemporaryDirectory() as tmp_dir:
+            with patch("stock_analyzer.data_fetcher.CACHE_DIR", Path(tmp_dir)):
+                written = write_cached_history(
+                    "600000", "20260901", "20260924", incomplete
+                )
+                path = cache_path_for_history("600000", "20260901", "20260924")
+
+        self.assertFalse(written)
+        self.assertFalse(path.exists())
+        self.assertFalse(_should_write_history_cache(incomplete, "20260924"))
 
     def test_tdx_daily_and_minute_bars_advance_paging_offset(self):
         def bars(start, count, prefix):
@@ -961,6 +1221,47 @@ class ProjectSmokeTest(unittest.TestCase):
         mock_disable.assert_called_once()
 
     @patch("stock_analyzer.catalog.disable_proxies")
+    def test_refresh_stock_concept_cache_preserves_previous_cache_when_coverage_collapses(self, mock_disable):
+        class PartialConceptProvider:
+            def list_boards(self, logger=None):
+                return [
+                    {"name": "局部概念", "index_code": "", "concept_code": "301001", "code": "301001"},
+                ], "ths_concept_pages"
+
+            def fetch_adata_constituents(self, board):
+                return []
+
+            def fetch_ths_constituents(self, board):
+                return [
+                    {"code": "600001", "name": "样本1"},
+                    {"code": "600002", "name": "样本2"},
+                ]
+
+        with TemporaryDirectory() as tmp_dir:
+            cache_dir = Path(tmp_dir)
+            previous = {
+                f"600{i:03d}": [f"旧概念{i}"]
+                for i in range(1, 11)
+            }
+            (cache_dir / "stock_concepts.json").write_text(json.dumps({
+                "source": "previous",
+                "updated_at": "2026-09-19T15:30:00",
+                "stocks": previous,
+            }, ensure_ascii=False), encoding="utf-8")
+            logger = Mock()
+            with patch("stock_analyzer.catalog.CATALOG_CACHE_DIR", cache_dir):
+                summary = refresh_stock_concept_cache(provider=PartialConceptProvider(), logger=logger)
+                preserved = json.loads((cache_dir / "stock_concepts.json").read_text(encoding="utf-8"))
+                profile = get_cached_stock_profile("600001")
+
+        self.assertEqual(summary["stock_count"], 2)
+        self.assertEqual(preserved["source"], "previous")
+        self.assertEqual(preserved["stocks"], previous)
+        self.assertEqual(profile["concepts"], ["局部概念", "旧概念1"])
+        logger.warning.assert_called_once()
+        mock_disable.assert_called_once()
+
+    @patch("stock_analyzer.catalog.disable_proxies")
     def test_refresh_stock_concept_cache_falls_back_to_ths_page_when_adata_constituent_fails(
         self,
         mock_disable,
@@ -1176,6 +1477,16 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(payload["tag_profile"]["official_industry"], "半导体")
         self.assertIn("AI芯片", payload["tag_profile"]["raw_concepts"])
 
+    @patch("app.get_stock_profile", return_value={"name": "示例股票", "sector": "半导体", "concepts": []})
+    @patch("stock_analyzer.stock_service.fetch_and_process_data", return_value={"stock_code": "600063", "dates": ["2026-05-08"]})
+    def test_analyze_route_forwards_force_refresh_to_stock_service(self, mock_fetch, mock_profile):
+        response = app.app.test_client().get("/api/analyze?code=600063&refresh=1")
+
+        self.assertEqual(response.status_code, 200)
+        _, kwargs = mock_fetch.call_args
+        self.assertTrue(kwargs["force_refresh"])
+        self.assertFalse(kwargs["include_legacy_chart"])
+
     def test_analyze_api_passes_legacy_chart_flag_when_requested(self):
         captured = {}
 
@@ -1197,6 +1508,30 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(payload["stock_code"], "600063")
         self.assertEqual(captured["code"], "600063")
         self.assertTrue(captured["include_legacy_chart"])
+
+    def test_analyze_api_passes_force_refresh_when_requested(self):
+        captured = {}
+
+        def fetch_data(code, include_legacy_chart=False, force_refresh=False):
+            captured["code"] = code
+            captured["include_legacy_chart"] = include_legacy_chart
+            captured["force_refresh"] = force_refresh
+            return {"stock_code": code, "dates": ["2026-05-08"]}
+
+        with app.app.test_request_context("/api/analyze?code=600063&refresh=1"):
+            response = app.stock_api.analyze_response(
+                app.flask_jsonify,
+                app.normalize_code,
+                fetch_data,
+                lambda code: {"name": "示例股票", "sector": "半导体", "concepts": ["AI芯片"]},
+                lambda code: "示例股票",
+            )
+
+        payload = response.get_json()
+        self.assertEqual(payload["stock_code"], "600063")
+        self.assertEqual(captured["code"], "600063")
+        self.assertTrue(captured["force_refresh"])
+        self.assertFalse(captured["include_legacy_chart"])
 
     @patch("stock_analyzer.multi_timeframe.fetch_stock_minute_history")
     def test_multi_timeframe_payload_exposes_daily_and_hourly_layers(self, mock_minute):
@@ -1595,10 +1930,7 @@ class ProjectSmokeTest(unittest.TestCase):
         frame = self._minimal_signal_frame(rows=12)
         frame["close"] = [10.0] * 12
         frame["open"] = [10.0] * 12
-        frame["composite_setup_score"] = [1] * 12
-        frame["composite_confirm_score"] = [4] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "breakout"
+        apply_legacy_entry(frame, entry_type="breakout", setup=1, confirm=4)
 
         state = build_c_signal_v2_state(frame, event_key="composite_breakout")
 
@@ -1609,10 +1941,12 @@ class ProjectSmokeTest(unittest.TestCase):
 
     def test_c_signal_v2_facts_surfaces_legacy_experience_without_permission(self):
         frame = self._minimal_signal_frame(rows=14)
-        frame.loc[10, "new_is_b_point"] = True
-        frame.loc[11, "is_bottom_divergence"] = True
-        frame.loc[12, "new_is_pullback_b"] = True
-        frame.loc[13, "opt_is_s_warn"] = True
+        mark_legacy_signals(frame, {
+            10: ["new_is_b_point"],
+            11: ["is_bottom_divergence"],
+            12: ["new_is_pullback_b"],
+            13: ["opt_is_s_warn"],
+        })
 
         legacy = build_legacy_experience_facts(frame)
         facts = build_c_signal_v2_facts(frame)
@@ -1854,6 +2188,263 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(top_event.date, "2026-01-01")
         self.assertEqual(top_event.category, "top")
 
+    def test_v2_signal_events_cache_invalidates_when_same_day_prices_change(self):
+        frame = self._minimal_signal_frame(rows=8)
+        updated = frame.copy()
+        updated.loc[updated.index[-1], "close"] = 99.0
+        calls = []
+
+        def fake_events(df_display, lookback=None, **_kwargs):
+            latest_close = float(df_display["close"].iloc[-1])
+            calls.append(latest_close)
+            return [SignalEvent(
+                key="v2_structure_candidate",
+                group="v2",
+                date=str(df_display["date"].iloc[-1])[:10],
+                coord_price=latest_close,
+                price=latest_close,
+            )]
+
+        events_module._V2_EVENTS_CACHE.clear()
+        try:
+            with patch("stock_analyzer.events.build_v2_signal_events", side_effect=fake_events):
+                first = events_module.build_v2_signal_events_cached(frame, lookback=60, cache_scope="single:demo")
+                second = events_module.build_v2_signal_events_cached(updated, lookback=60, cache_scope="single:demo")
+        finally:
+            events_module._V2_EVENTS_CACHE.clear()
+
+        self.assertEqual([event.price for event in first], [10.7])
+        self.assertEqual([event.price for event in second], [99.0])
+        self.assertEqual(calls, [10.7, 99.0])
+
+    def test_v2_event_fingerprint_detects_middle_row_reordering(self):
+        first = pd.DataFrame({
+            "date": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"],
+            "close": [10.0, 11.0, 12.0, 13.0],
+        })
+        second = first.copy()
+        second.loc[[1, 2], "close"] = second.loc[[2, 1], "close"].to_numpy()
+
+        self.assertNotEqual(
+            events_module._v2_events_frame_fingerprint(first),
+            events_module._v2_events_frame_fingerprint(second),
+        )
+
+    def test_v2_facts_timeline_preserves_prefix_windows_for_lookback(self):
+        frame = self._minimal_signal_frame(rows=8)
+        calls = []
+
+        def fake_facts_builder(prefix):
+            calls.append(len(prefix))
+            return {
+                "latest_date": str(prefix["date"].iloc[-1])[:10],
+                "structure": {
+                    "rectangle": {"available": len(prefix) >= 5},
+                },
+            }
+
+        timeline = build_v2_facts_timeline(frame, lookback=3, facts_builder=fake_facts_builder)
+
+        self.assertEqual(v2_timeline_start_index(frame, lookback=3), 5)
+        self.assertEqual(timeline.start_idx, 5)
+        self.assertEqual(calls, [5, 6, 7, 8])
+        self.assertEqual(timeline.built_count, 4)
+        self.assertEqual(timeline.reused_count, 0)
+        self.assertTrue(timeline.previous_facts["structure"]["rectangle"]["available"])
+        self.assertEqual([point.idx for point in timeline.points], [5, 6, 7])
+        self.assertEqual([point.facts["latest_date"] for point in timeline.points], [
+            "2026-01-06",
+            "2026-01-07",
+            "2026-01-08",
+        ])
+
+    def test_v2_facts_timeline_reuses_known_latest_facts(self):
+        frame = self._minimal_signal_frame(rows=8)
+        calls = []
+        known_latest = {
+            "latest_date": "known",
+            "structure": {"rectangle": {"available": True}},
+        }
+
+        def fake_facts_builder(prefix):
+            calls.append(len(prefix))
+            return {
+                "latest_date": str(prefix["date"].iloc[-1])[:10],
+                "structure": {
+                    "rectangle": {"available": len(prefix) >= 5},
+                },
+            }
+
+        timeline = build_v2_facts_timeline(
+            frame,
+            lookback=3,
+            facts_builder=fake_facts_builder,
+            known_facts_by_idx={len(frame) - 1: known_latest},
+        )
+
+        self.assertEqual(calls, [5, 6, 7])
+        self.assertEqual(timeline.built_count, 3)
+        self.assertEqual(timeline.reused_count, 1)
+        self.assertIs(timeline.points[-1].facts, known_latest)
+
+    def test_v2_facts_timeline_cache_reuses_only_unchanged_prefixes(self):
+        frame = pd.DataFrame({
+            "date": pd.date_range("2026-09-01", periods=8, freq="D"),
+            "close": range(8),
+        })
+        calls = []
+
+        def fake_facts_builder(prefix):
+            calls.append(len(prefix))
+            return {"rows": len(prefix)}
+
+        cache = V2FactsTimelineCache(max_entries=2)
+        first = build_v2_facts_timeline(
+            frame,
+            lookback=3,
+            facts_builder=fake_facts_builder,
+        )
+        cache.store("daily:600001", frame, first)
+        appended = pd.concat([
+            frame,
+            pd.DataFrame({"date": [pd.Timestamp("2026-09-09")], "close": [8]}),
+        ], ignore_index=True)
+        second = build_v2_facts_timeline(
+            appended,
+            lookback=3,
+            facts_builder=fake_facts_builder,
+            known_facts_by_idx=cache.known_facts("daily:600001", appended),
+        )
+
+        self.assertEqual(second.built_count, 1)
+        self.assertEqual(second.reused_count, 3)
+        cache.store("daily:600001", appended, second)
+
+        revised = appended.copy()
+        revised.loc[7, "close"] = 70
+        third = build_v2_facts_timeline(
+            revised,
+            lookback=3,
+            facts_builder=fake_facts_builder,
+            known_facts_by_idx=cache.known_facts("daily:600001", revised),
+        )
+        self.assertEqual(third.built_count, 2)
+        self.assertEqual(third.reused_count, 2)
+
+        renamed = appended.rename(columns={"close": "price"})
+        self.assertEqual(cache.known_facts("daily:600001", renamed), {})
+
+    def test_cached_v2_events_build_only_appended_fact_point(self):
+        frame = pd.DataFrame({
+            "date": pd.date_range("2026-09-01", periods=8, freq="D"),
+            "open": range(8),
+            "high": range(1, 9),
+            "low": range(8),
+            "close": range(8),
+        })
+        calls = []
+
+        def fake_event_facts(prefix):
+            calls.append(len(prefix))
+            return {
+                "setup": {},
+                "repair": {},
+                "risk": {},
+                "structure": {"fractals": {}, "rectangle": {}},
+                "exit_gate": {},
+                "trigger": {},
+            }
+
+        scope = "test-incremental:600001:daily"
+        with patch(
+            "stock_analyzer.v2_facts_timeline.build_c_signal_v2_event_facts",
+            side_effect=fake_event_facts,
+        ):
+            events_module.build_v2_signal_events_cached(
+                frame,
+                lookback=3,
+                cache_scope=scope,
+            )
+            first_call_count = len(calls)
+            appended = pd.concat([
+                frame,
+                pd.DataFrame({
+                    "date": [pd.Timestamp("2026-09-09")],
+                    "open": [8],
+                    "high": [9],
+                    "low": [8],
+                    "close": [8],
+                }),
+            ], ignore_index=True)
+            events_module.build_v2_signal_events_cached(
+                appended,
+                lookback=3,
+                cache_scope=scope,
+            )
+
+        self.assertEqual(first_call_count, 4)
+        self.assertEqual(len(calls) - first_call_count, 1)
+
+    def test_v2_signal_events_can_consume_injected_facts_without_building(self):
+        frame = self._minimal_signal_frame(rows=1)
+        known_facts = {
+            "setup": {"bottom_divergence": True},
+            "structure": {},
+            "trigger": {},
+            "exit_gate": {},
+            "repair": {},
+            "risk": {},
+        }
+
+        def forbidden_facts_builder(_prefix):
+            raise AssertionError("facts builder should not be called when facts are injected")
+
+        events = build_v2_signal_events(
+            frame,
+            known_facts_by_idx={0: known_facts},
+            facts_builder=forbidden_facts_builder,
+        )
+
+        self.assertEqual([event.key for event in events], ["v2_bottom_research"])
+
+    def test_v2_event_facts_profile_matches_full_facts_for_events(self):
+        frame = self._v2_trigger_frame()
+
+        full_events = build_v2_signal_events(frame, facts_builder=build_c_signal_v2_facts)
+        event_profile_events = build_v2_signal_events(frame, facts_builder=build_c_signal_v2_event_facts)
+
+        def stable(events):
+            return [
+                (event.key, event.group, event.date, event.coord_price, event.price, event.reason, event.value)
+                for event in events
+            ]
+
+        self.assertEqual(stable(event_profile_events), stable(full_events))
+
+        event_facts = build_c_signal_v2_event_facts(frame)
+        self.assertEqual(event_facts["source"], "c_signal_v2_event_facts")
+        self.assertIn("setup", event_facts)
+        self.assertIn("structure", event_facts)
+        self.assertIn("trigger", event_facts)
+        self.assertIn("exit_gate", event_facts)
+        self.assertIn("repair", event_facts)
+        self.assertNotIn("macro_tide", event_facts)
+        self.assertNotIn("legacy_experience", event_facts)
+
+    def test_v2_event_facts_benchmark_reports_zero_diff(self):
+        from scripts.benchmark_v2_event_facts import benchmark_event_facts, stable_event_signature
+
+        frame = self._v2_trigger_frame()
+        result = benchmark_event_facts(frame, lookback=6, repeat=1)
+
+        self.assertTrue(result["zero_diff"])
+        self.assertEqual(result["repeat"], 1)
+        self.assertEqual(result["full_signature"], result["event_signature"])
+        self.assertEqual(stable_event_signature(build_v2_signal_events(frame)), result["event_signature"])
+        self.assertGreaterEqual(result["full_facts"]["avg_seconds"], 0)
+        self.assertGreaterEqual(result["event_facts"]["avg_seconds"], 0)
+        self.assertIn("speedup", result)
+
     def test_signal_event_stats_match_intraday_event_dates(self):
         frame = pd.DataFrame({
             "date": pd.date_range("2026-01-01 09:30", periods=8, freq="60min"),
@@ -2015,11 +2606,7 @@ class ProjectSmokeTest(unittest.TestCase):
         frame["ma20"] = [10.8] * 16
         frame["volume"] = [1000] * 16
         frame["vol_ma20"] = [1000] * 16
-        frame["composite_setup_score"] = [1] * 16
-        frame["composite_confirm_score"] = [1] * 16
-        frame["composite_risk_score"] = [0] * 16
-        frame["composite_risk_break_score"] = [0] * 16
-        frame["composite_risk_heat_score"] = [0] * 16
+        add_legacy_scores(frame, setup=1, confirm=1, risk=0, break_score=0, heat_score=0)
 
         state = build_c_signal_v2_state(frame, context={"target_price": 13.0})
 
@@ -2044,11 +2631,7 @@ class ProjectSmokeTest(unittest.TestCase):
         frame["ma20"] = [10.8] * 16
         frame["volume"] = [1000] * 16
         frame["vol_ma20"] = [1000] * 16
-        frame["composite_setup_score"] = [1] * 16
-        frame["composite_confirm_score"] = [1] * 16
-        frame["composite_risk_score"] = [0] * 16
-        frame["composite_risk_break_score"] = [0] * 16
-        frame["composite_risk_heat_score"] = [0] * 16
+        add_legacy_scores(frame, setup=1, confirm=1, risk=0, break_score=0, heat_score=0)
 
         facts = build_c_signal_v2_facts(frame)
         state = build_c_signal_v2_state(frame, context={"target_price": 13.0})
@@ -2338,6 +2921,36 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(state["permission"], "watch_only")
         self.assertEqual(state["permission_label"], "计划待核")
 
+    def test_c_signal_v2_backfill_maps_v2_breakout_to_breakout_gate(self):
+        state = build_c_signal_v2_state_from_result({
+            "scan_type": "opportunity",
+            "signal_key": "v2_breakout",
+            "v2_plan_status": "ready",
+            "date": "2026-09-08",
+            "setup_score": 2,
+            "confirm_score": 4,
+            "risk_score": 0,
+        })
+
+        self.assertEqual(state["state"], "entry_breakout")
+        self.assertEqual(state["signal"], "C突")
+        self.assertEqual(state["permission"], "breakout_allowed")
+
+    def test_c_signal_v2_backfill_keeps_top_fractal_risk_as_observation(self):
+        state = build_c_signal_v2_state_from_result({
+            "scan_type": "risk",
+            "signal_key": "v2_top_fractal_risk",
+            "date": "2026-09-08",
+            "risk_score": 3,
+        })
+
+        self.assertEqual(state["state"], "observe_top_fractal")
+        self.assertEqual(state["signal"], "C研")
+        self.assertEqual(state["role"], "watch")
+        self.assertEqual(state["permission"], "watch_only")
+        self.assertEqual(state["permission_label"], "只观察")
+        self.assertEqual(state["trade_intent"], "watch_only")
+
     def test_c_signal_v2_backfill_marks_no_box_repair_with_clear_target_as_pending_trigger(self):
         state = build_c_signal_v2_state_from_result({
             "scan_type": "opportunity",
@@ -2475,148 +3088,29 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertTrue(kwargs["force_refresh"])
         self.assertNotIn("cache_ttl_seconds", kwargs)
 
-    def test_board_market_payload_calculates_trend_metrics(self):
-        frame = pd.DataFrame({
-            "日期": pd.date_range("2026-04-01", periods=25, freq="D"),
-            "开盘价": [100 + i for i in range(25)],
-            "最高价": [101 + i for i in range(25)],
-            "最低价": [99 + i for i in range(25)],
-            "收盘价": [100 + i for i in range(25)],
-            "成交量": [1000] * 25,
-            "成交额": [100000] * 25,
-        })
+    def test_unknown_api_route_returns_json_404(self):
+        response = app.app.test_client().get("/api/not_found_demo")
 
-        payload = build_board_market_payload("industry", "半导体", "半导体", frame, "test")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.content_type, "application/json")
+        self.assertEqual(payload["error"], "not_found")
+        self.assertEqual(payload["path"], "/api/not_found_demo")
 
-        self.assertEqual(payload["type"], "industry")
-        self.assertEqual(payload["name"], "半导体")
-        self.assertEqual(payload["latest_date"], "2026-04-25")
-        self.assertTrue(payload["above_ma20"])
-        self.assertGreater(payload["strength_score"], 50)
-        self.assertEqual(len(payload["history"]), 25)
-
-    @patch("stock_analyzer.providers.board_market.disable_proxies")
-    @patch("stock_analyzer.providers.board_market.beijing_now")
-    @patch("stock_analyzer.providers.board_market.ak.stock_board_industry_index_ths")
-    def test_get_industry_board_market_uses_ths_index_source(self, mock_index, mock_now, mock_disable):
-        mock_now.return_value = pd.Timestamp("2026-05-11")
-        mock_index.return_value = pd.DataFrame({
-            "日期": pd.date_range("2026-05-01", periods=3, freq="D"),
-            "开盘价": [10, 11, 12],
-            "最高价": [11, 12, 13],
-            "最低价": [9, 10, 11],
-            "收盘价": [10, 11, 12],
-            "成交量": [100, 100, 100],
-            "成交额": [1000, 1100, 1200],
-        })
-
-        payload = get_industry_board_market("半导体", start_date="2025-04-29")
-
-        self.assertEqual(payload["source"], "ths_industry_index")
-        self.assertEqual(payload["latest_close"], 12)
-        mock_index.assert_called_once_with(
-            symbol="半导体",
-            start_date="20250429",
-            end_date="20260511",
-        )
-        mock_disable.assert_called_once()
-
-    def test_board_market_cache_uses_name_as_stable_lookup_key(self):
-        payload = {
-            "type": "concept",
-            "name": "存储芯片",
-            "index_code": "886042",
-            "strength_score": 80,
-        }
-
-        with TemporaryDirectory() as tmp_dir:
-            with patch("stock_analyzer.market_boards.BOARD_MARKET_CACHE_DIR", Path(tmp_dir)):
-                write_cached_board_market(payload)
-                cached = read_cached_board_market("concept", name="存储芯片")
-
-        self.assertEqual(cached["index_code"], "886042")
-        self.assertEqual(cached["strength_score"], 80)
-
-    def test_board_market_cache_rejects_stale_current_day_payload_after_close(self):
-        payload = {
-            "type": "concept",
-            "name": "存储芯片",
-            "index_code": "886042",
-            "latest_date": "2026-05-08",
-            "history": [{"date": "2026-05-08", "close": 100}],
-        }
-
-        with TemporaryDirectory() as tmp_dir:
-            with patch("stock_analyzer.market_boards.BOARD_MARKET_CACHE_DIR", Path(tmp_dir)):
-                with patch("stock_analyzer.market_boards.beijing_now", return_value=pd.Timestamp("2026-05-11 16:00:00")):
-                    write_cached_board_market(payload)
-                    cached = read_cached_board_market("concept", name="存储芯片")
-                    fallback = read_cached_board_market(
-                        "concept",
-                        name="存储芯片",
-                        allow_stale_current_day=True,
-                    )
-
-        self.assertIsNone(cached)
-        self.assertEqual(fallback["latest_date"], "2026-05-08")
-
-    @patch("app.get_board_market", return_value={
-        "type": "concept",
-        "name": "存储芯片",
-        "index_code": "886042",
-        "source": "test",
-        "history": [],
-    })
-    def test_board_market_api_returns_board_payload(self, mock_market):
+    def test_board_market_api_is_explicitly_retired(self):
         response = app.app.test_client().get("/api/board_market?type=concept&name=存储芯片")
 
         payload = response.get_json()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["name"], "存储芯片")
-        mock_market.assert_called_once()
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(payload["status"], "retired")
+        self.assertIn("候选分布", payload["error"])
 
-    @patch("app.get_board_market", side_effect=RuntimeError("provider failed"))
-    def test_board_market_api_returns_unavailable_payload_on_provider_failure(self, mock_market):
-        response = app.app.test_client().get("/api/board_market?type=industry&name=半导体")
+    def test_board_market_refresh_api_is_explicitly_retired(self):
+        response = app.app.test_client().post("/api/board_market/refresh", json={"type": "industry"})
 
         payload = response.get_json()
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(payload["available"])
-        self.assertEqual(payload["status"], "unavailable")
-        self.assertEqual(payload["name"], "半导体")
-        self.assertEqual(payload["trend_label"], "暂不可用")
-
-    def test_refresh_board_market_cache_selects_high_priority_rows(self):
-        workspace = {
-            "sector_overview": [
-                {"sector": "低优先", "structure_score": 10, "candidate_signal_count": 1},
-                {"sector": "半导体", "structure_score": 80, "candidate_signal_count": 3},
-            ]
-        }
-        calls = []
-
-        def fake_get(board_type, name=None, start_date=None):
-            calls.append((board_type, name, start_date))
-            return {
-                "type": board_type,
-                "name": name,
-                "latest_date": "2026-05-11",
-                "strength_score": 82,
-                "trend_label": "强势",
-            }
-
-        result = refresh_board_market_cache(
-            workspace,
-            board_type="industry",
-            limit=1,
-            start_date="2025-04-29",
-            get_board_market_func=fake_get,
-            read_cached_func=lambda board_type, name=None: None,
-        )
-
-        self.assertEqual(calls, [("industry", "半导体", "2025-04-29")])
-        self.assertEqual(result["updated_count"], 1)
-        self.assertEqual(result["items"][0]["name"], "半导体")
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(payload["status"], "retired")
 
     def test_filter_workspace_candidates_returns_target_page(self):
         workspace = {
@@ -2646,6 +3140,41 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(payload["count"], 2)
         self.assertTrue(payload["has_more"])
         self.assertEqual(payload["results"][0]["code"], "600001")
+
+    def test_workspace_pool_index_centralizes_page_metadata_and_mapping(self):
+        workspace = {
+            "pools": {
+                "risk": {
+                    "count": 4,
+                    "results": [
+                        {"code": "600001", "risk_score": 1},
+                        {"code": "600002", "risk_score": 4},
+                        {"code": "600003", "risk_score": 5},
+                    ],
+                },
+            },
+            "latest_snapshot_day": "2026-05-11",
+            "latest_data_date": "2026-05-10",
+            "history_mode": True,
+            "history_snapshot_day": "2026-05-11",
+        }
+
+        index = workspace_pool_index(workspace, "risk")
+        payload = workspace_pool_page(
+            index,
+            matcher=lambda item: item.get("risk_score", 0) >= 4,
+            limit=1,
+            offset=0,
+            result_mapper=lambda item: {"code": item["code"], "_compact": True},
+        )
+
+        self.assertEqual(index.pool_count, 4)
+        self.assertEqual(payload["scan_type"], "risk")
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["pool_count"], 4)
+        self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["latest_data_date"], "2026-05-10")
+        self.assertEqual(payload["results"], [{"code": "600002", "_compact": True}])
 
     def test_filter_workspace_candidates_filters_v2_reasons(self):
         workspace = {
@@ -2762,11 +3291,87 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(payload["results"][0]["code"], "600001")
         self.assertEqual(payload["filters"]["reason"], "plan_ready")
         _, kwargs = mock_workspace.call_args
-        self.assertFalse(kwargs["include_replay"])
-        self.assertFalse(kwargs["include_market_universe"])
-        self.assertFalse(kwargs["include_market_breadth"])
         self.assertEqual(kwargs["replay_entry_model"], "event_close")
         self.assertTrue(kwargs["latest_only"])
+        self.assertFalse(kwargs["include_history_comparison"])
+
+    @patch("stock_analyzer.web.scan_api.get_cached_compact_workspace_response")
+    @patch("app.collect_scan_workspace")
+    def test_lite_workspace_and_candidates_share_raw_cache(self, mock_workspace, mock_compact_cache):
+        app.clear_scan_workspace_cache()
+        mock_compact_cache.side_effect = lambda key, fingerprint, factory, force_refresh=False: factory()
+        mock_workspace.return_value = {
+            "max_items": 6000,
+            "pools": {
+                "opportunity": {
+                    "count": 2,
+                    "loaded_count": 2,
+                    "has_more": False,
+                    "results": [
+                        {"code": "600001", "name": "样本A", "sector": "半导体", "concepts": []},
+                        {"code": "600002", "name": "样本B", "sector": "半导体", "concepts": []},
+                    ],
+                },
+                "risk": {"count": 0, "loaded_count": 0, "has_more": False, "results": []},
+                "bottom_div": {"count": 0, "loaded_count": 0, "has_more": False, "results": []},
+            },
+            "latest_snapshot_day": "2026-05-11",
+            "latest_data_date": "2026-05-11",
+        }
+
+        client = app.app.test_client()
+        candidates_response = client.get(
+            "/api/scan_workspace/candidates?scan_type=opportunity&limit=1&include_replay=1"
+        )
+        workspace_response = client.get("/api/scan_workspace?lite=1&active_type=opportunity&limit=1")
+
+        candidates_payload = candidates_response.get_json()
+        workspace_payload = workspace_response.get_json()
+        self.assertEqual(candidates_response.status_code, 200)
+        self.assertEqual(workspace_response.status_code, 200)
+        self.assertEqual(candidates_payload["loaded_count"], 1)
+        self.assertEqual(workspace_payload["pools"]["opportunity"]["loaded_count"], 1)
+        self.assertEqual(workspace_payload["pools"]["opportunity"]["count"], 2)
+        self.assertEqual(mock_workspace.call_count, 1)
+        _, kwargs = mock_workspace.call_args
+        self.assertEqual(kwargs["max_items"], 6000)
+        self.assertEqual(kwargs["overview_limit"], 80)
+        self.assertEqual(kwargs["pool_stats_limit"], 80)
+        self.assertTrue(kwargs["latest_only"])
+        self.assertFalse(kwargs["include_history_comparison"])
+
+    @patch("stock_analyzer.web.scan_api.get_cached_compact_workspace_response")
+    @patch("app.collect_scan_workspace")
+    def test_historical_lite_workspace_and_candidates_do_not_share_different_factories(
+        self,
+        mock_workspace,
+        mock_compact_cache,
+    ):
+        app.clear_scan_workspace_cache()
+        mock_compact_cache.side_effect = lambda key, fingerprint, factory, force_refresh=False: factory()
+        mock_workspace.return_value = {
+            "pools": {
+                "opportunity": {"count": 0, "results": []},
+                "risk": {"count": 0, "results": []},
+                "bottom_div": {"count": 0, "results": []},
+            },
+            "latest_snapshot_day": "2026-05-11",
+            "latest_data_date": "2026-05-11",
+        }
+
+        client = app.app.test_client()
+        client.get(
+            "/api/scan_workspace/candidates?scan_type=opportunity&snapshot_day=2026-05-11"
+        )
+        client.get(
+            "/api/scan_workspace?lite=1&active_type=opportunity&snapshot_day=2026-05-11"
+        )
+
+        self.assertEqual(mock_workspace.call_count, 2)
+        self.assertEqual(
+            {call.kwargs["include_history_comparison"] for call in mock_workspace.call_args_list},
+            {True, False},
+        )
 
     @patch("app.collect_scan_workspace")
     def test_scan_workspace_candidates_api_can_request_full_workspace_profile(self, mock_workspace):
@@ -2792,10 +3397,7 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(payload["performance"]["mode"], "full")
         self.assertEqual(payload["performance"]["entry_model"], "next_open")
         _, kwargs = mock_workspace.call_args
-        self.assertTrue(kwargs["include_replay"])
         self.assertEqual(kwargs["replay_entry_model"], "next_open")
-        self.assertTrue(kwargs["include_market_universe"])
-        self.assertTrue(kwargs["include_market_breadth"])
         self.assertFalse(kwargs["latest_only"])
 
     @patch("app.collect_scan_workspace")
@@ -3267,24 +3869,6 @@ class ProjectSmokeTest(unittest.TestCase):
                 self.assertEqual(delete_response.status_code, 200)
                 self.assertEqual(delete_response.get_json()["removed_count"], 1)
 
-    @patch("app.clear_scan_workspace_cache")
-    @patch("app.refresh_board_market_cache", return_value={"updated_count": 1, "items": []})
-    @patch("app.collect_scan_workspace", return_value={"sector_overview": []})
-    def test_board_market_refresh_api_runs_controlled_refresh(self, mock_workspace, mock_refresh, mock_clear):
-        response = app.app.test_client().post("/api/board_market/refresh", json={
-            "type": "industry",
-            "limit": 3,
-        })
-
-        payload = response.get_json()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["updated_count"], 1)
-        mock_workspace.assert_called_once()
-        mock_refresh.assert_called_once()
-        self.assertEqual(mock_refresh.call_args.kwargs["board_type"], "industry")
-        self.assertEqual(mock_refresh.call_args.kwargs["limit"], 3)
-        mock_clear.assert_called_once()
-
     def test_analysis_pipeline_prepares_indicators_and_signals(self):
         rows = 30
         df = pd.DataFrame({
@@ -3395,8 +3979,7 @@ class ProjectSmokeTest(unittest.TestCase):
 
     def test_serializer_can_include_legacy_marks_for_debug(self):
         frame = self._minimal_signal_frame()
-        frame.loc[6, "is_b_point"] = True
-        frame.loc[6, "is_pullback_b"] = True
+        mark_legacy_signals(frame, {6: ["is_b_point", "is_pullback_b"]})
 
         payload = analysis_frame_to_chart_payload(frame, include_legacy=True)
 
@@ -3414,8 +3997,7 @@ class ProjectSmokeTest(unittest.TestCase):
 
     def test_serializer_does_not_hide_old_pullback_when_base_b_lacks_divergence(self):
         frame = self._minimal_signal_frame()
-        frame.loc[6, "is_b_point"] = True
-        frame.loc[6, "is_pullback_b"] = True
+        mark_legacy_signals(frame, {6: ["is_b_point", "is_pullback_b"]})
 
         payload = analysis_frame_to_chart_payload(frame, include_legacy=True)
         names = [point["name"] for point in payload["mark_points_old"]]
@@ -3425,10 +4007,11 @@ class ProjectSmokeTest(unittest.TestCase):
 
     def test_serializer_hides_deprecated_old_and_new_s_marks(self):
         frame = self._minimal_signal_frame()
-        frame.loc[5, "is_top_divergence"] = True
-        frame.loc[6, "is_s_point"] = True
-        frame.loc[6, "break_ma5"] = True
-        frame.loc[7, "new_is_s_point"] = True
+        mark_legacy_signals(frame, {
+            5: ["is_top_divergence"],
+            6: ["is_s_point", "break_ma5"],
+            7: ["new_is_s_point"],
+        })
 
         payload = analysis_frame_to_chart_payload(frame, include_legacy=True)
 
@@ -3470,6 +4053,24 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(legacy_c_signal_fields("composite_breakout")["v2_signal"], "C突")
         self.assertEqual(c_signal_v2_fields("v2_breakout"), v2_signal_fields("v2_breakout"))
         self.assertEqual(c_signal_v2_fields("composite_breakout"), legacy_c_signal_fields("composite_breakout"))
+
+    def test_signal_registry_drives_scan_pool_keys_and_reason_aliases(self):
+        scan_config = build_scan_config()
+        event_weights = build_event_weights()
+        pool_keys = set().union(*(pool["keys"] for pool in scan_config.values()))
+
+        self.assertEqual(list(scan_config.keys()), ["opportunity", "risk", "bottom_div"])
+        self.assertEqual(scan_config["bottom_div"]["title"], "修复观察")
+        self.assertEqual(scan_config["bottom_div"]["lookback"], 2)
+        self.assertIn("v2_bear_trap_recovery", scan_config["opportunity"]["keys"])
+        self.assertEqual(event_weights["v2_bear_trap_recovery"], 20)
+        self.assertGreaterEqual(event_weights["v2_bear_trap_recovery"], event_weights["v2_breakout"])
+        self.assertTrue(pool_keys.issubset(set(V2_SIGNAL_CONTRACTS.keys())))
+        self.assertTrue(pool_keys.issubset(set(event_weights.keys())))
+        self.assertTrue(pool_keys.issubset(set(SIGNAL_DEFINITIONS.keys())))
+        self.assertEqual(signal_labels_for_reason("c_breakout"), {"C突"})
+        self.assertEqual(signal_keys_for_reason("c_breakout"), {"v2_breakout", "v2_bear_trap_recovery"})
+        self.assertEqual(signal_keys_for_reason("unknown"), set())
 
     def test_serializer_outputs_independent_v2_marks(self):
         frame = self._v2_trigger_frame()
@@ -3528,8 +4129,10 @@ class ProjectSmokeTest(unittest.TestCase):
 
     def test_serializer_eventizes_legacy_opt_marks(self):
         frame = self._minimal_signal_frame()
-        frame.loc[4, "opt_is_b_point"] = True
-        frame.loc[6, "opt_is_pullback_b"] = True
+        mark_legacy_signals(frame, {
+            4: ["opt_is_b_point"],
+            6: ["opt_is_pullback_b"],
+        })
 
         payload = analysis_frame_to_chart_payload(frame, include_legacy=True)
 
@@ -3542,13 +4145,13 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertEqual(first["signalLabel"], "O★B")
         self.assertEqual(payload["signal_definitions"]["opt_pullback"]["label"], "O回")
 
-    def test_scan_events_for_mode_uses_recent_bottom_divergence_event(self):
+    def test_latest_scan_event_uses_recent_bottom_divergence_event(self):
         frame = self._v2_divergence_frame()
 
-        events = scan_events_for_type(frame, "bottom_div")
+        event, _ = build_v2_latest_scan_event(frame, "bottom_div")
 
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].key, "v2_bottom_research")
+        self.assertIsNotNone(event)
+        self.assertEqual(event.key, "v2_bottom_research")
 
     def test_opportunity_pool_admits_plan_ready_breakout_and_pullback(self):
         frame = self._minimal_signal_frame(rows=2)
@@ -3651,7 +4254,7 @@ class ProjectSmokeTest(unittest.TestCase):
         self.assertIn("目标", badge_labels)
         self.assertIn("大周期", badge_labels)
 
-    def test_v2_environment_permission_allows_strong_board_context(self):
+    def test_v2_environment_permission_ignores_board_context_without_macro_facts(self):
         result = {
             "scan_type": "opportunity",
             "sector_score": 68,
@@ -3663,15 +4266,17 @@ class ProjectSmokeTest(unittest.TestCase):
 
         permission = build_v2_environment_permission(result)
 
-        self.assertEqual(permission["v2_environment_permission"], "allowed")
-        self.assertEqual(permission["v2_sector_permission"], "allowed")
-        self.assertEqual(permission["v2_environment_effect"], "allow")
+        self.assertEqual(permission["v2_environment_permission"], "unknown")
+        self.assertEqual(permission["v2_sector_permission"], "not_used")
+        self.assertEqual(permission["v2_concept_permission"], "not_used")
+        self.assertEqual(permission["v2_environment_effect"], "needs_context")
         self.assertEqual(permission["v2_effective_permission"], "unknown")
 
-    def test_v2_environment_permission_downgrades_entry_when_board_is_weak(self):
+    def test_v2_environment_permission_ignores_weak_board_when_macro_allows_entry(self):
         result = {
             "scan_type": "opportunity",
             "rank_score": 88,
+            "final_score": 500,
             "sector_score": 18,
             "sector_market_score": 35,
             "sector_opportunity_count": 1,
@@ -3681,16 +4286,59 @@ class ProjectSmokeTest(unittest.TestCase):
                 "permission": "attack_allowed",
                 "role": "entry",
                 "v2_permission_model": {"plan_status": "ready"},
+                "facts": {
+                    "macro_tide": {
+                        "available": True,
+                        "summary": "个股宏观条件通过",
+                        "ma250": {"available": True, "above": True},
+                        "weekly_macd": {"available": True},
+                    },
+                },
             },
         }
 
         priority = build_c_signal_v2_priority(result)
 
-        self.assertEqual(priority["v2_environment_permission"], "forbidden")
-        self.assertEqual(priority["v2_environment_effect"], "block_entry")
-        self.assertEqual(priority["v2_effective_permission"], "environment_blocked")
-        self.assertEqual(priority["v2_queue"], "structure_watch")
-        self.assertIn("板块指数偏弱", priority["v2_environment_block_reasons"][0])
+        self.assertEqual(priority["v2_environment_permission"], "allowed")
+        self.assertEqual(priority["v2_environment_effect"], "allow")
+        self.assertEqual(priority["v2_effective_permission"], "attack_allowed")
+        self.assertEqual(priority["v2_queue"], "trade_ready")
+        self.assertEqual(priority["v2_environment_block_reasons"], [])
+
+        stock_only = dict(result)
+        stock_only["final_score"] = stock_only["rank_score"]
+        stock_only.pop("sector_score")
+        stock_only.pop("sector_market_score")
+        stock_only.pop("sector_opportunity_count")
+        stock_only.pop("sector_risk_count")
+        self.assertEqual(
+            build_c_signal_v2_priority(stock_only)["v2_priority_score"],
+            priority["v2_priority_score"],
+        )
+
+    def test_workspace_result_drops_legacy_market_scores_but_keeps_labels(self):
+        from stock_analyzer.scan_workspace_response import _remove_legacy_market_context
+
+        result = {
+            "rank_score": 44.0,
+            "final_score": 99.0,
+            "sector": "半导体",
+            "concepts": ["存储芯片"],
+            "sector_score": 100,
+            "concept_score": 100,
+            "sector_market_boost": 5,
+            "market_boost": 5,
+        }
+
+        _remove_legacy_market_context(result)
+
+        self.assertEqual(result["final_score"], 44.0)
+        self.assertEqual(result["sector"], "半导体")
+        self.assertEqual(result["concepts"], ["存储芯片"])
+        self.assertNotIn("sector_score", result)
+        self.assertNotIn("concept_score", result)
+        self.assertNotIn("sector_market_boost", result)
+        self.assertNotIn("market_boost", result)
 
     def test_v2_environment_permission_exposes_macro_veto_for_breakout(self):
         result = {
@@ -3886,13 +4534,7 @@ class ProjectSmokeTest(unittest.TestCase):
     def test_latest_scan_snapshot_reuses_previous_calendar_day(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame["composite_setup_score"] = [1] * 12
-        frame["composite_confirm_score"] = [3] * 12
-        frame["composite_risk_score"] = [0] * 12
-        frame["composite_watch"] = [False] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame, setup=1, confirm=3, risk=0, watch=False)
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
@@ -3917,22 +4559,42 @@ class ProjectSmokeTest(unittest.TestCase):
         snapshot = {"snapshot_day": "20260511", "data_date": "2026-05-08"}
         previous_day_snapshot = {"snapshot_day": "20260510", "data_date": "2026-05-10"}
 
-        self.assertTrue(is_recent_snapshot(snapshot, now_day="2026-05-11 14:50:00"))
-        self.assertFalse(is_recent_snapshot(snapshot, now_day="2026-05-11 16:00:00"))
-        self.assertTrue(is_recent_snapshot(previous_day_snapshot, now_day="2026-05-11 14:50:00"))
-        self.assertFalse(is_recent_snapshot(previous_day_snapshot, now_day="2026-05-11 16:00:00"))
-        self.assertTrue(is_recent_snapshot({"snapshot_day": "20260511", "data_date": "2026-05-11"}, now_day="2026-05-11 16:00:00"))
+        with patch(
+            "stock_analyzer.scan_snapshot.market_calendar_context",
+            return_value={"is_session": True},
+        ):
+            self.assertTrue(is_recent_snapshot(snapshot, now_day="2026-05-11 14:50:00"))
+            self.assertFalse(is_recent_snapshot(snapshot, now_day="2026-05-11 16:00:00"))
+            self.assertTrue(is_recent_snapshot(previous_day_snapshot, now_day="2026-05-11 14:50:00"))
+            self.assertFalse(is_recent_snapshot(previous_day_snapshot, now_day="2026-05-11 16:00:00"))
+            self.assertTrue(is_recent_snapshot({"snapshot_day": "20260511", "data_date": "2026-05-11"}, now_day="2026-05-11 16:00:00"))
+
+    def test_recent_scan_snapshot_does_not_require_holiday_bar_after_close(self):
+        snapshot = {"snapshot_day": "20260925", "data_date": "2026-09-24"}
+
+        with patch(
+            "stock_analyzer.scan_snapshot.market_calendar_context",
+            return_value={"is_session": False},
+        ):
+            self.assertTrue(
+                is_recent_snapshot(snapshot, now_day="2026-09-25 16:00:00")
+            )
+
+    def test_recent_scan_snapshot_uses_weekday_fallback_when_calendar_unknown(self):
+        snapshot = {"snapshot_day": "20260511", "data_date": "2026-05-08"}
+
+        with patch(
+            "stock_analyzer.scan_snapshot.market_calendar_context",
+            return_value={"is_session": None},
+        ):
+            self.assertFalse(
+                is_recent_snapshot(snapshot, now_day="2026-05-11 16:00:00")
+            )
 
     def test_check_stock_signal_uses_latest_snapshot_without_reloading_data(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame["composite_setup_score"] = [1] * 12
-        frame["composite_confirm_score"] = [3] * 12
-        frame["composite_risk_score"] = [0] * 12
-        frame["composite_watch"] = [False] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame, setup=1, confirm=3, risk=0, watch=False)
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
@@ -3952,13 +4614,7 @@ class ProjectSmokeTest(unittest.TestCase):
     def test_check_stock_signal_auto_recomputes_legacy_strategy_snapshot(self):
         frame = self._minimal_signal_frame(rows=12)
         frame["date"] = pd.date_range("2026-04-29", periods=12, freq="D")
-        frame["composite_setup_score"] = [1] * 12
-        frame["composite_confirm_score"] = [3] * 12
-        frame["composite_risk_score"] = [0] * 12
-        frame["composite_watch"] = [False] * 12
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame, setup=1, confirm=3, risk=0, watch=False)
 
         with TemporaryDirectory() as tmp_dir:
             with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", Path(tmp_dir)):
@@ -4003,9 +4659,7 @@ class ProjectSmokeTest(unittest.TestCase):
         mock_read_snapshot,
     ):
         frame = self._minimal_signal_frame(rows=12)
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame)
         mock_dataframe.return_value = frame
 
         result = app.check_stock_signal("600063", "opportunity", refresh_policy="force")
@@ -4033,9 +4687,10 @@ class ProjectSmokeTest(unittest.TestCase):
         })
 
         self.assertEqual(explanation["headline"], "强势候选 · 综合突破")
-        self.assertIn("板块共振强", explanation["summary"])
+        self.assertNotIn("共振", explanation["summary"])
+        self.assertIn("所属行业/概念", [driver["label"] for driver in explanation["drivers"]])
         self.assertEqual(explanation["drivers"][0]["label"], "事件触发")
-        self.assertEqual(explanation["score_badges"][3]["label"], "共振")
+        self.assertNotIn("共振", [badge["label"] for badge in explanation["score_badges"]])
         json.dumps(explanation, ensure_ascii=False)
 
     @patch("app.read_latest_scan_snapshot", return_value=None)
@@ -4054,9 +4709,7 @@ class ProjectSmokeTest(unittest.TestCase):
         mock_read_latest_snapshot,
     ):
         frame = self._minimal_signal_frame(rows=12)
-        frame.loc[11, "composite_entry"] = True
-        frame.loc[11, "composite_entry_type"] = "pullback"
-        frame.loc[11, "composite_entry_reason"] = "回踩确认"
+        apply_legacy_entry(frame)
         mock_dataframe.return_value = frame
         mock_read_snapshot.return_value = {
             "version": 1,
@@ -4078,54 +4731,6 @@ class ProjectSmokeTest(unittest.TestCase):
         mock_read_latest_snapshot.assert_called_once()
         mock_dataframe.assert_called_once_with("600063")
         self.assertEqual(result["signal_key"], "v2_structure_candidate")
-
-    def test_scan_batch_calculate_signals_creates_missing_legacy_columns(self):
-        df = pd.DataFrame({
-            "open": [10.0, 10.2],
-            "high": [10.5, 10.4],
-            "low": [9.8, 10.0],
-            "close": [10.1, 10.3],
-            "volume": [1000, 900],
-            "ma20": [10.0, 10.1],
-            "ma20_prev": [9.9, 10.0],
-            "j": [20.0, 25.0],
-            "bias": [-16.0, -14.0],
-            "bb_position": [0.1, 0.3],
-            "volume_ma5_prev": [1500, 1200],
-            "volume_ma10_prev": [1500, 1200],
-            "is_bottom_divergence": [1, 0],
-            "is_top_divergence": [0, 0],
-            "dif": [0.1, 0.2],
-            "dea": [0.0, 0.1],
-        })
-
-        result = scan_batch.calculate_signals(df)
-
-        self.assertIn("is_s_point", result.columns)
-        self.assertIn("is_pullback_b", result.columns)
-        self.assertIn("new_is_b_point", result.columns)
-        self.assertIn("new_is_pullback_b", result.columns)
-        self.assertIn("new_is_s_point", result.columns)
-
-    @patch("scripts.scan_uptrend_divergence.requests.get")
-    def test_analyze_via_api_reads_close_from_kline_payload(self, mock_get):
-        payload = {
-            "dates": [f"2026-01-{day:02d}" for day in range(1, 12)],
-            "k_data": [[10.0, 10.25, 9.8, 10.4]] * 11,
-            "ma20_data": list(range(11)),
-            "mark_points_new": [],
-            "mark_points_old": [],
-            "stock_name": "示例股票 (600063)",
-        }
-        response = Mock(status_code=200)
-        response.json.return_value = payload
-        mock_get.return_value = response
-
-        result = scan_uptrend_divergence.analyze_via_api("600063")
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result["close"], 10.25)
-        self.assertTrue(result["is_uptrend"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,14 @@
 """A-share stock list service with provider fallback."""
 
+import logging
+
 from stock_analyzer.providers.catalog import DEFAULT_STOCK_CATALOG_PROVIDER
+
+LOGGER = logging.getLogger(__name__)
+
+
+class StockUniverseUnavailable(RuntimeError):
+    """Raised when a complete current stock universe cannot be fetched."""
 
 
 FALLBACK_STOCK_CODES = [
@@ -29,24 +37,34 @@ FALLBACK_STOCK_CODES = [
 ]
 
 
-def get_stock_codes(provider=None):
-    """Fetch A-share stock codes with provider fallback and a local safety list."""
+def get_stock_codes(
+    provider=None,
+    *,
+    allow_secondary=True,
+    allow_static_fallback=True,
+):
+    """Fetch A-share codes, optionally requiring the complete primary list."""
     provider = provider or DEFAULT_STOCK_CATALOG_PROVIDER
     stock_list = []
+    primary_error = None
 
     try:
         stock_list = provider.fetch_primary_stock_codes()
     except Exception as e:
-        print(f"接口A失败: {e}")
+        primary_error = e
+        LOGGER.debug("接口A失败: %s", e, exc_info=True)
 
-    if not stock_list:
+    if not stock_list and allow_secondary:
         try:
             stock_list = provider.fetch_secondary_stock_codes()
         except Exception as e:
-            print(f"接口B失败: {e}")
+            LOGGER.debug("接口B失败: %s", e, exc_info=True)
 
     if not stock_list:
-        print("所有接口失败，使用保底列表")
+        if not allow_static_fallback:
+            detail = f"：{primary_error}" if primary_error else ""
+            raise StockUniverseUnavailable(f"无法获取完整的当日股票名单{detail}")
+        LOGGER.debug("所有接口失败，使用保底列表")
         stock_list = FALLBACK_STOCK_CODES.copy()
 
     return stock_list

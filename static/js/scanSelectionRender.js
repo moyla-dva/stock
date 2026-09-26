@@ -138,8 +138,6 @@ function renderScanSelection() {
         {label: '排名', value: item._visible_rank ? '#' + item._visible_rank : '-'},
         {label: '综合', value: item.final_score == null ? '-' : item.final_score},
         {label: '强度', value: item.rank_score == null ? '-' : item.rank_score},
-        {label: '共振', value: item.sector_score == null ? '-' : item.sector_score},
-        {label: '板指', value: item.sector_market_trend || '-'},
         {label: '胜率', value: formatPercent(item.win_rate)},
         {label: '风险', value: item.risk_score == null ? '-' : item.risk_score}
     ].forEach(function(part) {
@@ -181,10 +179,6 @@ function renderScanSelection() {
         ['概念', conceptText || '-'],
         ['历史对比', item.history_delta && item.history_delta.label ? item.history_delta.label : (item._history_snapshot_day ? '历史结果' : '-')],
         ['可信度', item.score_confidence_label || '-'],
-        ['板块机会', item.sector_signal_count == null ? '-' : item.sector_signal_count],
-        ['板块风险', item.sector_risk_count == null ? '-' : item.sector_risk_count],
-        ['板块宽度', item.sector_breadth_sample_count ? (item.sector_breadth_label + ' · 涨 ' + formatPercent(item.sector_breadth_up_rate)) : (item.sector_width_label || '-')],
-        ['概念宽度', item.concept_breadth_sample_count ? (item.concept_breadth_label + ' · 涨 ' + formatPercent(item.concept_breadth_up_rate)) : (item.concept_width_label || '-')],
         ['均值', formatSignedPercent(item.avg_ret)]
     ].forEach(function(part) {
         var cell = document.createElement('div');

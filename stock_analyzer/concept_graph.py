@@ -6,6 +6,7 @@ but they should not be the source of truth for these relations.
 """
 
 import json
+import logging
 import os
 import threading
 from collections import Counter, defaultdict
@@ -24,6 +25,7 @@ DEFAULT_CONCEPT_GRAPH_PATH = Path(os.environ.get(
     DEFAULT_CATALOG_CACHE_DIR / CONCEPT_GRAPH_FILENAME,
 ))
 GRAPH_KIND_VALUES = {"sector", "concept"}
+LOGGER = logging.getLogger(__name__)
 GRAPH_RELATION_TYPES = {
     "upstream",
     "downstream",
@@ -261,7 +263,7 @@ def read_concept_graph_edges(path=None, cache_dir=None):
     except FileNotFoundError:
         return []
     except Exception as exc:
-        print(f"[concept_graph] 读取本地图谱失败: {exc}")
+        LOGGER.debug("读取本地图谱失败: %s", exc, exc_info=True)
         return []
     raw_edges = payload.get("edges") if isinstance(payload, dict) else payload
     if not isinstance(raw_edges, list):

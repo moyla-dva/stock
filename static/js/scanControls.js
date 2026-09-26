@@ -149,6 +149,20 @@ function renderScanCacheStrip() {
         ' · 数据 ' + (scanWorkspaceState.latest_data_date || '-') +
         ' · 结果 ' + (scanWorkspaceState.latest_snapshot_day || '-');
     var fullSummary = factSummary + extra + ' · 策略 ' + (meta.strategy_version || strategy.strategy_version || '-');
+    if (scanWorkspaceState.readSource === 'sqlite_index') {
+        var sourceMeta = scanWorkspaceState.readSourceMeta || {};
+        var indexHealth = sourceMeta.index_health || {};
+        var ranking = sourceMeta.ranking || {};
+        compactSummary = 'SQLite 候选摘要 · 索引完整 · 数据 ' + (scanWorkspaceState.latest_data_date || '-')
+            + ' · 排序 ' + (ranking.mode || 'contextual');
+        fullSummary = compactSummary + ' · 已索引 ' + (indexHealth.valid_snapshot_count || 0) + ' 份快照'
+            + (ranking.context_revision ? ' · 排名版本 ' + ranking.context_revision : '');
+    } else if (scanWorkspaceState.readSource === 'json_fallback') {
+        compactSummary = 'SQLite 读取不可用，已回退 JSON 原读链';
+        fullSummary = compactSummary + (scanWorkspaceState.readSourceError ? ' · ' + scanWorkspaceState.readSourceError : '')
+            + ' · 数据 ' + (scanWorkspaceState.latest_data_date || '-')
+            + ' · 结果 ' + (scanWorkspaceState.latest_snapshot_day || '-');
+    }
     setText('scan-cache-summary', compactSummary);
     if (strip) strip.title = (meta.health_detail || '') + (meta.health_detail ? ' · ' : '') + fullSummary;
 }
@@ -161,21 +175,31 @@ function renderScanSnapshotMeta() {
     if (status) {
         status.className = 'scan-snapshot-status scan-snapshot-status--' + health;
     }
-    setText('scan-snapshot-health', meta.health_summary || meta.health_label || '等待');
-    var strategyVersion = meta.strategy_version || strategy.strategy_version || '-';
-    var detail = meta.health_detail || ('策略 ' + strategyVersion +
-        ' · 有效 ' + (meta.valid_snapshot_count || 0));
-    if (!meta.health_detail) {
-        if (meta.legacy_snapshot_count) {
-            detail += ' · 旧版 ' + meta.legacy_snapshot_count;
-        } else {
-            detail += ' · 过期 ' + (meta.stale_snapshot_count || 0);
+    if (scanWorkspaceState.readSource === 'sqlite_index') {
+        var indexHealth = ((scanWorkspaceState.readSourceMeta || {}).index_health || {});
+        var ranking = ((scanWorkspaceState.readSourceMeta || {}).ranking || {});
+        setText('scan-snapshot-health', 'SQLite 索引完整');
+        setText('scan-snapshot-detail', (indexHealth.valid_snapshot_count || 0) + ' 份快照'
+            + ' · 排序 ' + (ranking.mode || 'contextual')
+            + ' · 数据 ' + (scanWorkspaceState.latest_data_date || '-'));
+    } else {
+        setText('scan-snapshot-health', meta.health_summary || meta.health_label || '等待');
+        var strategyVersion = meta.strategy_version || strategy.strategy_version || '-';
+        var detail = meta.health_detail || ('策略 ' + strategyVersion +
+            ' · 有效 ' + (meta.valid_snapshot_count || 0));
+        if (!meta.health_detail) {
+            if (meta.legacy_snapshot_count) {
+                detail += ' · 旧版 ' + meta.legacy_snapshot_count;
+            } else {
+                detail += ' · 过期 ' + (meta.stale_snapshot_count || 0);
+            }
         }
+        if (scanWorkspaceState.readSource === 'json_fallback') {
+            detail = '已回退 JSON 原读链' + (scanWorkspaceState.readSourceError ? ' · ' + scanWorkspaceState.readSourceError : '')
+                + ' · ' + detail;
+        }
+        setText('scan-snapshot-detail', detail);
     }
-    setText(
-        'scan-snapshot-detail',
-        detail
-    );
     var rebuildBtn = document.getElementById('btn-rebuild-snapshot');
     if (rebuildBtn) {
         rebuildBtn.textContent = scanWorkspaceState.historyMode
@@ -259,7 +283,7 @@ async function confirmPendingScanPlan() {
 async function refreshStrategySnapshots() {
     try {
         setScanStatus('估算策略重算');
-        var plan = await fetchScanPlan(scanWorkspaceState.activeType, signalMode, 'auto', 'legacy_strategy');
+        var plan = await fetchScanPlan(scanWorkspaceState.activeType, 'auto', 'legacy_strategy');
         if (plan.error) throw new Error(plan.error);
         if (!(plan.queued_count || plan.total)) {
             hideScanPlanConfirm();

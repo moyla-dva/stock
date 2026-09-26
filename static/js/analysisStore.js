@@ -8,8 +8,7 @@ var analysisStore = (function() {
         analysisLoading: false,
         chartPositionView: 'flat',
         timeframeSeq: 0,
-        timeframeRequests: {},
-        timeframeErrors: {}
+        timeframeRequests: {}
     };
 
     function normalizeCode(code) {
@@ -46,7 +45,6 @@ var analysisStore = (function() {
         state.analysisLoading = true;
         state.activePeriod = 'daily';
         state.timeframeRequests = {};
-        state.timeframeErrors = {};
         syncState();
         return request;
     }
@@ -73,7 +71,6 @@ var analysisStore = (function() {
     function failAnalysis(request, error) {
         if (!isAnalysisRequestCurrent(request)) return false;
         state.analysisLoading = false;
-        state.lastError = error || null;
         syncState();
         return true;
     }
@@ -125,10 +122,6 @@ var analysisStore = (function() {
         return request ? request.promise : null;
     }
 
-    function getTimeframeError(period) {
-        return state.timeframeErrors[normalizePeriod(period)] || null;
-    }
-
     function beginTimeframeLoad(period, code) {
         var key = normalizePeriod(period);
         if (key === 'daily') return null;
@@ -141,7 +134,6 @@ var analysisStore = (function() {
             promise: null
         };
         state.timeframeRequests[key] = request;
-        state.timeframeErrors[key] = null;
         syncState();
         return request;
     }
@@ -181,7 +173,6 @@ var analysisStore = (function() {
 
     function failTimeframeLoad(request, error) {
         if (!isTimeframeRequestCurrent(request)) return false;
-        state.timeframeErrors[request.period] = error || true;
         syncState();
         return true;
     }
@@ -192,12 +183,6 @@ var analysisStore = (function() {
         delete state.timeframeRequests[request.period];
         syncState();
         return true;
-    }
-
-    function resetTimeframes() {
-        state.timeframeRequests = {};
-        state.timeframeErrors = {};
-        syncState();
     }
 
     return {
@@ -217,13 +202,11 @@ var analysisStore = (function() {
         getChartPositionView: getChartPositionView,
         getTimeframeRequest: getTimeframeRequest,
         getTimeframePromise: getTimeframePromise,
-        getTimeframeError: getTimeframeError,
         beginTimeframeLoad: beginTimeframeLoad,
         attachTimeframePromise: attachTimeframePromise,
         isTimeframeRequestCurrent: isTimeframeRequestCurrent,
         mergeTimeframes: mergeTimeframes,
         failTimeframeLoad: failTimeframeLoad,
-        finishTimeframeLoad: finishTimeframeLoad,
-        resetTimeframes: resetTimeframes
+        finishTimeframeLoad: finishTimeframeLoad
     };
 })();

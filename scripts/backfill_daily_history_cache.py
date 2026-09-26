@@ -31,7 +31,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.append_daily_quotes_to_history_cache import CACHE_COLUMNS, discover_latest_cache
-from stock_analyzer.data_fetcher import cache_path_for_history
+from stock_analyzer.data_fetcher import (
+    read_history_cache_file,
+    write_cached_history,
+)
 from stock_analyzer.providers.stock_history import (
     _fetch_tx_history_direct,
     market_symbol_for_tx,
@@ -60,13 +63,13 @@ def backfill_one(code, end_text, previous_path, start_text, fetch_start_text, dr
         return code, "failed", str(exc)
     if fetched is None or fetched.empty:
         return code, "skipped", "no_data"
-    frame = fetched.rename(columns={"amount": "volume"})
+    frame = fetched
     frame["date"] = frame["date"].astype(str)
     frame["turnover"] = None
     frame["amount"] = None
     frame = frame.reindex(columns=CACHE_COLUMNS)
     try:
-        previous = pd.read_csv(previous_path)
+        previous, _ = read_history_cache_file(previous_path, code)
     except Exception as exc:
         return code, "failed", f"read_cache: {exc}"
     previous = previous.reindex(columns=CACHE_COLUMNS)
@@ -77,8 +80,14 @@ def backfill_one(code, end_text, previous_path, start_text, fetch_start_text, dr
     if last_date != str(end_text)[:4] + "-" + str(end_text)[4:6] + "-" + str(end_text)[6:]:
         return code, "skipped", f"no_bar_on_target_date (last={last_date})"
     if not dry_run:
-        out_path = cache_path_for_history(code, start_text, end_text, adjust=DATA_ADJUST)
-        merged.to_csv(out_path, index=False)
+        if not write_cached_history(
+            code,
+            start_text,
+            end_text,
+            merged,
+            adjust=DATA_ADJUST,
+        ):
+            return code, "failed", "cache_schema_rejected"
     new_rows = len(merged) - len(previous)
     return code, "appended", new_rows
 

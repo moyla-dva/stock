@@ -90,7 +90,7 @@
 
 状态：已实现。
 
-`stock_analyzer/resonance_calibration.py` 目前 `_forward_return` 也是事件收盘到未来收盘口径。若正式回测改为 `next_open`，板块共振 replay 的收益统计也要同步改造。
+历史版本曾由 `stock_analyzer/resonance_calibration.py` 计算板块共振 replay；该模块已于 2026-09-26 随退役功能清理删除，当前工作区仅保留禁用状态的兼容响应字段，不再运行该收益统计。若未来重启这项研究，应重新定义并验证入场口径，而非沿用旧实现结论。
 
 验收：
 

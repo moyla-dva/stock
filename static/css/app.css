@@ -245,7 +245,14 @@ body[data-desk="scan"] .analysis-command-group {
     background: #2f5f4f;
 }
 
+.secondary-action {
+    border: 1px solid var(--line-strong);
+    background: #f7faf8;
+    color: var(--ink);
+}
+
 .primary-action:hover,
+.secondary-action:hover,
 .scan-button:hover {
     transform: translateY(-1px);
 }
@@ -1340,6 +1347,7 @@ body[data-desk="scan"] h1 {
 }
 
 .primary-action,
+.secondary-action,
 .tag {
     display: inline-flex;
     min-width: 38px;
@@ -1350,6 +1358,10 @@ body[data-desk="scan"] h1 {
     color: #fff;
     font-size: 12px;
     font-weight: 800;
+}
+
+.secondary-action {
+    color: var(--ink);
 }
 
 .tag-gold {
@@ -1378,7 +1390,70 @@ body[data-desk="scan"] h1 {
 
 .chart-tooltip-date {
     font-weight: 800;
+    margin-bottom: 8px;
+    color: #2b302d;
+    font-size: 14px;
+}
+
+.chart-tooltip-card {
+    min-width: 210px;
+    color: #3f4742;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.chart-tooltip-section {
+    padding-bottom: 7px;
+    margin-bottom: 7px;
+    border-bottom: 1px solid rgba(23, 29, 26, 0.1);
+}
+
+.chart-tooltip-section-title {
     margin-bottom: 5px;
+    color: var(--subtle);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.chart-tooltip-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 10px;
+}
+
+.chart-tooltip-metric,
+.chart-tooltip-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+
+.chart-tooltip-metric span,
+.chart-tooltip-row span {
+    color: var(--subtle);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.chart-tooltip-metric strong,
+.chart-tooltip-row strong {
+    color: #202421;
+    font-size: 13px;
+    font-weight: 850;
+}
+
+.chart-tooltip-metric.is-up strong {
+    color: var(--danger);
+}
+
+.chart-tooltip-metric.is-down strong {
+    color: var(--buy);
+}
+
+.chart-tooltip-row + .chart-tooltip-row {
+    margin-top: 4px;
 }
 
 @media (max-width: 1180px) {
@@ -1462,6 +1537,7 @@ body[data-desk="scan"] h1 {
 
     .code-control,
     .primary-action,
+    .secondary-action,
     .top-command-strip,
     .analysis-command-group,
     .desk-switcher,

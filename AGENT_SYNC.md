@@ -949,11 +949,11 @@
 - 期间请勿与 ZCode 同时编辑 `c_signal_v2*.py`、`scanner.py`、`events.py`、`serializers.py`、`tests/test_project_smoke.py`。
 
 ### 阶段4 已完成（scanner 改为 V2 单一入池源）
-- `SCAN_CONFIG` 的 opportunity/risk/bottom_div 改为 V2 键集合；`scan_events_for_type` 改为从 `build_v2_latest_scan_event` 返回单个 V2 当前状态事件（旧C事件不再入池）。
+- `SCAN_CONFIG` 的 opportunity/risk/bottom_div 改为 V2 键集合；扫描入池统一使用 `build_v2_latest_scan_event` 返回单个 V2 当前状态事件（旧C事件不再入池）。
 - `scan_stock_frame` 去掉旧C事件与 V2 事件混合排序，改为单事件 + V2 统计（`build_v2_signal_events(lookback=120)`）；`latest_score_summary`/`latest_diagnostic_summary` 改为 V2 facts 输出；`_pool_stage_fields` 的 risk/bottom_div 分支改为 V2 键；删除 `_has_entry_after_event`。
 - `grep 'get("composite' scanner.py` 为 0，`compileall` 与 import 通过。
 - 全量测试当前 **26 失败**（阶段4进一步改变入池行为），仍全部是旧C驱动的集成测试，待统一改写。
-- 阶段5 待删：`strategy.py` composite 列、`events.py` composite 事件、`serializers.py` mark_points_composite、`market_permission.build_stock_trade_permission`、`trade_plan` 旧计划、`multi_timeframe` 旧C、前端旧C视角与文案、`docs` 旧C 描述、`scripts/audit_c_signal_v2_event_coverage.py`（其依赖 `scan_events_for_type` 的旧C语义，需改为 V2 或归档）。
+- 阶段5 待删：`strategy.py` composite 列、`events.py` composite 事件、`serializers.py` mark_points_composite、`market_permission.build_stock_trade_permission`、`trade_plan` 旧计划、`multi_timeframe` 旧C、前端旧C视角与文案、`docs` 旧C 描述。
 
 ### 阶段5a 已完成（后端旧C删除/重接到V2）
 - 删除 `stock_analyzer/strategy.py`（旧C策略层）；`analysis.prepare_analysis_frame` 不再调用 `add_composite_strategy_columns`，composite_* 列不再生产。
@@ -1201,3 +1201,33 @@
 - **结构性说明**：首屏首次事件重放 ~2.1s 是当前设计的固有成本（60 根 × 每根 ~35ms 的多窗口归一化）；进一步压缩需要增量归一化（链式语义变更）或缩小 lookback（产品决策），均需单独评估。
 - **candidates/主工作台缓存键合并**：涉及 collect/trim 解耦重构，维持"遗留优化项"定位，未在本批处理。
 - **验证：245 tests OK**；服务已重启，重复访问实测通过。
+
+- [2026-09-20 02:35] Codex：**当前交接收口状态补记（以本段为准）**。历史小节中的阶段内失败数、旧 C 待删项、两池/非一级 tab 表述和退役脚本迁移说明均保留为当时记录；当前状态如下：
+
+## Codex 收口状态：文档与测试夹具清理（2026-09-20 凌晨三）
+
+- **当前测试基线**：最近一次全量测试为 **266 tests OK**（`./venv/bin/python -m unittest discover -s tests -v`）。旧 C 解耦阶段内的 18/26/30 failures 等记录已被后续修复覆盖，不代表当前工作区。
+- **候选池当前口径**：工作台为三池一级入口 `opportunity / risk / bottom_div`；`bottom_div` 是修复观察池，不授予入场许可。README、`docs/data-flow.md`、`docs/current-feature-flow.md`、`docs/data-operations.md`、`docs/feature-simplification-audit.md`、`docs/design-direction.md`、`docs/refactor-plan.md` 的现行描述已统一到三池/V2 主链口径。
+- **退役脚本当前状态**：`scripts/scan_batch.py`、`scripts/scan_uptrend_divergence.py`、`scripts/fetch_and_append_20260917.py` 已删除；`/api/scan_batch` 仅保留 410 退役兼容。历史小节里"硬编码代理 env 移入 main()"是删除前过渡状态。
+- **测试夹具当前状态**：legacy `composite_*` 与 old/new/opt mark 字段已集中到 `tests/fixtures.py`，仅服务历史快照回填和显式 `legacy=1` debug 兼容测试；现行 V2 测试不再依赖零散手写旧 C 字段。
+- **结构性优化当前状态**：lite 主工作台与 `/candidates` 已共享原始工作区缓存（`test_lite_workspace_and_candidates_share_raw_cache` 通过，`collect_scan_workspace` 调用 1 次）；历史小节里的"缓存键合并留待单独批次"已被后续修复覆盖。首屏首次事件重放仍约 2s，后续若要继续降首次成本，需要产品确认缩小 lookback 或接受增量归一化语义变更。
+- **设计文档同步补记**：`docs/c-signal-v2-design.md` 已同步到 `2026.09.20.1` 当前策略版本，明确 previous_upper/previous_lower 已是突破/破位核心参照，并把 09-18 数据全量重刷与三池口径写入当前状态。
+
+## 数据更新与系统维护记录：2026-09-21 收盘数据更新
+
+- **日线追加**：执行 `append_daily_quotes_to_history_cache.py --data-date 2026-09-21`，全市场共追加 **5,489 只股票**（26 只停牌/无成交跳过，2 只停牌断档跳过），耗时 58.6s。
+- **快照重建与缺陷修复**：
+  - 重建过程中捕获 `KeyError: 'v2_bear_trap_recovery'`。根因定位：`stock_analyzer/events.py` 的 `SIGNAL_DEFINITIONS` 缺少 `v2_bear_trap_recovery` 映射。已补齐定义（标签 `C突`，颜色 `#00897b`，category `entry`，order 15），并通过所有契约完整性校验。
+  - 执行 `rebuild_scan_snapshots_from_history_cache.py --snapshot-day 20260921 --data-date 2026-09-21 --codes-from-cache --force-current --workers 8`：全量 **5,497 份快照全部重建完成**（耗时 324.8s，0 失败）。
+- **服务重启与状态核验**：
+  - 重启后台 Web 服务（`app.py`，端口 5009）。
+  - 工作台状态：`data_date` = **2026-09-21**，`latest_data_date` = **2026-09-21**，策略版本 **2026.09.20.1**。
+  - 三池计数：`opportunity` **2,049** / `risk` **1,139** / `bottom_div` **863**。
+  - 抽样核验：000612（焦作万方 11.32）、002757（南兴股份 18.05）、002158（汉钟精机 28.55）、301606（绿联科技 56.37）、301238（瑞泰新材 16.21）、600426（华鲁恒升 20.53）、002645（华宏科技 18.66）等标的日线收盘与交易计划计算全部更新生效。
+
+## 当前工程状态：2026-09-26 review remediation
+
+- 全量测试当前基线：`venv/bin/python -m unittest discover -s tests`，**425 tests OK**。本机 Python 使用仓库 `venv`；裸 `python` 不可用。
+- Review 修复批次 1-4 已实施：成交量单位与旧缓存契约、突破与当前名单覆盖、索引/缓存/SQLite 历史排名回归、历史比较排序与退役组件清理。具体差异及验证记录见 `docs/review/2026-09-25-code-review-findings.md`。
+- 旧条目中的 266、378、402、414、424 等测试数均为各自记录时的历史基线；当前基线以本段 422 为准。
+- 运行时在线 force refresh 仍不具有离线 append 的断档/复权拼接护栏，已在 `docs/data-operations.md` 显式标出边界；来源/新鲜度标记不能当成复权连续性证明。

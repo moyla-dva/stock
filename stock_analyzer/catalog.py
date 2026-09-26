@@ -21,7 +21,11 @@ from stock_analyzer.catalog_profiles import (
     get_cached_stock_profiles as _get_cached_stock_profiles,
     get_stock_profile as _get_stock_profile,
 )
-from stock_analyzer.catalog_stock_list import FALLBACK_STOCK_CODES, get_stock_codes as _get_stock_codes
+from stock_analyzer.catalog_stock_list import (
+    FALLBACK_STOCK_CODES,
+    StockUniverseUnavailable,
+    get_stock_codes as _get_stock_codes,
+)
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.data_fetcher import disable_proxies
 from stock_analyzer.providers.adata_loader import import_adata
@@ -97,8 +101,18 @@ def refresh_stock_concept_cache(max_concepts=None, logger=None, progress_callbac
     )
 
 
-def get_stock_codes(use_disable_proxies=True, provider=None):
+def get_stock_codes(
+    use_disable_proxies=True,
+    provider=None,
+    *,
+    allow_secondary=True,
+    allow_static_fallback=True,
+):
     """Fetch A-share stock codes with provider fallback and a local safety list."""
     if use_disable_proxies:
         disable_proxies()
-    return _get_stock_codes(provider=provider)
+    return _get_stock_codes(
+        provider=provider,
+        allow_secondary=allow_secondary,
+        allow_static_fallback=allow_static_fallback,
+    )

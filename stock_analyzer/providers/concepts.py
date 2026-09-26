@@ -1,5 +1,7 @@
 """Provider adapters for THS/AData concept boards and constituents."""
 
+import logging
+
 import akshare as ak
 import requests
 from bs4 import BeautifulSoup
@@ -18,6 +20,7 @@ THS_HEADERS = {
     ),
     "Referer": "https://q.10jqka.com.cn/",
 }
+LOGGER = logging.getLogger(__name__)
 
 
 def _clean_text(value):
@@ -125,7 +128,7 @@ class ConceptProvider:
             if logger:
                 logger.warning(message)
             else:
-                print(message)
+                LOGGER.debug(message)
 
         boards = _ths_concept_boards_from_frame(ak.stock_board_concept_name_ths())
         return boards, CONCEPT_SOURCE_THS
@@ -150,4 +153,3 @@ class ConceptProvider:
 
 
 DEFAULT_CONCEPT_PROVIDER = ConceptProvider()
-

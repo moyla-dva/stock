@@ -1,5 +1,7 @@
 """Stock concept cache service."""
 
+import logging
+
 from stock_analyzer.catalog_cache import (
     concept_cache_path,
     profile_cache_path,
@@ -13,6 +15,8 @@ from stock_analyzer.catalog_profiles import _PROFILE_CACHE_LOCK, normalize_profi
 from stock_analyzer.catalog_utils import merge_concepts, normalize_concepts, path_mtime_text
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.providers.concepts import CONCEPT_SOURCE_THS, DEFAULT_CONCEPT_PROVIDER
+
+LOGGER = logging.getLogger(__name__)
 
 
 def get_stock_concept_cache_status(cache_dir):
@@ -75,7 +79,7 @@ def refresh_stock_concept_cache(max_concepts=None, logger=None, progress_callbac
                     if logger:
                         logger.warning(message)
                     else:
-                        print(message)
+                        LOGGER.debug(message)
             if not stock_rows:
                 used_fallback = True
                 stock_rows = provider.fetch_ths_constituents(board)
@@ -87,7 +91,7 @@ def refresh_stock_concept_cache(max_concepts=None, logger=None, progress_callbac
             if logger:
                 logger.warning(message)
             else:
-                print(message)
+                LOGGER.debug(message)
         for stock in stock_rows:
             code = stock.get("code")
             if not code:
@@ -118,10 +122,11 @@ def refresh_stock_concept_cache(max_concepts=None, logger=None, progress_callbac
     elif not stock_concepts and not previous_count:
         write_concept_cache(stock_concepts, source=source, cache_dir=cache_dir)
     elif not coverage_ok:
-        print(
-            f"[概念缓存] 覆盖率不足，保留原缓存: 本轮 {len(stock_concepts)} 只 / 原缓存 {previous_count} 只",
-            flush=True,
-        )
+        message = f"[概念缓存] 覆盖率不足，保留原缓存: 本轮 {len(stock_concepts)} 只 / 原缓存 {previous_count} 只"
+        if logger:
+            logger.warning(message)
+        else:
+            LOGGER.debug(message)
 
     with _PROFILE_CACHE_LOCK:
         profiles = read_profile_cache(cache_dir)

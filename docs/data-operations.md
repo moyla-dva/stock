@@ -42,14 +42,11 @@
 
 ## Public Scan Types
 
-当前产品入口只展示：
+当前候选池展示三个一级入口：
 
 - `opportunity`：参与候选。
 - `risk`：风险验证。
-
-内部兼容仍保留：
-
-- `bottom_div`：底背离/修复观察扫描类型，是候选池第三个一级 tab（修复观察），历史快照与底层策略同样保留。
+- `bottom_div`：修复观察。它保留底背离/修复线索的研究观察语义，不代表入场许可；历史快照与底层策略同样保留。
 
 ## Governance Placement
 
@@ -106,3 +103,27 @@ POST /api/profile_relations/evidence
 - `scripts/cleanup_legacy_history_cache.py`：canonical 全部落位后清理旧命名缓存（默认 dry-run，`--apply` 删除；只删 canonical 数据不落后于 legacy 的文件）。
 
 **qfq 基准漂移风险**：append 注入的是未复权报价、backfill 回补段按"当前"qfq 基准抓取——若区间内发生除权，拼接点会与旧缓存跳变。脚本已做涨跌停幅度校验拦截明显跳变，但除权导致的均线/矩形轻微失真需下次全量重取自然修正。
+
+**在线刷新边界**：以上断档与收盘跳变护栏只用于离线 append 脚本，不覆盖应用内 `force_refresh` 路径。在线路径会把历史 provider 帧与腾讯实时 bar 按日期合并，并可能在收盘后写入历史缓存；当前没有跨源复权基准、长断档或拼接跳变校验。数据身份会标记来源，但这不等同于已验证 qfq 连续性。若发现历史均线/结构异常，应优先回到缓存与 provider 诊断核查；不要把离线脚本的护栏误认为在线刷新也已拦截。
+
+日线 CSV 与 `.meta.json` 分别通过临时文件原子替换，但两者不是一个文件系统事务。新写 sidecar 带 `cache_payload_revision`，读取时会校验 canonical OHLCV 内容与元数据是否匹配；错配缓存会被拒绝，旧 sidecar 没有该字段时仍兼容读取。`generated_at` 是本次分析请求时间，`cache_written_at` 才是本地缓存落盘时间。
+
+## Market Reference Metadata
+
+交易日历和历史时点股票池保存在 `.cache/market_metadata.sqlite3`：
+
+```bash
+./venv/bin/python scripts/refresh_market_metadata.py calendar
+./venv/bin/python scripts/refresh_market_metadata.py universe --as-of 2026-09-22
+./venv/bin/python scripts/validate_market_metadata.py --as-of 2026-09-22
+./venv/bin/python scripts/audit_market_universe.py --as-of 2026-09-22
+```
+
+日历刷新读取当前 AkShare 包内置历史序列，并用仓库内经审核的交易所年度休市公告
+清单覆盖 2026 年，不在运行时抓取网页。日期级证据可通过 `session_context` 区分
+`provider` 与 `exchange-official`。股票池刷新访问交易所名单接口；历史快照会明确
+记录 coverage 缺口，不得将 `partial` 当成完整回测股票池。
+
+`audit_market_universe.py` 将缺口分为成员资格阻断、展示信息和治理三类，并分别输出
+`current_scan_eligible` 与 `historical_research_eligible`。自动历史任务应增加
+`--require-historical-ready`，当前北交所退市历史未补齐时会以状态码 2 主动拒绝。

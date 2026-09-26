@@ -2856,3 +2856,127 @@ def build_c_signal_v2_facts(df_display, *, clock=None):
         "trigger": trigger,
         "v2_scores": _v2_scores(latest, fractals, rectangle, trigger, clock, momentum, divergence, setup_facts, risk_facts),
     }
+
+
+def build_c_signal_v2_event_facts(df_display):
+    """Build the subset of V2 facts consumed by chart event projection.
+
+    This keeps the event timeline behavior equivalent to the full fact payload
+    while avoiding macro tide, legacy-experience, trend-summary, and full score
+    assembly that event projection does not read.
+    """
+    latest = _latest_row(df_display)
+    if latest is None:
+        return {
+            "version": 1,
+            "source": "c_signal_v2_event_facts",
+            "latest_date": "-",
+            "setup": {},
+            "repair": {
+                "available": False,
+                "stage": "none",
+                "summary": "缺少行情数据，无法判断修复观察。",
+                "evidence": [],
+                "required_confirmations": ["补齐行情数据"],
+            },
+            "risk": {},
+            "structure": {
+                "candidate": False,
+                "fractals": {},
+                "rectangle": {},
+            },
+            "exit_gate": build_exit_gate_facts(df_display),
+            "trigger": {"available": False},
+        }
+
+    structure_normalization = _normalize_kline_inclusion_frame(df_display, lookback=80)
+    normalized_bars = build_normalized_bar_facts(df_display, normalization=structure_normalization)
+    fractals = build_williams_fractal_facts(df_display, normalization_param=structure_normalization)
+    rectangle_candidates = build_rectangle_candidate_facts(df_display)
+    active_rectangle = rectangle_candidates.get("active_rectangle") if isinstance(rectangle_candidates, dict) else None
+    rectangle = active_rectangle if isinstance(active_rectangle, dict) else build_rectangle_facts(df_display)
+    macro_rectangle = rectangle_candidates.get("macro_rectangle") if isinstance(rectangle_candidates, dict) else None
+    bear_trap_recovery = build_bear_trap_recovery_facts(
+        df_display,
+        rectangle=rectangle,
+        macro_rectangle=macro_rectangle,
+    )
+    trigger = build_trigger_facts(df_display)
+    momentum = build_momentum_facts(df_display)
+    divergence = build_v2_divergence_facts(df_display)
+    setup_facts = build_v2_setup_facts(
+        df_display,
+        rectangle=rectangle,
+        trigger=trigger,
+        momentum=momentum,
+        divergence=divergence,
+        normalized_bars=normalized_bars,
+    )
+    target_structure = build_target_structure_facts(
+        df_display,
+        rectangle=rectangle,
+        macro_rectangle=macro_rectangle,
+    )
+    exit_gate = build_exit_gate_facts(
+        df_display,
+        fractals=fractals,
+        target_structure=target_structure,
+    )
+    risk_facts = build_v2_risk_facts(df_display, rectangle=rectangle, exit_gate=exit_gate)
+    repair = build_repair_facts(
+        df_display,
+        fractals=fractals,
+        momentum=momentum,
+        divergence=divergence,
+        setup_facts=setup_facts,
+    )
+    structure_candidate = bool(
+        fractals.get("double_bottom_higher_low")
+        or rectangle.get("available")
+        or bear_trap_recovery.get("recovered")
+        or setup_facts.get("pullback_setup")
+        or setup_facts.get("breakout_setup")
+    )
+    trigger_observed = bool(
+        trigger.get("attack_day")
+        or (trigger.get("ignition") or {}).get("triggered")
+        or bear_trap_recovery.get("breakout_after_recovery")
+    )
+
+    return {
+        "version": 1,
+        "source": "c_signal_v2_event_facts",
+        "latest_date": _format_date(latest.get("date")),
+        "setup": {
+            "repair_impulse": setup_facts.get("repair_impulse"),
+            "repair_confirm": setup_facts.get("repair_confirm"),
+            "pullback_setup": setup_facts.get("pullback_setup"),
+            "breakout_setup": setup_facts.get("breakout_setup"),
+            "breakout_trigger": setup_facts.get("breakout_trigger"),
+            "pullback_trigger": setup_facts.get("pullback_trigger"),
+            "prior_breakout": setup_facts.get("prior_breakout"),
+            "bottom_divergence": setup_facts.get("bottom_divergence"),
+            "recent_divergence": setup_facts.get("recent_divergence"),
+            "summary": setup_facts.get("summary"),
+        },
+        "repair": repair,
+        "risk": {
+            "risk_score": risk_facts.get("risk_score"),
+            "risk_break_score": risk_facts.get("risk_break_score"),
+            "risk_heat_score": risk_facts.get("risk_heat_score"),
+            "has_risk": risk_facts.get("has_risk"),
+            "has_exit": risk_facts.get("has_exit"),
+            "break_reasons": risk_facts.get("break_reasons"),
+            "heat_reasons": risk_facts.get("heat_reasons"),
+            "summary": risk_facts.get("summary"),
+        },
+        "structure": {
+            "candidate": structure_candidate,
+            "trigger_observed": trigger_observed,
+            "fractals": fractals,
+            "rectangle": rectangle,
+            "summary": "结构事实已出现，等待许可和交易计划。" if structure_candidate else "结构事实不足，继续观察。",
+        },
+        "exit_gate": exit_gate,
+        "trigger": trigger,
+    }

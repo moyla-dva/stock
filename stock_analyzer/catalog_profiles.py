@@ -1,5 +1,6 @@
 """Stock profile service built on catalog cache and provider adapters."""
 
+import logging
 import threading
 
 from stock_analyzer.catalog_cache import read_concept_cache, read_profile_cache, write_profile_cache
@@ -10,6 +11,7 @@ from stock_analyzer.providers.catalog import DEFAULT_STOCK_CATALOG_PROVIDER
 
 
 _PROFILE_CACHE_LOCK = threading.Lock()
+LOGGER = logging.getLogger(__name__)
 
 
 def normalize_profile(code, profile=None):
@@ -110,7 +112,7 @@ def get_stock_profile(
                 update_profile_cache(code, profile, cache_dir)
                 return profile
         except Exception as e:
-            print(f"[get_stock_profile] {provider_name} 获取股票 {code} 画像失败: {e}")
+            LOGGER.debug("%s 获取股票 %s 画像失败: %s", provider_name, code, e, exc_info=True)
 
     if profile_has_metadata(profile, code):
         update_profile_cache(code, profile, cache_dir)

@@ -8,9 +8,11 @@ from pathlib import Path
 
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.c_signal_v2 import build_c_signal_v2_priority, build_c_signal_v2_state_from_result
-from stock_analyzer.data_fetcher import beijing_now
+from stock_analyzer.data_fetcher import beijing_now, market_calendar_context
 from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_fields
+from stock_analyzer.market_data_identity import frame_market_data_identity
 from stock_analyzer.scanner import SCAN_CONFIG, format_scan_date, normalize_scan_type, scan_stock_frame
+from stock_analyzer.scan_snapshot_paths import is_scan_snapshot_file
 from stock_analyzer.v2_analysis_context import build_v2_analysis_context
 from stock_analyzer.versioning import (
     DATA_ADJUST,
@@ -103,11 +105,25 @@ def is_recent_snapshot(snapshot, max_age_days=MAX_LATEST_SNAPSHOT_AGE_DAYS, now_
     data_date = _parse_data_date(snapshot.get("data_date", ""))
     if data_date is not None and (snapshot_day - data_date).days > MAX_SNAPSHOT_DATA_LAG_DAYS:
         return False
-    # After a trading-day close, a reusable snapshot must be backed by that day's data.
+    # After a confirmed trading-session close, reuse requires that session's data.
+    # Calendar gaps retain the former weekday fallback instead of guessing a closure.
+    session_status = None
+    if current_day is not None:
+        session_status = market_calendar_context(
+            current_day.strftime("%Y%m%d")
+        ).get("is_session")
+    requires_current_session_data = bool(
+        session_status is True
+        or (
+            session_status is None
+            and current_day is not None
+            and current_day.weekday() < 5
+        )
+    )
     if (
         data_date is not None
         and current_day is not None
-        and current_day.weekday() < 5
+        and requires_current_session_data
         and current_now.time() >= time(15, 10)
         and data_date.date() < current_day.date()
     ):
@@ -134,9 +150,31 @@ def scan_snapshot_glob(code, start_date=None):
     return sorted(SNAPSHOT_DIR.glob(pattern), reverse=True)
 
 
+def scan_snapshot_paths_for_codes(codes, start_date=None, snapshot_days=None):
+    """Resolve expected snapshot paths without globbing once per code."""
+    days = tuple(dict.fromkeys(
+        normalize_snapshot_day(day) for day in (snapshot_days or [None])
+    ))
+    paths = []
+    seen = set()
+    for day in days:
+        if not day:
+            continue
+        for code in codes or ():
+            path = scan_snapshot_path(code, start_date=start_date, snapshot_day=day)
+            if path is None or path in seen or not path.is_file():
+                continue
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
 def scan_snapshot_files(start_date=None):
     pattern = f"*_{_start_key(start_date)}_*.json"
-    return sorted(SNAPSHOT_DIR.glob(pattern), reverse=True)
+    return sorted(
+        (path for path in SNAPSHOT_DIR.glob(pattern) if is_scan_snapshot_file(path)),
+        reverse=True,
+    )
 
 
 def scan_snapshot_day_files(start_date=None, snapshot_day=None):
@@ -144,7 +182,10 @@ def scan_snapshot_day_files(start_date=None, snapshot_day=None):
     if not target_day:
         return []
     pattern = f"*_{_start_key(start_date)}_{target_day}.json"
-    return sorted(SNAPSHOT_DIR.glob(pattern), reverse=True)
+    return sorted(
+        (path for path in SNAPSHOT_DIR.glob(pattern) if is_scan_snapshot_file(path)),
+        reverse=True,
+    )
 
 
 def read_scan_snapshot_file(path, logger=None):
@@ -256,6 +297,7 @@ def build_scan_snapshot(
         rows = int(len(df_display))
         if "date" in df_display.columns:
             data_date = format_scan_date(df_display.iloc[-1]["date"])
+    data_identity = frame_market_data_identity(df_display)
 
     return {
         "version": SNAPSHOT_VERSION,
@@ -268,6 +310,16 @@ def build_scan_snapshot(
         "concepts": concepts,
         "snapshot_day": snapshot_day_text(snapshot_day),
         "data_date": data_date,
+        "bar_state": data_identity.get("bar_state") or "unknown",
+        "data_source": data_identity.get("data_source") or "unknown",
+        "cache_status": data_identity.get("cache_status") or "unknown",
+        "data_revision": data_identity.get("data_revision") or "unknown",
+        "generated_at": data_identity.get("generated_at") or "unknown",
+        "calendar_id": data_identity.get("calendar_id") or "unknown",
+        "calendar_revision": data_identity.get("calendar_revision") or "unknown",
+        "calendar_evidence_level": (
+            data_identity.get("calendar_evidence_level") or "unknown"
+        ),
         "rows": rows,
         "trade_plan": trade_plan,
         "computed_scan_types": sorted(set(computed_scan_types), key=computed_scan_types.index),

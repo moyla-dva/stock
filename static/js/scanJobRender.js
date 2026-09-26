@@ -28,6 +28,8 @@ function formatProgressStripDetail(job) {
         formatJobCoverage(job),
         '命中 ' + (job.matched || 0)
     ];
+    var dataCoverage = formatMarketDataCoverage(job);
+    if (dataCoverage) parts.push(dataCoverage);
     if (job.status === 'completed') {
         parts.push('跳过 ' + (job.skipped_count || 0));
     } else if (!isScanJobTerminal(job.status)) {

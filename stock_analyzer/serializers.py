@@ -10,6 +10,7 @@ from stock_analyzer.events import (
     event_to_mark_point,
     signal_definitions_payload,
 )
+from stock_analyzer.market_data_identity import frame_market_data_identity
 
 
 DEFAULT_V2_EVENT_LOOKBACK = 60
@@ -131,10 +132,14 @@ def analysis_frame_to_chart_payload(
         else []
     )
 
-    if v2_events is None:
-        v2_events = build_v2_signal_events(df_display, lookback=v2_event_lookback)
-
     facts = facts if isinstance(facts, dict) else build_c_signal_v2_facts(df_display)
+    if v2_events is None:
+        known_facts_by_idx = {len(df_display) - 1: facts} if not df_display.empty else None
+        v2_events = build_v2_signal_events(
+            df_display,
+            lookback=v2_event_lookback,
+            known_facts_by_idx=known_facts_by_idx,
+        )
 
     mark_points_v2 = [
         event_to_mark_point(event)
@@ -162,6 +167,7 @@ def analysis_frame_to_chart_payload(
         },
         "score_summary": latest_score_summary(df_display, facts=facts),
         "signal_definitions": signal_definitions_payload(),
+        "data_identity": frame_market_data_identity(df_display),
     }
 
     if include_legacy:

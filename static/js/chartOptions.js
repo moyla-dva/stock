@@ -4,6 +4,38 @@ function formatChartTooltipNumber(value, digits, fallback) {
     return Number.isFinite(number) ? number.toFixed(digits == null ? 2 : digits) : (fallback == null ? '-' : fallback);
 }
 
+function escapeChartTooltipHtml(value) {
+    if (value == null) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function chartTooltipSeriesValue(value) {
+    if (Array.isArray(value)) return value[value.length - 1];
+    return value;
+}
+
+function chartTooltipKLineValues(value) {
+    var values = Array.isArray(value) ? value : [];
+    var start = Math.max(0, values.length - 4);
+    return {
+        open: values[start],
+        close: values[start + 1],
+        low: values[start + 2],
+        high: values[start + 3]
+    };
+}
+
+function chartTooltipMetric(label, value, className) {
+    var classes = 'chart-tooltip-metric' + (className ? ' ' + className : '');
+    return '<span class="' + classes + '"><span>' + escapeChartTooltipHtml(label) + '</span><strong>' +
+        escapeChartTooltipHtml(value) + '</strong></span>';
+}
+
 function buildChartOption(data, dates, markPoints, defaultStart, scanFocus) {
     var scanFocusColorValue = scanFocus ? scanFocusColor(scanFocus) : '#202421';
     return {
@@ -13,23 +45,38 @@ function buildChartOption(data, dates, markPoints, defaultStart, scanFocus) {
             backgroundColor: 'rgba(255, 255, 255, 0.9)',
             formatter: function(params) {
                 var date = params[0].name;
-                var res = '<div class="chart-tooltip-date">' + date + '</div>';
+                var res = '<div class="chart-tooltip-card">' +
+                    '<div class="chart-tooltip-date">' + escapeChartTooltipHtml(date) + '</div>';
                 params.forEach(function(item) {
                     if (item.seriesName === 'K线') {
-                        var open = item.value[0];
-                        var close = item.value[1];
-                        var low = item.value[2];
-                        var high = item.value[3];
-                        var amplitude = formatChartTooltipNumber(Number(high) - Number(close), 2);
-                        res += 'K线 开: ' + open + ' 收: ' + close + ' 低: ' + low + ' 高: ' + high + '<br/>';
-                        res += '波幅: ' + amplitude + '<br/>';
+                        var kLine = chartTooltipKLineValues(item.value);
+                        var open = formatChartTooltipNumber(kLine.open, 2);
+                        var close = formatChartTooltipNumber(kLine.close, 2);
+                        var low = formatChartTooltipNumber(kLine.low, 2);
+                        var high = formatChartTooltipNumber(kLine.high, 2);
+                        var range = Number(kLine.high) - Number(kLine.low);
+                        var amplitude = formatChartTooltipNumber(range, 2);
+                        var amplitudePct = Number(kLine.low) ? formatChartTooltipNumber(range / Number(kLine.low) * 100, 2) + '%' : '-';
+                        res += '<div class="chart-tooltip-section">' +
+                            '<div class="chart-tooltip-section-title">K线</div>' +
+                            '<div class="chart-tooltip-grid">' +
+                            chartTooltipMetric('开', open) +
+                            chartTooltipMetric('收', close, Number(kLine.close) >= Number(kLine.open) ? 'is-up' : 'is-down') +
+                            chartTooltipMetric('低', low) +
+                            chartTooltipMetric('高', high) +
+                            chartTooltipMetric('波幅', amplitude) +
+                            chartTooltipMetric('振幅', amplitudePct) +
+                            '</div>' +
+                            '</div>';
                     } else if (item.seriesName === '主力成本线') {
-                        res += '主力成本: ' + formatChartTooltipNumber(item.value, 2) + '<br/>';
+                        res += '<div class="chart-tooltip-row"><span>主力成本</span><strong>' +
+                            formatChartTooltipNumber(chartTooltipSeriesValue(item.value), 2) + '</strong></div>';
                     } else if (item.seriesName === '波动效率') {
-                        res += '波动效率: ' + formatChartTooltipNumber(item.value, 2, '0') + '<br/>';
+                        res += '<div class="chart-tooltip-row"><span>波动效率</span><strong>' +
+                            formatChartTooltipNumber(chartTooltipSeriesValue(item.value), 2, '0') + '</strong></div>';
                     }
                 });
-                return res;
+                return res + '</div>';
             }
         },
         axisPointer: { link: [{ xAxisIndex: 'all' }] },
@@ -116,12 +163,12 @@ function buildChartOption(data, dates, markPoints, defaultStart, scanFocus) {
                             var roleLabel = typeof chartMarkerRoleLabel === 'function' ? chartMarkerRoleLabel(role, point, meta) : '';
                             var date = point.date || (point.coord && point.coord[0]) || '';
                             var reason = point.reason || point.value || meta.detail || '';
-                            var source = meta.displaySource ? '<br/>原始事实: ' + meta.displaySource : '';
-                            return '<div class="chart-tooltip-date">' + date + '</div>' +
-                                (roleLabel ? roleLabel + '<br/>' : '') +
-                                meta.label + ' ' + meta.name + '<br/>' +
+                            var source = meta.displaySource ? '<br/>原始事实: ' + escapeChartTooltipHtml(meta.displaySource) : '';
+                            return '<div class="chart-tooltip-date">' + escapeChartTooltipHtml(date) + '</div>' +
+                                (roleLabel ? escapeChartTooltipHtml(roleLabel) + '<br/>' : '') +
+                                escapeChartTooltipHtml(meta.label) + ' ' + escapeChartTooltipHtml(meta.name) + '<br/>' +
                                 '收盘: ' + formatPrice(point.price) + '<br/>' +
-                                reason +
+                                escapeChartTooltipHtml(reason) +
                                 source;
                         }
                     }

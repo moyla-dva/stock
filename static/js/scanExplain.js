@@ -105,7 +105,6 @@ function buildLegacyScanExplanation(item) {
         {
             label: '分数概览',
             value: '强度 ' + scanValueText(item.rank_score, '-')
-                + ' · 共振 ' + scanValueText(item.sector_score, '-')
                 + ' · 风险 ' + scanValueText(item.risk_score, '-'),
             tone: 'muted',
             hint: ''
@@ -114,7 +113,6 @@ function buildLegacyScanExplanation(item) {
     ];
     var badges = [
         {label: '强度', value: scanValueText(item.rank_score, '-'), tone: 'muted', hint: '旧结果原始强度'},
-        {label: '共振', value: scanValueText(item.sector_score, '-'), tone: 'muted', hint: '旧结果原始共振'},
         {label: '风险', value: scanValueText(item.risk_score, '-'), tone: 'muted', hint: '旧结果原始风险'},
         {label: '胜率', value: typeof formatPercent === 'function' ? formatPercent(item.win_rate) : '-', tone: 'muted', hint: '旧结果历史胜率'}
     ];
@@ -136,9 +134,41 @@ function buildLegacyScanExplanation(item) {
     };
 }
 
+function buildIndexedScanExplanation(item) {
+    item = item || {};
+    var signalName = scanValueText(item.signal_label || item.signal || item.signal_key, '候选摘要');
+    var reason = scanValueText(item.reason, signalName);
+    var planStatus = scanValueText(item.v2_plan_status || item.plan_status, '待读取');
+    var permission = scanValueText(item.v2_permission || item.permission, '待读取');
+    var missing = Array.isArray(item.missing_confirmations) ? item.missing_confirmations : [];
+    var drivers = [
+        {label: '许可', value: permission, tone: 'muted'},
+        {label: '计划状态', value: planStatus, tone: planStatus === 'ready' ? 'positive' : 'warning'},
+        {label: '状态', value: scanValueText(item.v2_state || item.state, '-'), tone: 'muted'}
+    ];
+    return {
+        version: 'CandidateSummary',
+        headline: signalName + ' · SQLite 候选摘要',
+        summary: reason + ' · 点选后读取原始快照详情',
+        card_summary: reason,
+        drivers: drivers,
+        cautions: missing.map(function(value) {
+            return {label: '待确认', value: String(value), tone: 'warning'};
+        }),
+        score_badges: [
+            {label: '综合', value: scanValueText(item.final_score, '-'), tone: 'muted'},
+            {label: '确认', value: scanValueText(item.confirm_score, '-'), tone: 'muted'},
+            {label: '风险', value: scanValueText(item.risk_score, '-'), tone: 'muted'}
+        ]
+    };
+}
+
 function buildScanExplanation(item) {
     if (hasBackendScanExplanation(item)) {
         return normalizeBackendScanExplanation(item);
+    }
+    if (item && item._indexed_summary) {
+        return buildIndexedScanExplanation(item);
     }
     return buildLegacyScanExplanation(item);
 }

@@ -1,5 +1,6 @@
-"""Scan planning from local snapshot state."""
+"""Scan planning from indexed or local snapshot state."""
 
+from stock_analyzer import scan_snapshot as scan_snapshot_module
 from stock_analyzer.code_utils import normalize_code
 from stock_analyzer.scanner import normalize_scan_type
 from stock_analyzer.scan_snapshot_policy import (
@@ -20,18 +21,52 @@ from stock_analyzer.scan_snapshot import (
 )
 
 
-def legacy_strategy_snapshot_codes(start_date=None, scan_type=None, logger=None):
+def _indexed_planning_snapshots(index_store, start_date=None, logger=None):
+    if index_store is None:
+        return None
+    try:
+        fingerprint = index_store.cache_fingerprint(scan_snapshot_module.SNAPSHOT_DIR)
+        if not fingerprint.get("available"):
+            return None
+        if not fingerprint.get("planning_metadata_complete"):
+            return None
+        start_key = str(start_date or "default").replace("-", "")
+        return index_store.planning_snapshot_rows(start_key=start_key)
+    except Exception:
+        if logger:
+            logger.warning("SQLite 扫描计划不可用，回退 JSON 快照", exc_info=True)
+        return None
+
+
+def legacy_strategy_snapshot_codes(
+    start_date=None,
+    scan_type=None,
+    logger=None,
+    index_store=None,
+):
     scan_type = normalize_scan_type(scan_type) if scan_type else None
     legacy_codes = []
     legacy_seen = set()
     current_seen = set()
-    for path in scan_snapshot_files(start_date=start_date):
-        snapshot = read_scan_snapshot_file(path, logger=logger)
+    indexed_snapshots = _indexed_planning_snapshots(
+        index_store,
+        start_date=start_date,
+        logger=logger,
+    )
+    records = (
+        ((snapshot, normalize_code(snapshot.get("code"))) for snapshot in indexed_snapshots)
+        if indexed_snapshots is not None
+        else (
+            (snapshot, normalize_code((snapshot or {}).get("code")) or normalize_code(path.name))
+            for path in scan_snapshot_files(start_date=start_date)
+            for snapshot in (read_scan_snapshot_file(path, logger=logger),)
+        )
+    )
+    for snapshot, code in records:
         if snapshot is None or not is_recent_snapshot(snapshot):
             continue
         if scan_type and not snapshot_has_scan_type(snapshot, scan_type):
             continue
-        code = normalize_code(snapshot.get("code")) or normalize_code(path.name)
         if not code:
             continue
         if is_current_strategy_snapshot(snapshot):
@@ -44,15 +79,33 @@ def legacy_strategy_snapshot_codes(start_date=None, scan_type=None, logger=None)
     return [code for code in legacy_codes if code not in current_seen]
 
 
-def build_scan_snapshot_status_index(scan_type, start_date=None, logger=None):
+def build_scan_snapshot_status_index(
+    scan_type,
+    start_date=None,
+    logger=None,
+    index_store=None,
+):
     """Build per-code snapshot status in one pass for scan planning."""
     scan_type = normalize_scan_type(scan_type)
     statuses = {}
     seen_ready_or_missing_type = set()
 
-    for path in scan_snapshot_files(start_date=start_date):
-        snapshot = read_scan_snapshot_file(path, logger=logger)
-        code = normalize_code((snapshot or {}).get("code")) or normalize_code(path.name)
+    indexed_snapshots = _indexed_planning_snapshots(
+        index_store,
+        start_date=start_date,
+        logger=logger,
+    )
+    records = (
+        ((snapshot, normalize_code(snapshot.get("code"))) for snapshot in indexed_snapshots)
+        if indexed_snapshots is not None
+        else (
+            (snapshot, normalize_code((snapshot or {}).get("code")) or normalize_code(path.name))
+            for path in scan_snapshot_files(start_date=start_date)
+            for snapshot in (read_scan_snapshot_file(path, logger=logger),)
+        )
+    )
+
+    for snapshot, code in records:
         if not code or code in seen_ready_or_missing_type:
             continue
 
@@ -78,7 +131,14 @@ def build_scan_snapshot_status_index(scan_type, start_date=None, logger=None):
     return {code: item["status"] for code, item in statuses.items()}
 
 
-def plan_scan_codes(codes, scan_type, refresh_policy="auto", start_date=None, logger=None):
+def plan_scan_codes(
+    codes,
+    scan_type,
+    refresh_policy="auto",
+    start_date=None,
+    logger=None,
+    index_store=None,
+):
     refresh_policy = normalize_refresh_policy(refresh_policy)
     scan_type = normalize_scan_type(scan_type)
     requested = list(codes or [])
@@ -98,7 +158,12 @@ def plan_scan_codes(codes, scan_type, refresh_policy="auto", start_date=None, lo
         "refresh_policy": refresh_policy,
     }
     status_index = (
-        build_scan_snapshot_status_index(scan_type, start_date=start_date, logger=logger)
+        build_scan_snapshot_status_index(
+            scan_type,
+            start_date=start_date,
+            logger=logger,
+            index_store=index_store,
+        )
         if refresh_policy == "auto"
         else None
     )

@@ -9,10 +9,26 @@ import pandas as pd
 
 from stock_analyzer import data_sources
 from stock_analyzer.data_sources import collect_data_source_status
-from scripts.append_daily_quotes_to_history_cache import append_rejection_reason
+from scripts.append_daily_quotes_to_history_cache import append_rejection_reason, bar_from_quote
 
 
 class DataSourcesTest(unittest.TestCase):
+    def test_append_quote_bar_uses_share_volume_units(self):
+        fields = [""] * 39
+        fields[2] = "600000"
+        fields[3] = "10.5"
+        fields[5] = "10.0"
+        fields[6] = "12"
+        fields[30] = "20260924"
+        fields[33] = "10.8"
+        fields[34] = "9.9"
+        fields[37] = "120"
+        fields[38] = "0.5"
+
+        bar = bar_from_quote(fields, "20260924")
+
+        self.assertEqual(bar["volume"], 1200)
+
     def test_collect_data_source_status_reports_local_caches(self):
         with TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -49,22 +65,21 @@ class DataSourcesTest(unittest.TestCase):
 
             with patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir):
                 with patch("stock_analyzer.catalog.CATALOG_CACHE_DIR", catalog_dir):
-                    with patch("stock_analyzer.market_boards.BOARD_MARKET_CACHE_DIR", board_dir):
-                        with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", snapshot_dir):
-                            with patch("stock_analyzer.scan_jobs.DEFAULT_HISTORY_PATH", jobs_path):
-                                status = collect_data_source_status(start_date="2025-04-29")
+                    with patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", snapshot_dir):
+                        with patch("stock_analyzer.scan_jobs.DEFAULT_HISTORY_PATH", jobs_path):
+                            status = collect_data_source_status(start_date="2025-04-29")
 
         sources = {item["key"]: item for item in status["sources"]}
-        self.assertEqual(status["overall"]["ready_count"], 6)
+        self.assertEqual(status["overall"]["ready_count"], 5)
         self.assertEqual(status["overall"]["experimental_count"], 1)
         self.assertEqual(sources["concept_graph"]["status"], "experimental")
         self.assertTrue(sources["concept_graph"]["experimental"])
-        self.assertIn("6/8 可用", status["overall"]["summary"])
+        self.assertIn("5/7 可用", status["overall"]["summary"])
         self.assertEqual(sources["history"]["latest_data_date"], "2026-05-11")
         self.assertEqual(sources["history"]["latest_requested_end"], "2026-05-11")
         self.assertEqual(sources["profiles"]["count"], 1)
         self.assertEqual(sources["concepts"]["concept_count"], 1)
-        self.assertEqual(sources["board_market"]["count"], 1)
+        self.assertNotIn("board_market", sources)
         self.assertEqual(sources["scan_jobs"]["count"], 1)
 
     def test_history_status_uses_actual_cached_data_date(self):
@@ -79,9 +94,12 @@ class DataSourcesTest(unittest.TestCase):
                 "volume": [1000, 1200],
             }).to_csv(history_dir / "600063_20250429_20260512_qfq.csv", index=False)
 
-            with patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir):
-                with patch("stock_analyzer.data_fetcher.beijing_now", return_value=datetime(2026, 5, 12, 15, 30)):
-                    status = collect_data_source_status(start_date="2025-04-29")
+            with (
+                patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir),
+                patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", history_dir / "snapshots"),
+                patch("stock_analyzer.data_fetcher.beijing_now", return_value=datetime(2026, 5, 12, 15, 30)),
+            ):
+                status = collect_data_source_status(start_date="2025-04-29")
 
         history = {item["key"]: item for item in status["sources"]}["history"]
         self.assertEqual(history["latest_data_date"], "2026-05-11")
@@ -101,7 +119,10 @@ class DataSourcesTest(unittest.TestCase):
                 "volume": [1000, 1200],
             }).to_csv(history_dir / "600063_20250429_qfq.csv", index=False)
 
-            with patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir):
+            with (
+                patch("stock_analyzer.data_fetcher.CACHE_DIR", history_dir),
+                patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", history_dir / "snapshots"),
+            ):
                 status = collect_data_source_status(start_date="2025-04-29")
 
         history = {item["key"]: item for item in status["sources"]}["history"]

@@ -145,13 +145,6 @@ def _as_float(value, default=None):
         return default
 
 
-def _as_bool(value):
-    try:
-        return bool(value)
-    except (TypeError, ValueError):
-        return False
-
-
 def _as_int(value, default=None):
     number = _as_float(value)
     if number is None:
@@ -174,8 +167,6 @@ def _entry_type_label(entry_type):
         return "突破确认"
     if entry_type == "pullback":
         return "回踩确认"
-    if entry_type in {"repair-confirm", "watch-confirm"}:
-        return "修复确认"
     return "综合触发"
 
 
@@ -189,12 +180,6 @@ def _recent_high(df_display, window=5):
     if df_display is None or df_display.empty or "high" not in df_display.columns:
         return None
     return _as_float(df_display.tail(window)["high"].max())
-
-
-def _column_latest(df_display, column):
-    if df_display is None or df_display.empty or column not in df_display.columns:
-        return None
-    return df_display.iloc[-1].get(column)
 
 
 def _previous_low(df_display):

@@ -1,6 +1,30 @@
 var activeScanJobId = null;
 var activeScanJobType = null;
 var scanJobPollTimer = null;
+var scanJobPollFailureCount = 0;
+var SCAN_JOB_POLL_INTERVAL_MS = 900;
+var SCAN_JOB_POLL_MAX_FAILURES = 3;
+var SCAN_JOB_POLL_MAX_BACKOFF_MS = 8000;
+var scanWorkspaceRequestController = null;
+var scanCandidatesRequestController = null;
+
+function createAbortControllerIfAvailable() {
+    return typeof AbortController !== 'undefined' ? new AbortController() : null;
+}
+
+function abortScanWorkspaceRequest() {
+    if (scanWorkspaceRequestController) {
+        scanWorkspaceRequestController.abort();
+        scanWorkspaceRequestController = null;
+    }
+}
+
+function abortScanCandidatesRequest() {
+    if (scanCandidatesRequestController) {
+        scanCandidatesRequestController.abort();
+        scanCandidatesRequestController = null;
+    }
+}
 
 function openScanWorkspace(view) {
     if (typeof navigateScanWorkspace === 'function') {
@@ -51,12 +75,17 @@ async function loadScanWorkspace(activeType, snapshotDay, forceRefresh, limitOve
         ? (scanWorkspaceState.historySnapshotDay || '')
         : (snapshotDay || '');
     var limit = limitOverride || scanWorkspaceState.resultLimit || SCAN_RESULT_PAGE_SIZE;
+    abortScanWorkspaceRequest();
+    var requestController = createAbortControllerIfAvailable();
+    scanWorkspaceRequestController = requestController;
     try {
         setScanStatus(requestedSnapshotDay ? '读取历史结果' : '读取本地结果');
         var workspace = await fetchScanWorkspace(requestedSnapshotDay, forceRefresh, limit, {
             lite: true,
             activeType: scanWorkspaceState.activeType,
-            entryModel: scanWorkspaceState.entryModel
+            entryModel: scanWorkspaceState.entryModel,
+            forceJson: typeof getActiveWorkspaceView === 'function' && getActiveWorkspaceView() === 'data',
+            signal: requestController ? requestController.signal : undefined
         });
         if (workspace.error) throw new Error(workspace.error);
         renderScanWorkspace(workspace);
@@ -65,11 +94,19 @@ async function loadScanWorkspace(activeType, snapshotDay, forceRefresh, limitOve
         var activePool = workspace.pools && workspace.pools[scanWorkspaceState.activeType];
         var activeCount = activePool ? (activePool.count || 0) : 0;
         var activeTitle = activePool ? (activePool.title || scanWorkspaceState.activeType) : '候选';
-        setScanStatus(requestedSnapshotDay
-            ? (activeCount ? '历史 ' + workspace.latest_snapshot_day + ' · ' + activeTitle + ' ' + activeCount + ' 只' : '历史结果为空')
-            : (totalCount ? activeTitle + ' ' + activeCount + ' 只 · 本地快照 ' + totalCount + ' 只' : '无本地结果'));
+        var statusText = workspace.read_source === 'json_fallback'
+            ? 'SQLite 读取不可用 · 已回退 JSON'
+            : (workspace.read_source === 'sqlite_index'
+                ? (activeCount ? activeTitle + ' ' + activeCount + ' 只 · SQLite 摘要' : 'SQLite 当前池暂无候选')
+                : (requestedSnapshotDay
+                    ? (activeCount ? '历史 ' + workspace.latest_snapshot_day + ' · ' + activeTitle + ' ' + activeCount + ' 只' : '历史结果为空')
+                    : (totalCount ? activeTitle + ' ' + activeCount + ' 只 · 本地快照 ' + totalCount + ' 只' : '无本地结果')));
+        setScanStatus(statusText);
         return true;
     } catch (err) {
+        if (typeof isRequestCancelled === 'function' && isRequestCancelled(err)) {
+            return false;
+        }
         setScanStatus('结果读取失败');
         var list = document.getElementById('scan-list');
         if (list) showScanError(list, err.message, [
@@ -99,28 +136,48 @@ async function loadScanWorkspace(activeType, snapshotDay, forceRefresh, limitOve
             }
         ]);
         return false;
+    } finally {
+        if (scanWorkspaceRequestController === requestController) {
+            scanWorkspaceRequestController = null;
+        }
     }
 }
 
 async function loadScanCandidatesForCurrentFilters(scanType, offset, limit) {
     scanType = normalizeScanPoolType(scanType || scanWorkspaceState.activeType);
     var filters = scanWorkspaceState.filters || {};
-    var payload = await fetchScanCandidates({
-        scanType: scanType,
-        snapshotDay: scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '',
-        sector: filters.sector || '',
-        concept: filters.concept || '',
-        query: filters.query || '',
-        reason: filters.reason || '',
-        entryModel: scanWorkspaceState.entryModel,
-        offset: offset || 0,
-        limit: limit || SCAN_RESULT_PAGE_SIZE,
-        lite: true
-    });
-    if (payload.error) throw new Error(payload.error);
-    mergeScanPoolResults(scanType, payload.results || []);
-    setActiveScanFilterLoadMeta(payload);
-    return payload;
+    abortScanCandidatesRequest();
+    var requestController = createAbortControllerIfAvailable();
+    scanCandidatesRequestController = requestController;
+    try {
+        var pageOffset = offset || 0;
+        var payload = await fetchScanCandidates({
+            scanType: scanType,
+            snapshotDay: scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '',
+            sector: filters.sector || '',
+            concept: filters.concept || '',
+            query: filters.query || '',
+            reason: filters.reason || '',
+            entryModel: scanWorkspaceState.entryModel,
+            offset: pageOffset,
+            limit: limit || SCAN_RESULT_PAGE_SIZE,
+            lite: true,
+            signal: requestController ? requestController.signal : undefined
+        });
+        if (payload.error) throw new Error(payload.error);
+        if (payload.source === 'sqlite_index' && pageOffset === 0) {
+            var currentPool = getScanPool(scanType);
+            currentPool.results = [];
+            currentPool.loaded_count = 0;
+        }
+        mergeScanPoolResults(scanType, payload.results || []);
+        setActiveScanFilterLoadMeta(payload);
+        return payload;
+    } finally {
+        if (scanCandidatesRequestController === requestController) {
+            scanCandidatesRequestController = null;
+        }
+    }
 }
 
 async function loadMoreScanResults() {
@@ -134,13 +191,22 @@ async function loadMoreScanResults() {
     var filterOffset = filterMeta && Number.isFinite(Number(filterMeta.loaded_count))
         ? Number(filterMeta.loaded_count)
         : beforeFiltered;
-    var nextLimit = hasActiveScanFilters() ? SCAN_RESULT_PAGE_SIZE : increaseScanResultLimitForCurrentView(pool);
+    var useSqliteRead = typeof shouldUseScanIndexRead === 'function' && shouldUseScanIndexRead();
+    var nextLimit = useSqliteRead || hasActiveScanFilters()
+        ? SCAN_RESULT_PAGE_SIZE
+        : increaseScanResultLimitForCurrentView(pool);
     scanWorkspaceState.loadingMoreResults = true;
     var failed = false;
     setScanStatus(hasActiveScanFilters() ? '继续查找匹配候选' : '加载更多候选');
     renderActiveScanPool();
     try {
-        if (hasActiveScanFilters()) {
+        if (useSqliteRead) {
+            var pageOffset = hasActiveScanFilters()
+                ? (filterMeta && Number.isFinite(Number(filterMeta.loaded_count)) ? Number(filterMeta.loaded_count) : 0)
+                : scanPoolLoadedCount(pool);
+            await loadScanCandidatesForCurrentFilters(scanWorkspaceState.activeType, pageOffset, nextLimit);
+            renderActiveScanPool();
+        } else if (hasActiveScanFilters()) {
             await loadScanCandidatesForCurrentFilters(scanWorkspaceState.activeType, filterOffset, nextLimit);
             renderActiveScanPool();
         } else {
@@ -160,6 +226,23 @@ async function loadMoreScanResults() {
             setScanStatus('已继续查找 · 当前匹配仍 ' + afterFiltered + ' 只');
         }
     } catch (err) {
+        if (typeof isRequestCancelled === 'function' && isRequestCancelled(err)) {
+            failed = true;
+            return;
+        }
+        if (useSqliteRead) {
+            scanWorkspaceState.readSourceOverride = 'json';
+            scanWorkspaceState.readSourceError = err.message || 'SQLite 候选分页失败';
+            failed = true;
+            var recovered = await loadScanWorkspace(
+                scanWorkspaceState.activeType,
+                scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : '',
+                false,
+                SCAN_RESULT_PAGE_SIZE
+            );
+            if (recovered) setScanStatus('SQLite 分页读取失败 · 已回退 JSON');
+            return;
+        }
         failed = true;
         setScanStatus('加载候选失败');
         var list = document.getElementById('scan-list');
@@ -197,6 +280,16 @@ function clearScanJobPoll() {
     }
 }
 
+function scheduleScanJobPoll(delayMs) {
+    clearScanJobPoll();
+    scanJobPollTimer = setTimeout(pollActiveScanJob, delayMs || SCAN_JOB_POLL_INTERVAL_MS);
+}
+
+function scanJobPollBackoffDelay() {
+    var delay = SCAN_JOB_POLL_INTERVAL_MS * Math.pow(2, Math.max(0, scanJobPollFailureCount - 1));
+    return Math.min(delay, SCAN_JOB_POLL_MAX_BACKOFF_MS);
+}
+
 function refreshScanActionState() {
     if (typeof renderScanSnapshotMeta === 'function') {
         renderScanSnapshotMeta();
@@ -206,9 +299,12 @@ function refreshScanActionState() {
 async function pollActiveScanJob() {
     if (!activeScanJobId) return;
     var list = document.getElementById('scan-list');
+    var polledJobId = activeScanJobId;
     try {
-        var job = await fetchScanJob(activeScanJobId);
+        var job = await fetchScanJob(polledJobId);
+        if (!activeScanJobId || activeScanJobId !== polledJobId) return;
         if (job.error) throw new Error(job.error);
+        scanJobPollFailureCount = 0;
         renderScanJob(job);
 
         if (isScanJobTerminal(job.status)) {
@@ -223,12 +319,20 @@ async function pollActiveScanJob() {
             await loadScanJobHistory();
             return;
         }
-        scanJobPollTimer = setTimeout(pollActiveScanJob, 900);
+        scheduleScanJobPoll(SCAN_JOB_POLL_INTERVAL_MS);
     } catch (err) {
+        if (!activeScanJobId || activeScanJobId !== polledJobId) return;
+        if (activeScanJobId && activeScanJobId === polledJobId && scanJobPollFailureCount < SCAN_JOB_POLL_MAX_FAILURES) {
+            scanJobPollFailureCount += 1;
+            setScanStatus('任务状态暂时不可用，重试中 ' + scanJobPollFailureCount + '/' + SCAN_JOB_POLL_MAX_FAILURES);
+            scheduleScanJobPoll(scanJobPollBackoffDelay());
+            return;
+        }
         var failedJobId = activeScanJobId;
         var failedJobType = activeScanJobType;
         activeScanJobId = null;
         activeScanJobType = null;
+        scanJobPollFailureCount = 0;
         clearScanJobPoll();
         disableScanButtons(false);
         refreshScanActionState();
@@ -241,6 +345,7 @@ async function pollActiveScanJob() {
                     if (!failedJobId) return;
                     activeScanJobId = failedJobId;
                     activeScanJobType = failedJobType;
+                    scanJobPollFailureCount = 0;
                     disableScanButtons(true, failedJobType);
                     pollActiveScanJob();
                 }
@@ -276,10 +381,11 @@ async function scanMarket(scanType, refreshPolicyOverride, intentLabel, scopeOve
 
     try {
         setScanStatus(intentLabel ? '启动' + intentLabel : '启动扫描任务');
-        var job = await startScanJob(scanType, signalMode, refreshPolicy, scopeOverride);
+        var job = await startScanJob(scanType, refreshPolicy, scopeOverride);
         if (job.error) throw new Error(job.error);
         activeScanJobId = job.id;
         activeScanJobType = scanType;
+        scanJobPollFailureCount = 0;
         renderScanJob(job);
         renderScanJobHistory([job].concat(scanWorkspaceState.jobs || []));
         if (job.duplicate_reused) {

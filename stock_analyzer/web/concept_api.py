@@ -1,6 +1,10 @@
 """Stock concept API handlers."""
 
+import logging
+
 from flask import request
+
+LOGGER = logging.getLogger(__name__)
 
 
 def refresh_stock_concepts_response(jsonify, concept_job_manager, stock_service, logger):
@@ -17,7 +21,7 @@ def refresh_stock_concepts_response(jsonify, concept_job_manager, stock_service,
         )
         return jsonify(job), 202
     except Exception as exc:
-        print(f"[股票概念] 刷新异常: {exc}")
+        LOGGER.debug("股票概念刷新异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 
@@ -28,7 +32,7 @@ def stock_concepts_status_response(jsonify, concept_job_manager, stock_service):
             "job": concept_job_manager.current_job(),
         })
     except Exception as exc:
-        print(f"[股票概念] 状态异常: {exc}")
+        LOGGER.debug("股票概念状态异常: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
 
 

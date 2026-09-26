@@ -244,9 +244,9 @@ function createStockCard(item, variant, index) {
     var scores = document.createElement('div');
     scores.className = 'stock-card__scores';
     buildScanScoreBadges(item).filter(function(part) {
-        if (variant === 'risk') return ['阶段', '风险', '结构', '确认', '共振', '板指', '概指'].indexOf(part.label) >= 0;
-        if (variant === 'bottom') return ['阶段', '确认', '风险', '共振', '板指', '概指', '胜率'].indexOf(part.label) >= 0;
-        return ['结构', '确认', '风险', '共振', '板指', '概指', '胜率', '均值'].indexOf(part.label) >= 0;
+        if (variant === 'risk') return ['阶段', '风险', '结构', '确认'].indexOf(part.label) >= 0;
+        if (variant === 'bottom') return ['阶段', '确认', '风险', '胜率'].indexOf(part.label) >= 0;
+        return ['结构', '确认', '风险', '胜率', '均值'].indexOf(part.label) >= 0;
     }).slice(0, 4).forEach(function(part) {
         var badge = document.createElement('span');
         badge.className = 'stock-card__score stock-card__score--' + part.tone;

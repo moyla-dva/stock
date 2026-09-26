@@ -5,4 +5,8 @@
 - License: Apache-2.0, preserved in `LICENSE`
 - Local modifications: none
 
-This directory is a source snapshot for reference and possible local integration. The application currently imports `adata` from the Python environment dependency declared in the project `requirements.txt`.
+This directory is a source snapshot used as a runtime fallback. `stock_analyzer.providers.adata_loader`
+first imports `adata` from the active Python environment, then adds this directory to `sys.path`
+and retries only when the package is missing. `adata` is not currently declared in `requirements.txt`,
+so a clean environment uses this vendored snapshot. Keep the snapshot/license and loader behavior
+in sync if the dependency strategy changes.

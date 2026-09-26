@@ -44,6 +44,7 @@ class ScanJobManager:
         history_path=DEFAULT_HISTORY_PATH,
         max_history=50,
         persist_every=25,
+        completion_hook=None,
     ):
         self.batch_size = batch_size
         self.batch_delay = batch_delay
@@ -51,6 +52,7 @@ class ScanJobManager:
         self.history_path = Path(history_path) if history_path else None
         self.max_history = max_history
         self.persist_every = persist_every
+        self.completion_hook = completion_hook
         self._lock = threading.Lock()
         self._jobs = {}
         self._job_futures = {}
@@ -81,6 +83,31 @@ class ScanJobManager:
                 "refresh_policy": refresh_policy,
                 "scope": scope,
                 "code_source": plan_summary.get("code_source") or "market",
+                "universe_as_of": plan_summary.get("universe_as_of") or "",
+                "universe_revision": plan_summary.get("universe_revision") or "",
+                "universe_source": plan_summary.get("universe_source") or "",
+                "universe_coverage_status": plan_summary.get("universe_coverage_status") or "",
+                "universe_calendar_revision": plan_summary.get("universe_calendar_revision") or "",
+                "universe_member_count": int(plan_summary.get("universe_member_count") or 0),
+                "data_coverage": {
+                    "checked_count": 0,
+                    "current_session_closed_count": 0,
+                    "intraday_preview_count": 0,
+                    "stale_or_no_new_bar_count": 0,
+                    "no_data_count": 0,
+                    "provider_empty_count": 0,
+                    "provider_error_count": 0,
+                    "provider_partial_failure_count": 0,
+                    "stale_cache_count": 0,
+                    "analysis_error_count": 0,
+                    "unknown_count": 0,
+                    "source_counts": {},
+                    "fetch_status_counts": {},
+                    "cache_status_counts": {},
+                    "provider_attempt_counts": {},
+                    "issue_samples": [],
+                    "latest_data_date": "",
+                },
                 "strategy_version": strategy_meta.get("strategy_version") or plan_summary.get("strategy_version") or "",
                 "strategy_label": strategy_meta.get("strategy_label") or plan_summary.get("strategy_label") or "",
                 "requested_count": int(plan_summary.get("requested_count", len(codes))),
@@ -115,6 +142,11 @@ class ScanJobManager:
                 "started_at": None,
                 "updated_at": now,
                 "finished_at": None,
+                "postprocess": {
+                    "status": "pending" if self.completion_hook else "not_configured",
+                    "result": {},
+                    "error": None,
+                },
             }
             self._jobs[job_id] = job
             self._persist_jobs_unlocked()
@@ -181,6 +213,8 @@ class ScanJobManager:
 
     def _copy_job(self, job, include_results=True):
         copy = dict(job)
+        copy["postprocess"] = dict(job.get("postprocess") or {})
+        copy["data_coverage"] = json.loads(json.dumps(job.get("data_coverage") or {}))
         if include_results:
             copy["results"] = [dict(item) for item in job.get("results", [])]
         else:
@@ -240,7 +274,7 @@ class ScanJobManager:
             job = self._jobs.get(job_id)
             return bool(job and job.get("cancel_requested"))
 
-    def _append_result(self, job_id, result=None, failed=False, current_code=""):
+    def _append_result(self, job_id, result=None, failed=False, current_code="", data_quality=None):
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
@@ -251,6 +285,7 @@ class ScanJobManager:
             if result:
                 job["results"].append(dict(result))
                 job["matched"] = len(job["results"])
+            self._accumulate_data_coverage_unlocked(job, data_quality, current_code)
             job["current_code"] = current_code
             job["updated_at"] = _now_text()
             total = job.get("total") or 0
@@ -259,14 +294,210 @@ class ScanJobManager:
                 self._persist_jobs_unlocked()
             return self._copy_job(job)
 
+    def _record_scan_future(self, job_id, code, future):
+        try:
+            result = future.result()
+        except Exception:
+            self._append_result(
+                job_id,
+                failed=True,
+                current_code=code,
+                data_quality={"status": "analysis_error"},
+            )
+            return
+        if hasattr(result, "data_quality") and hasattr(result, "result"):
+            quality = result.data_quality
+            self._append_result(
+                job_id,
+                result=result.result,
+                failed=isinstance(quality, dict) and quality.get("status") == "analysis_error",
+                current_code=code,
+                data_quality=quality,
+            )
+        else:
+            self._append_result(
+                job_id,
+                result=result,
+                current_code=code,
+                data_quality=(
+                    {"status": "available", **result}
+                    if isinstance(result, dict) and result.get("data_date")
+                    else {"status": "unknown"}
+                ),
+            )
+
+    @staticmethod
+    def _accumulate_data_coverage_unlocked(job, data_quality, current_code=""):
+        coverage = job.setdefault("data_coverage", {
+            "checked_count": 0,
+            "current_session_closed_count": 0,
+            "intraday_preview_count": 0,
+            "stale_or_no_new_bar_count": 0,
+            "no_data_count": 0,
+            "provider_empty_count": 0,
+            "provider_error_count": 0,
+            "provider_partial_failure_count": 0,
+            "stale_cache_count": 0,
+            "analysis_error_count": 0,
+            "unknown_count": 0,
+            "source_counts": {},
+            "fetch_status_counts": {},
+            "cache_status_counts": {},
+            "provider_attempt_counts": {},
+            "issue_samples": [],
+            "latest_data_date": "",
+        })
+        for key, default in (
+            ("provider_empty_count", 0),
+            ("provider_error_count", 0),
+            ("provider_partial_failure_count", 0),
+            ("stale_cache_count", 0),
+            ("fetch_status_counts", {}),
+            ("cache_status_counts", {}),
+            ("provider_attempt_counts", {}),
+            ("issue_samples", []),
+        ):
+            coverage.setdefault(key, default.copy() if isinstance(default, (dict, list)) else default)
+        quality = data_quality if isinstance(data_quality, dict) else {}
+        status = str(quality.get("status") or "unknown")
+        fetch_status = str(quality.get("fetch_status") or status)
+        cache_status = str(quality.get("cache_status") or "unknown")
+        data_date = str(quality.get("data_date") or "")
+        bar_state = str(quality.get("bar_state") or "unknown")
+        source = str(quality.get("data_source") or "unknown")
+        as_of = str(job.get("universe_as_of") or "")
+
+        coverage["checked_count"] += 1
+        counts = {
+            "current_session_closed": "current_session_closed_count",
+            "intraday_preview": "intraday_preview_count",
+            "stale_or_no_new_bar": "stale_or_no_new_bar_count",
+            "no_data": "no_data_count",
+            "provider_empty": "no_data_count",
+            "provider_error": "no_data_count",
+            "provider_partial_failure": "no_data_count",
+            "no_provider_result": "no_data_count",
+            "analysis_error": "analysis_error_count",
+            "unknown": "unknown_count",
+        }
+        if status in {"no_data", "provider_empty", "provider_error", "provider_partial_failure", "no_provider_result"}:
+            category = "no_data"
+        elif status == "analysis_error":
+            category = "analysis_error"
+        elif not data_date or bar_state not in {"closed", "preview", "mixed"}:
+            category = "unknown"
+        elif as_of and data_date < as_of:
+            category = "stale_or_no_new_bar"
+        elif bar_state == "preview":
+            category = "intraday_preview"
+        elif bar_state == "closed" and (not as_of or data_date == as_of):
+            category = "current_session_closed"
+        else:
+            category = "unknown"
+        coverage[counts[category]] += 1
+
+        detailed_counts = {
+            "provider_empty": "provider_empty_count",
+            "provider_error": "provider_error_count",
+            "provider_partial_failure": "provider_partial_failure_count",
+        }
+        if fetch_status in detailed_counts:
+            coverage[detailed_counts[fetch_status]] += 1
+        if cache_status in {"stale", "stale_fallback"}:
+            coverage["stale_cache_count"] += 1
+        for field, value in (
+            ("fetch_status_counts", fetch_status),
+            ("cache_status_counts", cache_status),
+        ):
+            counts_by_value = coverage.setdefault(field, {})
+            counts_by_value[value] = int(counts_by_value.get(value) or 0) + 1
+
+        sources = coverage.setdefault("source_counts", {})
+        sources[source] = int(sources.get(source) or 0) + 1
+        attempts = quality.get("fetch_attempts") if isinstance(quality.get("fetch_attempts"), list) else []
+        attempt_counts = coverage.setdefault("provider_attempt_counts", {})
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            provider = str(attempt.get("provider") or "unknown")
+            attempt_status = str(attempt.get("status") or "unknown")
+            key = f"{provider}:{attempt_status}"
+            attempt_counts[key] = int(attempt_counts.get(key) or 0) + 1
+
+        issue_statuses = {
+            "stale_or_no_new_bar", "no_data", "provider_empty", "provider_error",
+            "provider_partial_failure", "no_provider_result", "analysis_error",
+        }
+        samples = coverage.setdefault("issue_samples", [])
+        if (
+            category in issue_statuses
+            or status in issue_statuses
+            or source == "unknown"
+            or cache_status in {"stale", "stale_fallback", "read_error"}
+        ) and len(samples) < 20:
+            samples.append({
+                "code": str(current_code or ""),
+                "category": category,
+                "status": status,
+                "fetch_status": fetch_status,
+                "cache_status": cache_status,
+                "data_date": data_date,
+                "data_source": source,
+                "fetch_attempts": [
+                    {
+                        "provider": str(attempt.get("provider") or "unknown"),
+                        "status": str(attempt.get("status") or "unknown"),
+                        "error_type": str(attempt.get("error_type") or ""),
+                    }
+                    for attempt in attempts[:6]
+                    if isinstance(attempt, dict)
+                ],
+            })
+        if data_date > str(coverage.get("latest_data_date") or ""):
+            coverage["latest_data_date"] = data_date
+
     def _should_persist_update(self, updates):
-        return bool({"status", "started_at", "finished_at", "error"} & set(updates.keys()))
+        return bool(
+            {"status", "started_at", "finished_at", "error", "postprocess"}
+            & set(updates.keys())
+        )
+
+    def _run_completion_hook(self, job_id, codes):
+        if self.completion_hook is None:
+            return
+        self._update_job(
+            job_id,
+            postprocess={"status": "running", "result": {}, "error": None},
+        )
+        try:
+            job = self.get_job(job_id, include_results=False)
+            result = self.completion_hook(job, tuple(codes)) or {}
+            if not isinstance(result, dict):
+                result = {"value": result}
+            self._update_job(
+                job_id,
+                postprocess={"status": "completed", "result": dict(result), "error": None},
+            )
+        except Exception as exc:
+            self._update_job(
+                job_id,
+                postprocess={"status": "failed", "result": {}, "error": str(exc)},
+            )
+
+    def _skip_completion_hook(self, job_id, reason):
+        if self.completion_hook is None:
+            return
+        self._update_job(
+            job_id,
+            postprocess={"status": "skipped", "result": {}, "error": str(reason)},
+        )
 
     def _run_job(self, job_id, codes, scan_one, force_refresh):
         self._update_job(job_id, status="running", started_at=_now_text())
         try:
             for batch_start in range(0, len(codes), self.batch_size):
                 if self._is_cancel_requested(job_id):
+                    self._skip_completion_hook(job_id, "scan_cancelled")
                     self._finish_cancelled(job_id)
                     return
 
@@ -283,23 +514,32 @@ class ScanJobManager:
                     if self.request_delay:
                         time.sleep(self.request_delay)
 
+                processed_futures = set()
                 for future in concurrent.futures.as_completed(futures):
                     code = futures[future]
                     if self._is_cancel_requested(job_id):
-                        for pending in futures:
-                            pending.cancel()
+                        for pending, pending_code in futures.items():
+                            if pending in processed_futures:
+                                continue
+                            if pending.done() and not pending.cancelled():
+                                self._record_scan_future(job_id, pending_code, pending)
+                            else:
+                                pending.cancel()
+                        self._skip_completion_hook(job_id, "scan_cancelled")
                         self._finish_cancelled(job_id)
                         return
-                    try:
-                        result = future.result()
-                    except Exception:
-                        self._append_result(job_id, failed=True, current_code=code)
-                        continue
-                    self._append_result(job_id, result=result, current_code=code)
+                    self._record_scan_future(job_id, code, future)
+                    processed_futures.add(future)
+
+                if self._is_cancel_requested(job_id):
+                    self._skip_completion_hook(job_id, "scan_cancelled")
+                    self._finish_cancelled(job_id)
+                    return
 
                 if batch_start + self.batch_size < len(codes) and self.batch_delay:
                     time.sleep(self.batch_delay)
 
+            self._run_completion_hook(job_id, codes)
             self._update_job(
                 job_id,
                 status="completed",
@@ -308,6 +548,7 @@ class ScanJobManager:
                 finished_at=_now_text(),
             )
         except Exception as exc:
+            self._skip_completion_hook(job_id, "scan_failed")
             self._update_job(
                 job_id,
                 status="failed",
@@ -366,6 +607,13 @@ class ScanJobManager:
             "refresh_policy": job.get("refresh_policy") or "auto",
             "scope": job.get("scope") or "market",
             "code_source": job.get("code_source") or "market",
+            "universe_as_of": job.get("universe_as_of") or "",
+            "universe_revision": job.get("universe_revision") or "",
+            "universe_source": job.get("universe_source") or "",
+            "universe_coverage_status": job.get("universe_coverage_status") or "",
+            "universe_calendar_revision": job.get("universe_calendar_revision") or "",
+            "universe_member_count": int(job.get("universe_member_count") or 0),
+            "data_coverage": dict(job.get("data_coverage") or {}),
             "strategy_version": job.get("strategy_version") or "",
             "strategy_label": job.get("strategy_label") or "",
             "requested_count": int(job.get("requested_count") or job.get("total") or 0),
@@ -400,6 +648,11 @@ class ScanJobManager:
             "started_at": job.get("started_at"),
             "updated_at": job.get("updated_at") or now,
             "finished_at": job.get("finished_at"),
+            "postprocess": dict(job.get("postprocess") or {
+                "status": "not_configured",
+                "result": {},
+                "error": None,
+            }),
         }
         if normalized["total"]:
             normalized["progress"] = int((normalized["completed"] / normalized["total"]) * 100)
@@ -434,11 +687,15 @@ class ScanJobManager:
     def _persist_jobs_unlocked(self):
         if self.history_path is None:
             return
-        jobs = sorted(
+        all_jobs = sorted(
             self._jobs.values(),
             key=lambda item: item.get("created_at") or "",
             reverse=True,
-        )[:self.max_history]
+        )
+        active_jobs = [job for job in all_jobs if job.get("status") not in TERMINAL_STATUSES]
+        terminal_jobs = [job for job in all_jobs if job.get("status") in TERMINAL_STATUSES]
+        jobs = active_jobs + terminal_jobs[:max(0, self.max_history - len(active_jobs))]
+        jobs.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         self._jobs = {job["id"]: job for job in jobs}
         payload = {
             "version": 1,

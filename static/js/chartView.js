@@ -1,4 +1,23 @@
 var myChart = echarts.init(document.getElementById('chart-container'));
+var timeframeRequestControllers = {};
+
+function abortDeferredTimeframeRequests() {
+    Object.keys(timeframeRequestControllers).forEach(function(period) {
+        var controller = timeframeRequestControllers[period];
+        if (controller) controller.abort();
+    });
+    timeframeRequestControllers = {};
+}
+
+function createTimeframeRequestController(period) {
+    if (typeof AbortController === 'undefined') return null;
+    if (timeframeRequestControllers[period]) {
+        timeframeRequestControllers[period].abort();
+    }
+    var controller = new AbortController();
+    timeframeRequestControllers[period] = controller;
+    return controller;
+}
 
 function rerenderInspectorSignalBoard() {
     var viewData = analysisStore.getViewData();
@@ -118,7 +137,8 @@ function loadDeferredTimeframeCharts(period) {
     setChartState('正在加载 ' + meta.label + ' 确认层');
     updateChartPeriodState(root);
 
-    var loadPromise = fetchAnalysisTimeframes(code, meta.key)
+    var requestController = createTimeframeRequestController(meta.key);
+    var loadPromise = fetchAnalysisTimeframes(code, meta.key, requestController ? { signal: requestController.signal } : undefined)
         .then(function(payload) {
             if (!analysisStore.isTimeframeRequestCurrent(timeframeRequest)) {
                 return;
@@ -148,6 +168,9 @@ function loadDeferredTimeframeCharts(period) {
             }
         })
         .catch(function(err) {
+            if (typeof isRequestCancelled === 'function' && isRequestCancelled(err)) {
+                return;
+            }
             if (!analysisStore.failTimeframeLoad(timeframeRequest, err)) {
                 return;
             }
@@ -156,6 +179,9 @@ function loadDeferredTimeframeCharts(period) {
         })
         .finally(function() {
             analysisStore.finishTimeframeLoad(timeframeRequest);
+            if (timeframeRequestControllers[meta.key] === requestController) {
+                delete timeframeRequestControllers[meta.key];
+            }
             updateChartPeriodState(analysisStore.getRootData() || root);
         });
     analysisStore.attachTimeframePromise(timeframeRequest, loadPromise);
@@ -321,23 +347,45 @@ function formatChartPercent(value, digits) {
     return Number.isFinite(number) ? number.toFixed(digits == null ? 1 : digits) + '%' : '-';
 }
 
+function chartDataStatusText(data) {
+    if (data.chart_period && data.chart_period !== 'daily') return '';
+    var identity = data.data_identity || {};
+    var state = identity.bar_state || 'unknown';
+    var source = identity.data_source || '';
+    var stateText = {
+        closed: '已收盘',
+        preview: source.indexOf('tencent_realtime') >= 0 ? '盘中实时' : '盘中预览',
+        mixed: '含盘中数据',
+        unknown: '状态未知'
+    }[state] || '状态未知';
+    var sourceText = source.indexOf('tencent_realtime') >= 0
+        ? '腾讯实时行情'
+        : source.indexOf('tencent') >= 0
+            ? '腾讯行情'
+            : source && source !== 'unknown'
+                ? source
+                : '';
+    return '日线 ' + stateText + (sourceText ? ' · ' + sourceText : '');
+}
+
 function updateChartHeader(data, dates) {
     var focus = getActiveScanFocusForChart(data, dates);
     var periodLabel = data.chart_period_label || '日线';
     if (dates.length > 0) {
-        setText('data-window', dates[0] + ' 至 ' + dates[dates.length - 1]);
-        setText('chart-context-label', getModeText(signalMode) + ' · ' + periodLabel + (focus ? ' · SCAN FOCUS' : ' · SIGNAL MAP'));
+        var freshness = chartDataStatusText(data);
+        setText('data-window', dates[0] + ' 至 ' + dates[dates.length - 1] + (freshness ? ' · ' + freshness : ''));
+        setText('chart-context-label', getModeText() + ' · ' + periodLabel + (focus ? ' · SCAN FOCUS' : ' · SIGNAL MAP'));
         setText('chart-title', (data.stock_name || data.stock_code || '价格') + ' ' + periodLabel + '价格结构');
     } else {
         setText('data-window', '数据窗口: -');
-        setText('chart-context-label', getModeText(signalMode) + ' · ' + periodLabel + ' · SIGNAL MAP');
+        setText('chart-context-label', getModeText() + ' · ' + periodLabel + ' · SIGNAL MAP');
         setText('chart-title', '价格结构');
     }
 }
 
 function updateChartStats(data) {
     var markCount = getModeMarkPoints(data).length;
-    setText('stat-composite', markCount);
+    setText('stat-signals', markCount);
 
     var stats = (data.event_stats || {}).v2 || {};
     var bySignal = stats.by_signal || {};

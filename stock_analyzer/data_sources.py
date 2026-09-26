@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, time
 from pathlib import Path
 
-from stock_analyzer import catalog, data_fetcher, market_boards, scan_jobs
+from stock_analyzer import catalog, data_fetcher, scan_jobs
 from stock_analyzer.concept_graph import concept_graph_status
 from stock_analyzer.profile_relations import profile_relation_evidence_status
 from stock_analyzer.scan_cache import scan_cache_status
@@ -342,24 +342,6 @@ def _concept_graph_source():
     )
 
 
-def _board_market_source():
-    stats = _directory_stats(market_boards.BOARD_MARKET_CACHE_DIR, "*.json")
-    stats.pop("files")
-    status = "ready" if stats["file_count"] else "empty"
-    return _source(
-        "board_market",
-        "板块行情",
-        status,
-        stats["file_count"] > 0,
-        count=stats["file_count"],
-        updated_at=stats["updated_at"],
-        detail=f"{stats['file_count']} 个板块指数缓存 · {stats['size_mb']} MB",
-        cache="local+provider",
-        path=stats["path"],
-        size_mb=stats["size_mb"],
-    )
-
-
 def _scan_jobs_source():
     path = Path(scan_jobs.DEFAULT_HISTORY_PATH)
     count = 0
@@ -398,7 +380,6 @@ def _build_data_source_status(start_date=DATA_START_DATE, logger=None):
         _profile_source(),
         _profile_relation_evidence_source(),
         _concept_graph_source(),
-        _board_market_source(),
         _scan_jobs_source(),
         _source(
             "stock_list_provider",

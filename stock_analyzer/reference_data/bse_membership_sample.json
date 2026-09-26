@@ -1,0 +1,305 @@
+{
+  "dataset_id": "A_SHARE_HISTORY",
+  "source": "exchange-official-transfer-and-membership-samples-20260923",
+  "evidence_level": "exchange-official",
+  "coverage_status": "partial",
+  "coverage": {
+    "coverage_start": "2021-11-15",
+    "coverage_end": "2026-09-23",
+    "membership": {
+      "BSE": {
+        "status": "partial",
+        "impact": "membership",
+        "note": "Only five individually verified exit cases; not a complete BSE event inventory."
+      },
+      "SSE": {
+        "status": "partial",
+        "impact": "membership",
+        "note": "Only the verified Guandian transfer-in and later delisting interval are included; not a complete SSE membership history."
+      },
+      "SZSE": {
+        "status": "partial",
+        "impact": "membership",
+        "note": "Only the verified Taixiang and Hanbo transfer-in intervals are included; not a complete SZSE membership history."
+      }
+    },
+    "code_alias_history": {
+      "BSE": {
+        "status": "partial",
+        "impact": "membership",
+        "note": "Only old/new aliases for two verified code-cutover examples are included."
+      },
+      "SSE": {
+        "status": "partial",
+        "impact": "membership",
+        "note": "One verified transfer-in code is included; not a complete SSE alias history."
+      },
+      "SZSE": {
+        "status": "partial",
+        "impact": "membership",
+        "note": "Two verified transfer-in codes are included; not a complete SZSE alias history."
+      }
+    },
+    "security_name_history": {
+      "ALL": {
+        "status": "missing",
+        "impact": "display"
+      }
+    }
+  },
+  "warnings": [
+    "This is an evidence sample, not a complete A-share or BSE historical universe.",
+    "Only three verified BSE-to-SSE/SZSE transfer destinations are included; this is not a complete destination-exchange history.",
+    "Guandian's SSE membership is closed at its official 2026-06-10 delisting date; Taixiang and Hanbo have no recorded end within the declared coverage."
+  ],
+  "securities": [
+    {"security_id": "sec-13a6cc18-0a97-4d92-a541-00885b621ea0", "instrument_type": "common_share"},
+    {"security_id": "sec-38d5e01c-5d21-4cb9-81b0-cff7cbda6b17", "instrument_type": "common_share"},
+    {"security_id": "sec-67a6115f-e853-480b-9515-8a70b2da8a46", "instrument_type": "common_share"},
+    {"security_id": "sec-8c4f10f1-a210-45d3-b581-3a2a4cc67c98", "instrument_type": "common_share"},
+    {"security_id": "sec-ea13256b-0c0a-4461-a645-0aef1847672b", "instrument_type": "common_share"}
+  ],
+  "evidence": [
+    {
+      "evidence_id": "bse-opening",
+      "publisher": "北京证券交易所",
+      "title": "北京证券交易所开市信息",
+      "source_url": "https://www.bse.cn/company/introduce.html",
+      "document_date": "2021-11-15",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "Used only for the exchange opening boundary; it is not by itself a complete company membership list."
+    },
+    {
+      "evidence_id": "bse-code-mapping",
+      "publisher": "北京证券交易所",
+      "title": "新旧代码对照表",
+      "source_url": "https://www.bse.cn/service/code_mapping.html",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "Official mapping includes 839680 to 920680 and 835305 to 920305; its listing-date field may refer to the former select layer."
+    },
+    {
+      "evidence_id": "bse-code-cutover",
+      "publisher": "北京证券交易所",
+      "title": "存量股票启用920代码号段通知",
+      "source_url": "https://www.bse.cn/important_news/200026735.html",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "Effective date used for the alias boundary is 2025-10-09."
+    },
+    {
+      "evidence_id": "list-guangdao-bse",
+      "publisher": "北京证券交易所",
+      "title": "深圳市广道高新技术股份有限公司向不特定合格投资者公开发行股票并在北京证券交易所上市公告书",
+      "source_url": "https://www.bse.cn/disclosure/2021/2021-11-10/1636545494_353932.pdf",
+      "document_date": "2021-11-10",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "States BSE listing date 2021-11-15 and code 839680; this is a new public offering, not a Select Layer carryover."
+    },
+    {
+      "evidence_id": "list-yunchuang-bse",
+      "publisher": "北京证券交易所",
+      "title": "南京云创大数据科技股份有限公司2022年年度报告",
+      "source_url": "https://www.bse.cn/disclosure/2023/2023-04-27/f539ae5d1f364c598c3802d8e55f29b2.pdf",
+      "document_date": "2023-04-27",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "Issuer report hosted by BSE identifies code 835305 and BSE listing time 2021-11-15."
+    },
+    {
+      "evidence_id": "exit-guandian",
+      "publisher": "观典防务技术股份有限公司",
+      "title": "关于公司股票因转板在北京证券交易所终止上市和跨市场转登记至上海证券交易所市场所涉事项的公告",
+      "source_url": "https://www.bse.cn/disclosure/2022/2022-04-25/1650875588_282390.pdf",
+      "document_date": "2022-04-25",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "BSE code 832317; states the company's identity converted to a BSE listed company on 2021-11-15, termination effective 2022-04-26, and transfer registration to SSE."
+    },
+    {
+      "evidence_id": "exit-taixiang",
+      "publisher": "十堰市泰祥实业股份有限公司",
+      "title": "关于公司股票因转板在北京证券交易所终止上市和跨市场转登记至深圳证券交易所市场所涉事项的公告",
+      "source_url": "https://www.bse.cn/disclosure/2022/2022-07-15/1657874128_515467.pdf",
+      "document_date": "2022-07-15",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "BSE code 833874; states the company's identity converted to a BSE listed company on 2021-11-15, termination effective 2022-07-18, and transfer registration to SZSE."
+    },
+    {
+      "evidence_id": "exit-hanbo",
+      "publisher": "翰博高新材料（合肥）股份有限公司",
+      "title": "关于公司股票因转板在北京证券交易所终止上市和跨市场转登记至深圳证券交易所市场所涉事项的公告",
+      "source_url": "https://www.bse.cn/disclosure/2022/2022-07-22/1658483683_879987.pdf",
+      "document_date": "2022-07-22",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "BSE code 833994; states the company's identity converted to a BSE listed company on 2021-11-15, termination effective 2022-07-25, and transfer registration to SZSE."
+    },
+    {
+      "evidence_id": "list-guandian-sse",
+      "publisher": "上海证券交易所",
+      "title": "关于观典防务技术股份有限公司股票在科创板上市交易的公告",
+      "source_url": "https://www.sse.com.cn/disclosure/announcement/listing/c/c_20220523_5702466.shtml",
+      "document_date": "2022-05-23",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "States SSE code 688287 and listing/trading start on 2022-05-25."
+    },
+    {
+      "evidence_id": "delist-guandian-sse",
+      "publisher": "上海证券交易所",
+      "title": "关于观典防务技术股份有限公司股票摘牌的公告",
+      "source_url": "https://www.sse.com.cn/disclosure/announcement/listing/stock/c/c_20260608_10821090.shtml",
+      "document_date": "2026-06-08",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "States code 688287 was delisted on 2026-06-10; membership end is exclusive at that date."
+    },
+    {
+      "evidence_id": "list-taixiang-szse",
+      "publisher": "深圳证券交易所",
+      "title": "关于十堰市泰祥实业股份有限公司股票在创业板上市交易的公告",
+      "source_url": "https://www.szse.cn/disclosure/notice/company/t20220810_595301.html",
+      "document_date": "2022-08-10",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "States SZSE code 301192 and listing/trading start on 2022-08-11."
+    },
+    {
+      "evidence_id": "list-hanbo-szse",
+      "publisher": "深圳证券交易所",
+      "title": "翰博高新材料（合肥）股份有限公司转板上市公告书",
+      "source_url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2022-08-17/51fce967-293a-490b-916b-60c40783b28f.PDF",
+      "document_date": "2022-08-17",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "The SZSE-hosted transfer listing prospectus states code 301321 and listing date 2022-08-18."
+    },
+    {
+      "evidence_id": "exit-guangdao",
+      "publisher": "深圳市广道数字技术股份有限公司",
+      "title": "关于公司股票终止上市暨摘牌的公告",
+      "source_url": "https://www.bse.cn/disclosure/2025/2025-12-31/8690dbac1d5c42db98e9c7388e562129.pdf",
+      "document_date": "2025-12-31",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "BSE code 920680; states termination and delisting effective 2026-01-05."
+    },
+    {
+      "evidence_id": "exit-yunchuang",
+      "publisher": "南京云创大数据科技股份有限公司",
+      "title": "关于公司股票终止上市暨摘牌的公告",
+      "source_url": "https://www.bse.cn/disclosure/2026/2026-07-29/8a64d7d9ca1641609307b4f2aa5fecaf.pdf",
+      "document_date": "2026-07-29",
+      "accessed_at": "2026-09-23T00:00:00+08:00",
+      "evidence_level": "exchange-official",
+      "notes": "BSE code 920305; states termination and delisting effective 2026-07-30."
+    }
+  ],
+  "aliases": [
+    {
+      "security_id": "sec-13a6cc18-0a97-4d92-a541-00885b621ea0",
+      "exchange": "BSE", "code": "832317", "valid_from": "2021-11-15", "valid_to": "2022-04-26",
+      "valid_from_evidence_id": "exit-guandian", "valid_to_evidence_id": "exit-guandian"
+    },
+    {
+      "security_id": "sec-38d5e01c-5d21-4cb9-81b0-cff7cbda6b17",
+      "exchange": "BSE", "code": "833874", "valid_from": "2021-11-15", "valid_to": "2022-07-18",
+      "valid_from_evidence_id": "exit-taixiang", "valid_to_evidence_id": "exit-taixiang"
+    },
+    {
+      "security_id": "sec-67a6115f-e853-480b-9515-8a70b2da8a46",
+      "exchange": "BSE", "code": "833994", "valid_from": "2021-11-15", "valid_to": "2022-07-25",
+      "valid_from_evidence_id": "exit-hanbo", "valid_to_evidence_id": "exit-hanbo"
+    },
+    {
+      "security_id": "sec-13a6cc18-0a97-4d92-a541-00885b621ea0",
+      "exchange": "SSE", "code": "688287", "valid_from": "2022-05-25", "valid_to": "2026-06-10",
+      "valid_from_evidence_id": "list-guandian-sse", "valid_to_evidence_id": "delist-guandian-sse"
+    },
+    {
+      "security_id": "sec-38d5e01c-5d21-4cb9-81b0-cff7cbda6b17",
+      "exchange": "SZSE", "code": "301192", "valid_from": "2022-08-11", "valid_to": null,
+      "valid_from_evidence_id": "list-taixiang-szse"
+    },
+    {
+      "security_id": "sec-67a6115f-e853-480b-9515-8a70b2da8a46",
+      "exchange": "SZSE", "code": "301321", "valid_from": "2022-08-18", "valid_to": null,
+      "valid_from_evidence_id": "list-hanbo-szse"
+    },
+    {
+      "security_id": "sec-8c4f10f1-a210-45d3-b581-3a2a4cc67c98",
+      "exchange": "BSE", "code": "839680", "valid_from": "2021-11-15", "valid_to": "2025-10-09",
+      "valid_from_evidence_id": "list-guangdao-bse", "valid_to_evidence_id": "bse-code-cutover"
+    },
+    {
+      "security_id": "sec-8c4f10f1-a210-45d3-b581-3a2a4cc67c98",
+      "exchange": "BSE", "code": "920680", "valid_from": "2025-10-09", "valid_to": "2026-01-05",
+      "valid_from_evidence_id": "bse-code-cutover", "valid_to_evidence_id": "exit-guangdao"
+    },
+    {
+      "security_id": "sec-ea13256b-0c0a-4461-a645-0aef1847672b",
+      "exchange": "BSE", "code": "835305", "valid_from": "2021-11-15", "valid_to": "2025-10-09",
+      "valid_from_evidence_id": "list-yunchuang-bse", "valid_to_evidence_id": "bse-code-cutover"
+    },
+    {
+      "security_id": "sec-ea13256b-0c0a-4461-a645-0aef1847672b",
+      "exchange": "BSE", "code": "920305", "valid_from": "2025-10-09", "valid_to": "2026-07-30",
+      "valid_from_evidence_id": "bse-code-cutover", "valid_to_evidence_id": "exit-yunchuang"
+    }
+  ],
+  "names": [],
+  "memberships": [
+    {
+      "security_id": "sec-13a6cc18-0a97-4d92-a541-00885b621ea0",
+      "exchange": "BSE", "valid_from": "2021-11-15", "valid_to": "2022-04-26",
+      "entry_reason": "bse_opening_carryover", "exit_reason": "transfer_out",
+      "valid_from_evidence_id": "exit-guandian", "valid_to_evidence_id": "exit-guandian"
+    },
+    {
+      "security_id": "sec-38d5e01c-5d21-4cb9-81b0-cff7cbda6b17",
+      "exchange": "BSE", "valid_from": "2021-11-15", "valid_to": "2022-07-18",
+      "entry_reason": "bse_opening_carryover", "exit_reason": "transfer_out",
+      "valid_from_evidence_id": "exit-taixiang", "valid_to_evidence_id": "exit-taixiang"
+    },
+    {
+      "security_id": "sec-67a6115f-e853-480b-9515-8a70b2da8a46",
+      "exchange": "BSE", "valid_from": "2021-11-15", "valid_to": "2022-07-25",
+      "entry_reason": "bse_opening_carryover", "exit_reason": "transfer_out",
+      "valid_from_evidence_id": "exit-hanbo", "valid_to_evidence_id": "exit-hanbo"
+    },
+    {
+      "security_id": "sec-13a6cc18-0a97-4d92-a541-00885b621ea0",
+      "exchange": "SSE", "valid_from": "2022-05-25", "valid_to": "2026-06-10",
+      "entry_reason": "transfer_in", "exit_reason": "delisted",
+      "valid_from_evidence_id": "list-guandian-sse", "valid_to_evidence_id": "delist-guandian-sse"
+    },
+    {
+      "security_id": "sec-38d5e01c-5d21-4cb9-81b0-cff7cbda6b17",
+      "exchange": "SZSE", "valid_from": "2022-08-11", "valid_to": null,
+      "entry_reason": "transfer_in", "exit_reason": "",
+      "valid_from_evidence_id": "list-taixiang-szse"
+    },
+    {
+      "security_id": "sec-67a6115f-e853-480b-9515-8a70b2da8a46",
+      "exchange": "SZSE", "valid_from": "2022-08-18", "valid_to": null,
+      "entry_reason": "transfer_in", "exit_reason": "",
+      "valid_from_evidence_id": "list-hanbo-szse"
+    },
+    {
+      "security_id": "sec-8c4f10f1-a210-45d3-b581-3a2a4cc67c98",
+      "exchange": "BSE", "valid_from": "2021-11-15", "valid_to": "2026-01-05",
+      "entry_reason": "bse_new_public_offering", "exit_reason": "delisted",
+      "valid_from_evidence_id": "list-guangdao-bse", "valid_to_evidence_id": "exit-guangdao"
+    },
+    {
+      "security_id": "sec-ea13256b-0c0a-4461-a645-0aef1847672b",
+      "exchange": "BSE", "valid_from": "2021-11-15", "valid_to": "2026-07-30",
+      "entry_reason": "bse_opening_carryover", "exit_reason": "delisted",
+      "valid_from_evidence_id": "list-yunchuang-bse", "valid_to_evidence_id": "exit-yunchuang"
+    }
+  ]
+}

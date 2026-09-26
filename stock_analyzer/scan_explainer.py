@@ -56,32 +56,6 @@ def classify_rank_score(score):
     return {"label": "低强度", "tone": "muted", "hint": "强度分偏低"}
 
 
-def classify_sector_score(score):
-    value = _number(score)
-    if value is None:
-        return {"label": "板块共振待定", "tone": "muted", "hint": "缺少板块共振分"}
-    if value >= 75:
-        return {"label": "板块共振强", "tone": "positive", "hint": "同板块候选集中且风险较少"}
-    if value >= 50:
-        return {"label": "板块有共振", "tone": "positive", "hint": "板块内有一定候选聚集"}
-    if value >= 25:
-        return {"label": "板块弱共振", "tone": "warning", "hint": "板块支持有限"}
-    return {"label": "板块未共振", "tone": "muted", "hint": "主要依赖个股信号"}
-
-
-def classify_market_score(score):
-    value = _number(score)
-    if value is None:
-        return {"label": "板指待定", "tone": "muted", "hint": "缺少板块指数强弱"}
-    if value >= 75:
-        return {"label": "板指强势", "tone": "positive", "hint": "板块指数趋势强"}
-    if value >= 55:
-        return {"label": "板指偏强", "tone": "positive", "hint": "板块指数处于偏强环境"}
-    if value >= 40:
-        return {"label": "板指震荡", "tone": "warning", "hint": "板块指数环境中性"}
-    return {"label": "板指偏弱", "tone": "danger", "hint": "板块指数环境偏弱"}
-
-
 def classify_risk_score(score):
     value = _number(score, 0.0)
     if value >= 4:
@@ -395,32 +369,24 @@ def _v2_macro_tide_driver(result):
 def _v2_environment_driver(result):
     if not result.get("v2_environment_permission"):
         return None
-    macro_text = ""
-    if result.get("v2_macro_veto_label"):
-        macro_text = f" / 宏观 {_text(result.get('v2_macro_veto_label'))}"
     return {
-        "label": "环境许可",
+        "label": "宏观环境",
         "value": (
-            f"{_text(result.get('v2_environment_label'))}"
-            f" · 板块 {_text(result.get('v2_sector_permission_label'))}"
-            f" / 概念 {_text(result.get('v2_concept_permission_label'))}"
-            f"{macro_text}"
+            f"{_text(result.get('v2_macro_veto_label'), _text(result.get('v2_environment_label')))}"
+            f" · {_text(result.get('v2_macro_veto_reason'), '仅用于宏观许可或否决')}"
         ),
-        "tone": _text(result.get("v2_environment_tone"), "muted"),
+        "tone": _text(result.get("v2_macro_veto_tone"), _text(result.get("v2_environment_tone"), "muted")),
     }
 
 
 def build_score_badges(result):
     risk = classify_risk_score(result.get("risk_score"))
-    sector = classify_sector_score(result.get("sector_score"))
-    market = classify_market_score(result.get("sector_market_score"))
     history = classify_history_stats(result.get("win_rate"), result.get("avg_ret"))
     confidence = classify_score_confidence(result.get("score_confidence"))
     badges = [
         {"label": "结构", "value": _text(result.get("setup_score")), "tone": "muted", "hint": "价格结构基础分"},
         {"label": "确认", "value": _text(result.get("confirm_score")), "tone": "positive", "hint": "趋势和量能确认分"},
         {"label": "风险", "value": _text(result.get("risk_score")), "tone": risk["tone"], "hint": risk["hint"]},
-        {"label": "共振", "value": _text(result.get("sector_score")), "tone": sector["tone"], "hint": sector["hint"]},
     ]
     state_model = result.get("v2_state_model") or {}
     if state_model:
@@ -490,21 +456,6 @@ def build_score_badges(result):
             "tone": macro_tone,
             "hint": "大周期潮汐只负责许可或拦截可执行入场，不制造买点",
         })
-    if _number(result.get("sector_market_score")) is not None:
-        badges.append({
-            "label": "板指",
-            "value": _text(result.get("sector_market_trend"), _text(result.get("sector_market_score"))),
-            "tone": market["tone"],
-            "hint": market["hint"],
-        })
-    if _number(result.get("concept_market_score")) is not None:
-        concept_market = classify_market_score(result.get("concept_market_score"))
-        badges.append({
-            "label": "概指",
-            "value": _text(result.get("concept_market_trend"), _text(result.get("concept_market_score"))),
-            "tone": concept_market["tone"],
-            "hint": concept_market["hint"],
-        })
     badges.extend([
         {"label": "胜率", "value": _format_percent(result.get("win_rate")), "tone": history["tone"], "hint": history["hint"]},
         {"label": "均值", "value": _format_signed_percent(result.get("avg_ret")), "tone": history["tone"], "hint": history["hint"]},
@@ -515,8 +466,6 @@ def build_score_badges(result):
 
 def build_scan_explanation(result):
     rank = classify_rank_score(result.get("rank_score"))
-    sector = classify_sector_score(result.get("sector_score"))
-    market = classify_market_score(result.get("sector_market_score"))
     risk = classify_risk_score(result.get("risk_score"))
     history = classify_history_stats(result.get("win_rate"), result.get("avg_ret"))
     confidence = classify_score_confidence(result.get("score_confidence"))
@@ -536,11 +485,7 @@ def build_scan_explanation(result):
             "value": f"强度 {_text(result.get('rank_score'))} · 结构 {_text(result.get('setup_score'))} / 确认 {_text(result.get('confirm_score'))}",
             "tone": rank["tone"],
         },
-        {
-            "label": "板块背景",
-            "value": f"{sector_context} · {sector['label']} · 机会 {_text(result.get('sector_signal_count'))} / 风险 {_text(result.get('sector_risk_count'))}",
-            "tone": sector["tone"],
-        },
+        {"label": "所属行业/概念", "value": sector_context, "tone": "muted"},
         {
             "label": "历史表现",
             "value": f"胜率 {_format_percent(result.get('win_rate'))} · 均值 {_format_signed_percent(result.get('avg_ret'))}",
@@ -576,38 +521,12 @@ def build_scan_explanation(result):
             "value": f"{_text(result.get('pool_stage_label'))} · {_text(result.get('pool_stage_detail'))}",
             "tone": _text(result.get("pool_stage_tone"), "muted"),
         })
-    if _number(result.get("sector_market_score")) is not None:
-        drivers.insert(3, {
-            "label": "板块指数",
-            "value": (
-                f"{market['label']} · 5日 {_format_signed_percent(result.get('sector_market_ret_5'))}"
-                f" · 板块加成 {_text(result.get('sector_market_boost'))}"
-            ),
-            "tone": market["tone"],
-        })
-    if _number(result.get("concept_market_score")) is not None:
-        drivers.insert(4, {
-            "label": "概念指数",
-            "value": (
-                f"{_text(result.get('concept_focus'), '概念')} · {_text(result.get('concept_market_trend'))}"
-                f" · 5日 {_format_signed_percent(result.get('concept_market_ret_5'))}"
-                f" · 概念加成 {_text(result.get('concept_market_boost'))}"
-            ),
-            "tone": classify_market_score(result.get("concept_market_score"))["tone"],
-        })
-
     cautions = []
     if _number(result.get("risk_score"), 0.0) > 0:
         cautions.append({
             "label": "风险控制",
             "value": f"{risk['label']} · 风险分 {_text(result.get('risk_score'))}",
             "tone": risk["tone"],
-        })
-    if _number(result.get("sector_risk_count"), 0.0) > 0:
-        cautions.append({
-            "label": "板块压力",
-            "value": f"同板块风险候选 {result.get('sector_risk_count')} 只",
-            "tone": "warning",
         })
     if history["tone"] != "positive":
         cautions.append({
@@ -628,9 +547,8 @@ def build_scan_explanation(result):
             "tone": "muted",
         })
 
-    market_summary = f"，{market['label']}" if _number(result.get("sector_market_score")) is not None else ""
     stage_summary = f"{_text(result.get('pool_stage_label'))}，" if result.get("pool_stage_label") else ""
-    summary = f"{stage_summary}{sector['label']}{market_summary}，{history['label']}，{risk['label']}，{confidence['label']}"
+    summary = f"{stage_summary}{history['label']}，{risk['label']}，{confidence['label']}"
     return {
         "version": EXPLANATION_VERSION,
         "headline": f"{rank['label']} · {signal_name}",

@@ -1,6 +1,7 @@
 """Structured stock-profile relationship evidence."""
 
 import json
+import logging
 import os
 import threading
 from datetime import datetime
@@ -18,6 +19,7 @@ DEFAULT_RELATION_EVIDENCE_PATH = Path(os.environ.get(
     DEFAULT_CATALOG_CACHE_DIR / RELATION_EVIDENCE_FILENAME,
 ))
 _RELATION_EVIDENCE_LOCK = threading.Lock()
+LOGGER = logging.getLogger(__name__)
 
 EVENT_CONCEPT_KEYWORDS = (
     "年报", "中报", "季报", "预增", "预减", "扭亏", "业绩",
@@ -133,7 +135,7 @@ def read_profile_relation_evidence(path=None, cache_dir=None):
     except FileNotFoundError:
         return {}
     except Exception as exc:
-        print(f"[profile_relations] 读取本地关系证据失败: {exc}")
+        LOGGER.debug("读取本地关系证据失败: %s", exc, exc_info=True)
         return {}
 
     stocks = payload.get("stocks") if isinstance(payload, dict) and isinstance(payload.get("stocks"), dict) else payload

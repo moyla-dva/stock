@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "calendar_id": "XSHG",
+  "years": [
+    {
+      "year": 2026,
+      "closed_ranges": [
+        {"name": "new_year", "start": "2026-01-01", "end": "2026-01-03"},
+        {"name": "spring_festival", "start": "2026-02-15", "end": "2026-02-23"},
+        {"name": "qingming", "start": "2026-04-04", "end": "2026-04-06"},
+        {"name": "labour_day", "start": "2026-05-01", "end": "2026-05-05"},
+        {"name": "dragon_boat", "start": "2026-06-19", "end": "2026-06-21"},
+        {"name": "mid_autumn", "start": "2026-09-25", "end": "2026-09-27"},
+        {"name": "national_day", "start": "2026-10-01", "end": "2026-10-07"}
+      ],
+      "notices": [
+        {
+          "exchange": "SSE",
+          "source": "SSE 2026 holiday closure notice (Announcement 2025-45)",
+          "published_on": "2025-12-22",
+          "url": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        {
+          "exchange": "SZSE",
+          "source": "SZSE 2026 holiday closure notice (Notice 2025-481)",
+          "published_on": "2025-12-22",
+          "url": "https://www.szse.cn/disclosure/notice/t20251222_618087.html"
+        },
+        {
+          "exchange": "BSE",
+          "source": "BSE 2026 holiday closure notice (Announcement 2025-58)",
+          "published_on": "2025-12-22",
+          "url": "https://www.bse.cn/important_news/200027428.html"
+        }
+      ]
+    }
+  ]
+}

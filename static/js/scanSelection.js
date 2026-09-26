@@ -1,3 +1,12 @@
+var scanCandidateDetailController = null;
+
+function abortScanCandidateDetailRequest() {
+    if (scanCandidateDetailController) {
+        scanCandidateDetailController.abort();
+        scanCandidateDetailController = null;
+    }
+}
+
 function openScanResultChart(item) {
     scanWorkspaceState.previewResult = null;
     var codeInput = document.getElementById('stock-code');
@@ -12,12 +21,6 @@ function openScanResultChart(item) {
     }
     if (typeof pendingFocusDate !== 'undefined') {
         pendingFocusDate = item.event_date || item.date || null;
-    }
-    if (typeof setSignalMode === 'function') {
-        setSignalMode('composite');
-    }
-    if (typeof setDeskView === 'function') {
-        setDeskView('analysis');
     }
     analyzeStock();
 }
@@ -49,7 +52,7 @@ function scanCandidateDetailKey(item) {
         item.code || '',
         item.event_date || item.date || '',
         item._scan_type || item.scan_type || scanWorkspaceState.activeType,
-        item._history_snapshot_day || scanWorkspaceState.historySnapshotDay || ''
+        item.snapshot_day || item._history_snapshot_day || scanWorkspaceState.historySnapshotDay || ''
     ].join('|');
 }
 
@@ -58,7 +61,8 @@ function mergeScanCandidateDetail(compactItem, detailItem) {
         _variant: compactItem._variant,
         _scan_type: compactItem._scan_type,
         _visible_rank: compactItem._visible_rank,
-        _history_snapshot_day: compactItem._history_snapshot_day
+        _history_snapshot_day: compactItem._history_snapshot_day,
+        _indexed_summary: compactItem._indexed_summary
     };
     return Object.assign({}, compactItem, detailItem || {}, preserved, {
         _compact: false,
@@ -71,6 +75,11 @@ async function loadScanCandidateDetailForSelection() {
     var selected = scanWorkspaceState.selectedResult;
     if (!selected || !selected._compact || selected._detail_loading) return;
     var requestKey = scanCandidateDetailKey(selected);
+    abortScanCandidateDetailRequest();
+    var requestController = typeof AbortController !== 'undefined'
+        ? new AbortController()
+        : null;
+    scanCandidateDetailController = requestController;
     scanWorkspaceState.loadingCandidateDetail = true;
     scanWorkspaceState.candidateDetailRequestKey = requestKey;
     scanWorkspaceState.selectedResult = Object.assign({}, selected, {
@@ -81,16 +90,20 @@ async function loadScanCandidateDetailForSelection() {
     try {
         var payload = await fetchScanCandidateDetail({
             scanType: selected._scan_type || selected.scan_type || scanWorkspaceState.activeType,
-            snapshotDay: selected._history_snapshot_day || (scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : ''),
+            snapshotDay: selected.snapshot_day || selected._history_snapshot_day || (scanWorkspaceState.historyMode ? scanWorkspaceState.historySnapshotDay : ''),
             code: selected.code || '',
             eventDate: selected.event_date || selected.date || '',
-            entryModel: scanWorkspaceState.entryModel
+            entryModel: scanWorkspaceState.entryModel,
+            indexedSummary: Boolean(selected._indexed_summary),
+            signal: requestController ? requestController.signal : undefined
         });
         var current = scanWorkspaceState.selectedResult;
         if (!current || scanCandidateDetailKey(current) !== requestKey) return;
-        var detail = (payload.results || []).find(function(item) {
-            return scanResultMatchesWorkspaceItem(item, current);
-        }) || null;
+        var detail = payload.candidate_detail
+            ? scanIndexCandidateDetailToWorkspaceItem(current, payload.candidate_detail)
+            : ((payload.results || []).find(function(item) {
+                return scanResultMatchesWorkspaceItem(item, current);
+            }) || null);
         if (!detail) {
             scanWorkspaceState.selectedResult = Object.assign({}, current, {
                 _compact: false,
@@ -101,10 +114,22 @@ async function loadScanCandidateDetailForSelection() {
             return;
         }
         scanWorkspaceState.selectedResult = mergeScanCandidateDetail(current, detail);
+        if (payload._detail_read_source) {
+            scanWorkspaceState.selectedResult._candidate_detail_source = payload._detail_read_source;
+        }
         mergeScanPoolResults(current._scan_type || current.scan_type || scanWorkspaceState.activeType, [scanWorkspaceState.selectedResult]);
         renderScanSelection();
     } catch (err) {
         var latest = scanWorkspaceState.selectedResult;
+        if (typeof isRequestCancelled === 'function' && isRequestCancelled(err)) {
+            if (latest && scanCandidateDetailKey(latest) === requestKey) {
+                scanWorkspaceState.selectedResult = Object.assign({}, latest, {
+                    _detail_loading: false
+                });
+                renderScanSelection();
+            }
+            return;
+        }
         if (latest && scanCandidateDetailKey(latest) === requestKey) {
             scanWorkspaceState.selectedResult = Object.assign({}, latest, {
                 _compact: false,
@@ -117,6 +142,9 @@ async function loadScanCandidateDetailForSelection() {
         if (scanWorkspaceState.candidateDetailRequestKey === requestKey) {
             scanWorkspaceState.loadingCandidateDetail = false;
             scanWorkspaceState.candidateDetailRequestKey = '';
+        }
+        if (scanCandidateDetailController === requestController) {
+            scanCandidateDetailController = null;
         }
     }
 }
@@ -142,6 +170,7 @@ function clearPreviewScanResult(skipRender) {
 }
 
 function selectScanResult(item, variant, shouldOpenChart, visibleRank) {
+    abortScanCandidateDetailRequest();
     scanWorkspaceState.previewResult = null;
     scanWorkspaceState.selectedResult = Object.assign({}, item, {
         _variant: variant,
@@ -149,6 +178,7 @@ function selectScanResult(item, variant, shouldOpenChart, visibleRank) {
         _visible_rank: visibleRank || item._visible_rank || null,
         _history_snapshot_day: scanWorkspaceState.historySnapshotDay || ''
     });
+    rememberScanPoolSelection(scanWorkspaceState.selectedResult, scanWorkspaceState.activeType);
     renderScanSelection();
     setScanSideView('detail');
     loadScanCandidateDetailForSelection();

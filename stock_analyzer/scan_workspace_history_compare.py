@@ -1,5 +1,6 @@
 """History comparison helpers for scan workspace snapshots."""
 
+from stock_analyzer.c_signal_v2 import apply_c_signal_v2_priority
 from stock_analyzer.scan_common import as_float
 from stock_analyzer.scan_snapshot import (
     display_snapshot_day,
@@ -13,6 +14,13 @@ from stock_analyzer.scan_workspace_loader import snapshot_code
 
 def rank_value(result):
     return as_float(result.get("final_score"), as_float(result.get("rank_score"), 0.0))
+
+
+def v2_priority_value(result):
+    try:
+        return float(result.get("v2_priority_score"))
+    except (TypeError, ValueError):
+        return rank_value(result)
 
 
 def build_latest_reference(start_date=None, excluded_snapshot_day=None, logger=None):
@@ -53,11 +61,14 @@ def _reference_pool(snapshot_map, scan_type):
         if result:
             result["snapshot_day"] = display_snapshot_day(snapshot.get("snapshot_day"))
             result["data_date"] = snapshot.get("data_date") or "-"
+            result["scan_type"] = scan_type
             results.append(result)
+    apply_c_signal_v2_priority({scan_type: {"results": results}})
     return sorted(
         results,
         key=lambda item: (
             1 if item.get("strategy_status") == "current" else 0,
+            v2_priority_value(item),
             rank_value(item),
             str(item.get("event_date") or item.get("date") or ""),
             str(item.get("code") or ""),

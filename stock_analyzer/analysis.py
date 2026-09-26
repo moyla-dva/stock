@@ -15,6 +15,11 @@ from stock_analyzer.indicators import (
     calculate_williams_r,
     detect_divergence,
 )
+from stock_analyzer.market_data_identity import (
+    attach_market_data_identity,
+    frame_market_data_identity,
+    market_data_revision,
+)
 from stock_analyzer.normalizer import normalize_price_frame
 from stock_analyzer.signals import add_signal_columns
 from stock_analyzer.versioning import DATA_ADJUST
@@ -61,10 +66,31 @@ def prepare_analysis_frame(df, fill_initial_ma20=False):
     if df is None or df.empty:
         return None
 
+    identity = frame_market_data_identity(df)
+    attach_market_data_identity(
+        df,
+        data_source=identity.get("data_source") or "unknown",
+        bar_state=identity.get("bar_state") or "unknown",
+        generated_at=identity.get("generated_at") or "unknown",
+        cache_status=identity.get("cache_status") or "unknown",
+        cache_written_at=identity.get("cache_written_at"),
+        data_revision=market_data_revision(df),
+    )
+    identity = frame_market_data_identity(df)
+
     df = add_indicator_columns(df, fill_initial_ma20=fill_initial_ma20)
     df_display = df.copy()
     df_display.reset_index(drop=True, inplace=True)
     df_display = add_signal_columns(df_display)
+    attach_market_data_identity(
+        df_display,
+        data_source=identity.get("data_source") or "unknown",
+        bar_state=identity.get("bar_state") or "unknown",
+        generated_at=identity.get("generated_at") or "unknown",
+        cache_status=identity.get("cache_status") or "unknown",
+        cache_written_at=identity.get("cache_written_at"),
+        data_revision=identity.get("data_revision") or "unknown",
+    )
     return df_display
 
 
@@ -74,10 +100,12 @@ def build_analysis_frame(
     start_date=None,
     fill_initial_ma20=False,
     use_cache=False,
+    force_refresh=False,
     use_disable_proxies=False,
     logger=None,
     verbose=False,
     adjust=DATA_ADJUST,
+    fetch_diagnostics=None,
 ):
     """Fetch and prepare the analysis DataFrame for a stock code."""
     code = normalize_code(code)
@@ -90,9 +118,11 @@ def build_analysis_frame(
         start_date=start_date,
         adjust=adjust,
         use_cache=use_cache,
+        force_refresh=force_refresh,
         use_disable_proxies=use_disable_proxies,
         logger=logger,
         verbose=verbose,
+        diagnostics=fetch_diagnostics,
     )
     if df is None or df.empty:
         return None

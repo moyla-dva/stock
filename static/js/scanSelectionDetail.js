@@ -345,7 +345,6 @@ function renderScanDecisionChecklist(item, explanation, conceptText) {
     var list = document.createElement('div');
     list.className = 'scan-check-list';
     var risk = Number(item.risk_score || 0);
-    var sectorTone = scanChecklistTone(item.sector_score, 50, 25);
     var confidenceTone = item.score_confidence_level === 'high' || item.score_confidence_level === 'medium'
         ? 'positive'
         : (item.score_confidence_level === 'low' ? 'warning' : 'muted');
@@ -354,16 +353,13 @@ function renderScanDecisionChecklist(item, explanation, conceptText) {
     var signalLabel = scanType === 'risk'
         ? '风险'
         : (scanType === 'bottom_div' ? '观察' : '信号');
-    var directionLabel = scanType === 'risk'
-        ? '压力'
-        : (scanType === 'bottom_div' ? '背景' : '方向');
     var sampleLabel = scanType === 'bottom_div' ? '确认' : '样本';
     var riskTitle = scanType === 'risk'
         ? (risk >= 4 ? '优先处理' : '等待确认')
         : (risk > 0 ? '需控制' : '风险低');
     var riskDetail = scanType === 'bottom_div'
         ? '确认分 ' + (item.confirm_score == null ? '-' : item.confirm_score) + ' · 风险分 ' + (item.risk_score == null ? '-' : item.risk_score)
-        : '风险分 ' + (item.risk_score == null ? '-' : item.risk_score) + ' · 板块风险 ' + (item.sector_risk_count == null ? '-' : item.sector_risk_count);
+        : '个股风险分 ' + (item.risk_score == null ? '-' : item.risk_score);
 
     var checklistItems = [
         createScanChecklistItem(
@@ -403,10 +399,10 @@ function renderScanDecisionChecklist(item, explanation, conceptText) {
     }
     checklistItems = checklistItems.concat([
         createScanChecklistItem(
-            directionLabel,
+            '所属行业',
             item.sector || '未识别板块',
-            (conceptText || '暂无概念') + ' · 共振 ' + (item.sector_score == null ? '-' : item.sector_score),
-            sectorTone
+            '概念：' + (conceptText || '暂无'),
+            'muted'
         ),
         createScanChecklistItem(
             sampleLabel,
@@ -454,7 +450,6 @@ function renderScanBasisSection(item, explanation, conceptText) {
     var grid = document.createElement('div');
     grid.className = 'scan-detail-basis-grid';
     var stage = typeof inferScanPoolStage === 'function' ? inferScanPoolStage(item) : null;
-    var sectorTone = scanChecklistTone(item.sector_score, 50, 25);
     var signalTone = scanType === 'risk' ? 'warning' : (scanType === 'bottom_div' ? 'muted' : 'positive');
     var basisItems = [];
     basisItems.push(
@@ -469,10 +464,10 @@ function renderScanBasisSection(item, explanation, conceptText) {
     );
     basisItems.push(
         createScanChecklistItem(
-            '结构',
+            '所属行业',
             item.sector || '未识别板块',
-            (conceptText || '暂无概念') + ' · 共振 ' + (item.sector_score == null ? '-' : item.sector_score),
-            sectorTone
+            '概念：' + (conceptText || '暂无'),
+            'muted'
         )
     );
     var confidenceTone = item.score_confidence_level === 'high' || item.score_confidence_level === 'medium'
@@ -541,7 +536,7 @@ function renderScanRiskSection(item, explanation) {
         createScanChecklistItem(
             '风险分',
             item.risk_score == null ? '-' : item.risk_score,
-            '板块风险 ' + (item.sector_risk_count == null ? '-' : item.sector_risk_count),
+            '仅消费个股结构与风险事实',
             riskTone
         ),
         createScanChecklistItem(

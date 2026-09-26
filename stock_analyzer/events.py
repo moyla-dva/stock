@@ -1,10 +1,17 @@
 """Signal event model and builders shared by serializers, scans, and UI payloads."""
 
+import hashlib
+import json
 import threading
 from dataclasses import dataclass
 
-from stock_analyzer.c_signal_v2_facts import build_c_signal_v2_facts
+import pandas as pd
+
 from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_mark_fields
+from stock_analyzer.v2_facts_timeline import (
+    V2FactsTimelineCache,
+    build_v2_facts_timeline,
+)
 
 
 SIGNAL_DEFINITIONS = {
@@ -83,6 +90,17 @@ SIGNAL_DEFINITIONS = {
         "marker_role": "buy",
         "marker_level": "strong",
         "marker_reason": "breakout",
+        "order": 15,
+    },
+    "v2_bear_trap_recovery": {
+        "label": "C突",
+        "name": "V2破底翻突破",
+        "detail": "破底翻突破触发",
+        "color": "#00897b",
+        "category": "entry",
+        "marker_role": "buy",
+        "marker_level": "strong",
+        "marker_reason": "bear_trap_recovery",
         "order": 15,
     },
     "v2_pullback": {
@@ -404,35 +422,76 @@ def build_old_signal_events(df_display):
                 reason="MACD 底背离观察",
                 value="底背离",
             ))
-    return sorted(events, key=lambda event: (event.date, event.definition["order"]))
+    return sorted(
+        events,
+        key=lambda event: (event.date, event.definition["order"], event.key),
+    )
 
 
 _V2_EVENTS_CACHE = {}
 _V2_EVENTS_CACHE_LOCK = threading.Lock()
 _V2_EVENTS_CACHE_MAX = 256
+_V2_FACTS_TIMELINE_CACHE = V2FactsTimelineCache(max_entries=24)
 
 
-def build_v2_signal_events_cached(df_display, lookback=None, cache_scope=""):
-    """按（scope, 首末bar, 行数, lookback）缓存事件重放；未提供 scope 时不缓存。
+def _v2_events_frame_fingerprint(df_display):
+    """Return a content fingerprint for event-cache invalidation."""
+    try:
+        hashed = pd.util.hash_pandas_object(df_display, index=False)
+        schema = json.dumps(
+            [(str(column), str(dtype)) for column, dtype in zip(df_display.columns, df_display.dtypes)],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except Exception:
+        return None
+    digest = hashlib.sha256()
+    digest.update(schema)
+    digest.update(b"\0")
+    digest.update(hashed.to_numpy(dtype="uint64", copy=False).tobytes())
+    return f"{len(hashed)}:{digest.hexdigest()}"
+
+
+def build_v2_signal_events_cached(df_display, lookback=None, cache_scope="", known_facts_by_idx=None):
+    """按（scope, 行情内容指纹, lookback）缓存事件重放；未提供 scope 时不缓存。
 
     事件重放对同一份行情是纯函数：行情未推进（最新 bar 不变）时，单股页/
     多周期页的重复访问直接命中缓存，跳过每根 K 线的 facts 重算。
     """
     if not cache_scope:
-        return build_v2_signal_events(df_display, lookback=lookback)
+        return build_v2_signal_events(df_display, lookback=lookback, known_facts_by_idx=known_facts_by_idx)
     if df_display is None or df_display.empty or "date" not in df_display.columns:
-        return build_v2_signal_events(df_display, lookback=lookback)
+        return build_v2_signal_events(df_display, lookback=lookback, known_facts_by_idx=known_facts_by_idx)
     try:
         first_key = str(df_display["date"].iloc[0])
         latest_key = str(df_display["date"].iloc[-1])
     except Exception:
-        return build_v2_signal_events(df_display, lookback=lookback)
-    key = (cache_scope, first_key, latest_key, len(df_display), lookback)
+        return build_v2_signal_events(df_display, lookback=lookback, known_facts_by_idx=known_facts_by_idx)
+    fingerprint = _v2_events_frame_fingerprint(df_display)
+    if fingerprint is None:
+        return build_v2_signal_events(df_display, lookback=lookback, known_facts_by_idx=known_facts_by_idx)
+    key = (cache_scope, first_key, latest_key, fingerprint, lookback)
     with _V2_EVENTS_CACHE_LOCK:
         cached = _V2_EVENTS_CACHE.get(key)
     if cached is not None:
         return list(cached)
-    events = build_v2_signal_events(df_display, lookback=lookback)
+    incremental_facts = _V2_FACTS_TIMELINE_CACHE.known_facts(
+        cache_scope,
+        df_display,
+    )
+    if isinstance(known_facts_by_idx, dict):
+        incremental_facts.update(known_facts_by_idx)
+    timeline = build_v2_facts_timeline(
+        df_display,
+        lookback=lookback,
+        known_facts_by_idx=incremental_facts,
+    )
+    _V2_FACTS_TIMELINE_CACHE.store(cache_scope, df_display, timeline)
+    events = build_v2_signal_events(
+        df_display,
+        lookback=lookback,
+        facts_timeline=timeline,
+    )
     with _V2_EVENTS_CACHE_LOCK:
         if len(_V2_EVENTS_CACHE) >= _V2_EVENTS_CACHE_MAX:
             _V2_EVENTS_CACHE.clear()
@@ -440,7 +499,13 @@ def build_v2_signal_events_cached(df_display, lookback=None, cache_scope=""):
     return events
 
 
-def build_v2_signal_events(df_display, lookback=None):
+def build_v2_signal_events(
+    df_display,
+    lookback=None,
+    known_facts_by_idx=None,
+    facts_builder=None,
+    facts_timeline=None,
+):
     """Build independent V2 chart events from the V2 fact layer.
 
     These points are intentionally separate from legacy composite events. They
@@ -455,23 +520,26 @@ def build_v2_signal_events(df_display, lookback=None):
     rows_by_date = _row_by_date(df_display)
     previous_rectangle_available = False
     last_burst_idx = -10
-    start_idx = 0
-    if lookback:
-        start_idx = max(0, len(df_display) - int(lookback))
-        if start_idx > 0:
-            previous_facts = build_c_signal_v2_facts(df_display.iloc[:start_idx])
-            previous_structure = previous_facts.get("structure") if isinstance(previous_facts.get("structure"), dict) else {}
-            previous_rectangle = (
-                previous_structure.get("rectangle")
-                if isinstance(previous_structure.get("rectangle"), dict)
-                else {}
-            )
-            previous_rectangle_available = bool(previous_rectangle.get("available"))
+    timeline = facts_timeline or build_v2_facts_timeline(
+        df_display,
+        lookback=lookback,
+        facts_builder=facts_builder,
+        known_facts_by_idx=known_facts_by_idx,
+    )
+    if timeline.start_idx > 0:
+        previous_facts = timeline.previous_facts
+        previous_structure = previous_facts.get("structure") if isinstance(previous_facts.get("structure"), dict) else {}
+        previous_rectangle = (
+            previous_structure.get("rectangle")
+            if isinstance(previous_structure.get("rectangle"), dict)
+            else {}
+        )
+        previous_rectangle_available = bool(previous_rectangle.get("available"))
 
-    for idx in range(start_idx, len(df_display)):
-        frame = df_display.iloc[:idx + 1]
-        latest = frame.iloc[-1]
-        facts = build_c_signal_v2_facts(frame)
+    for point in timeline.points:
+        idx = point.idx
+        latest = point.latest
+        facts = point.facts
         setup = facts.get("setup") or {}
         structure = facts.get("structure") or {}
         trigger = facts.get("trigger") or {}
@@ -584,7 +652,10 @@ def build_v2_signal_events(df_display, lookback=None):
             ))
             last_burst_idx = idx
 
-    return sorted(events, key=lambda event: (event.date, event.definition["order"]))
+    return sorted(
+        events,
+        key=lambda event: (event.date, event.definition["order"], event.key),
+    )
 
 
 def build_new_signal_events(df_display):

@@ -18,13 +18,14 @@ from stock_analyzer.v2_analysis_context import build_v2_analysis_context
 from stock_analyzer.versioning import DATA_START_DATE
 
 
-def fetch_and_process_data(code, logger=None, verbose=True, include_legacy_chart=False):
+def fetch_and_process_data(code, logger=None, verbose=True, include_legacy_chart=False, force_refresh=False):
     normalized = normalize_code(code) or code
     df_display = build_analysis_frame(
         code,
         start_date=DATA_START_DATE,
         fill_initial_ma20=True,
         use_cache=True,
+        force_refresh=force_refresh,
         logger=logger,
         verbose=verbose,
     )
@@ -105,6 +106,19 @@ def get_stock_dataframe(code):
         use_cache=True,
         use_disable_proxies=True,
     )
+
+
+def get_stock_dataframe_with_diagnostics(code):
+    """Return a scan frame with bounded provider/cache diagnostics."""
+    diagnostics = {}
+    frame = build_analysis_frame(
+        code,
+        start_date=DATA_START_DATE,
+        use_cache=True,
+        use_disable_proxies=True,
+        fetch_diagnostics=diagnostics,
+    )
+    return frame, diagnostics
 
 
 def enrich_scan_result_with_profile(

@@ -38,8 +38,12 @@ def build_v2_analysis_context(
 
     events = []
     if include_events:
+        known_facts_by_idx = {len(df_display) - 1: facts} if facts and df_display is not None and not getattr(df_display, "empty", True) else None
         events = build_v2_signal_events_cached(
-            df_display, lookback=event_lookback, cache_scope=events_cache_scope
+            df_display,
+            lookback=event_lookback,
+            cache_scope=events_cache_scope,
+            known_facts_by_idx=known_facts_by_idx,
         )
 
     state = None

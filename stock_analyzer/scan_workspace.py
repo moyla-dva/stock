@@ -17,16 +17,12 @@ def collect_scan_workspace(
     scan_types=WORKSPACE_SCAN_TYPES,
     max_items=120,
     logger=None,
-    board_market_reader=None,
     snapshot_day=None,
-    include_replay=True,
-    replay_max_candidates=800,
     replay_entry_model="event_close",
-    include_market_universe=True,
-    include_market_breadth=True,
     overview_limit=None,
     pool_stats_limit=None,
     latest_only=False,
+    include_history_comparison=True,
 ):
     loaded = load_workspace_snapshot_pools(
         start_date=start_date,
@@ -37,22 +33,13 @@ def collect_scan_workspace(
     )
     structure = build_workspace_structure(
         loaded["pools"],
-        loaded["profile_cache"],
-        start_date=start_date,
-        board_market_reader=board_market_reader,
-        # 回放校准属于历史回看能力：当前日工作台的事件日就是最新一根 K 线，
-        # 前向收益必然为空，跑一遍只会白读数百份历史缓存。
-        include_replay=include_replay and snapshot_day is not None,
-        replay_max_candidates=replay_max_candidates,
         replay_entry_model=replay_entry_model,
-        include_market_universe=include_market_universe,
-        include_market_breadth=include_market_breadth,
     )
 
     trim_workspace_pools(loaded["pools"], max_items)
 
     target_snapshot_day = loaded["target_snapshot_day"]
-    if target_snapshot_day:
+    if target_snapshot_day and include_history_comparison:
         latest_reference = build_latest_reference(
             start_date=start_date,
             excluded_snapshot_day=target_snapshot_day,

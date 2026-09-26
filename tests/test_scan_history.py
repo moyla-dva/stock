@@ -6,62 +6,18 @@ from unittest.mock import patch
 import pandas as pd
 
 import app
+from tests.fixtures import apply_legacy_entry, build_minimal_signal_frame
 from stock_analyzer.scan_cache import prune_scan_cache, scan_cache_status
 from stock_analyzer.scan_history import list_scan_history
 from stock_analyzer.scan_snapshot import build_scan_snapshot, write_scan_snapshot
 from stock_analyzer.scan_workspace import collect_scan_workspace
+from stock_analyzer.versioning import SCAN_STRATEGY_VERSION
 
 
 class ScanHistoryTest(unittest.TestCase):
     def _minimal_signal_frame(self, start="2026-04-20", rows=12):
-        frame = pd.DataFrame({
-            "date": pd.date_range(start, periods=rows, freq="D"),
-            "open": [10.0] * rows,
-            "high": [10.5] * rows,
-            "low": [9.8] * rows,
-            "close": [10.0 + i * 0.1 for i in range(rows)],
-            "custom": [0.0] * rows,
-            "dif": [0.0] * rows,
-            "dea": [0.0] * rows,
-            "macd_hist": [0.0] * rows,
-            "ma20": [10.0] * rows,
-            "vwap": [10.0] * rows,
-        })
-        for column in [
-            "is_b_point",
-            "is_pullback_b",
-            "is_s_point",
-            "touch_upper",
-            "break_ma5",
-            "is_bottom_divergence",
-            "is_top_divergence",
-            "new_is_b_point",
-            "new_is_pullback_b",
-            "new_is_s_point",
-            "opt_is_b_point",
-            "opt_is_pullback_b",
-            "opt_is_s_warn",
-            "opt_is_s_confirm",
-            "opt_is_s_point",
-            "composite_entry",
-            "composite_risk_warn",
-            "composite_exit",
-            "composite_risk",
-        ]:
-            frame[column] = False
-        frame["composite_entry_type"] = ""
-        frame["composite_risk_type"] = ""
-        frame["composite_exit_type"] = ""
-        frame["composite_entry_reason"] = ""
-        frame["composite_risk_reason"] = ""
-        frame["composite_setup_score"] = [2] * rows
-        frame["composite_confirm_score"] = [3] * rows
-        frame["composite_risk_score"] = [0] * rows
-        frame["composite_watch"] = [False] * rows
-        frame.loc[rows - 1, "composite_entry"] = True
-        frame.loc[rows - 1, "composite_entry_type"] = "pullback"
-        frame.loc[rows - 1, "composite_entry_reason"] = "回踩确认"
-        return frame
+        frame = build_minimal_signal_frame(rows=rows, start=start)
+        return apply_legacy_entry(frame, setup=2, confirm=3, risk=0, watch=False)
 
     def test_list_scan_history_groups_snapshot_days(self):
         frame = self._minimal_signal_frame()
@@ -130,6 +86,56 @@ class ScanHistoryTest(unittest.TestCase):
         self.assertEqual(comparison["disappeared_count"], 1)
         labels = {item["code"]: item["history_delta"]["label"] for item in workspace["pools"]["opportunity"]["results"]}
         self.assertEqual(labels["000001"], "最新已消失")
+
+    def test_history_comparison_uses_the_same_structure_score_as_current_sort(self):
+        def snapshot(code, final_score, rank_score):
+            return {
+                "code": code,
+                "snapshot_day": "2026-05-02",
+                "data_date": "2026-05-02",
+                "strategy_version": SCAN_STRATEGY_VERSION,
+                "results": {
+                    "opportunity": {
+                        "code": code,
+                        "event_date": "2026-05-02",
+                        "signal_key": "v2_structure_candidate",
+                        "final_score": final_score,
+                        "rank_score": rank_score,
+                        "confirm_score": 0,
+                        "setup_score": 0,
+                        "risk_score": 0,
+                        "v2_state_model": {
+                            "state": "structure_candidate",
+                            "permission": "structure_only",
+                            "role": "watch",
+                            "v2_permission_model": {"plan_status": "watch"},
+                        },
+                    }
+                },
+            }
+
+        latest_reference = {
+            "600001": snapshot("600001", final_score=100, rank_score=10),
+            "000001": snapshot("000001", final_score=50, rank_score=90),
+        }
+        pools = {
+            "opportunity": {
+                "results": [
+                    {"code": "000001"},
+                    {"code": "600001"},
+                ]
+            }
+        }
+
+        from stock_analyzer.scan_workspace_history_compare import apply_history_comparison
+
+        apply_history_comparison(pools, latest_reference)
+
+        labels = {
+            row["code"]: row["history_delta"]["label"]
+            for row in pools["opportunity"]["results"]
+        }
+        self.assertEqual(labels, {"000001": "最新持平", "600001": "最新持平"})
 
     def test_scan_history_api_returns_local_snapshot_days(self):
         frame = self._minimal_signal_frame()
