@@ -1,3 +1,14 @@
+---
+status: production-observation
+strategy_version: "2026.09.20.1"
+data_window: "2026-09-23 收盘后全市场扫描；回放复核至 2026-09-24"
+universe: "2026-09-23 当前名单 revision，5,568 只"
+entry_model: "not applicable; scan and read-path production observation"
+data_revision: "名单、日历与 context revision 见正文"
+evidence_level: production-observation
+supersedes: []
+---
+
 # 真实全市场扫描与候选读链验收：2026-09-23
 
 ## Evidence Scope

@@ -37,20 +37,22 @@
 - 画像证据编辑器从候选详情中移除，候选详情只读展示画像质量。
 - 历史快照、刷新策略和缓存治理统一留在数据后台。板块/概念行情共振与刷新入口已退役；旧服务端行情 API 返回 `410 Gone`，不参与排序、许可或工作台状态。
 
-当前流程图见 [docs/current-feature-flow.md](/Users/vainve/股票短线分析软件/docs/current-feature-flow.md:1)，数据流见 [docs/data-flow.md](/Users/vainve/股票短线分析软件/docs/data-flow.md:1)，裁剪记录见 [docs/feature-simplification-audit.md](/Users/vainve/股票短线分析软件/docs/feature-simplification-audit.md:1)。
+当前流程图见 [docs/current-feature-flow.md](docs/current-feature-flow.md)，数据流见
+[docs/data-flow.md](docs/data-flow.md)，裁剪记录见
+[docs/feature-simplification-audit.md](docs/feature-simplification-audit.md)。
 
-产品边界、读模型目标和文档权威顺序见 [docs/README.md](/Users/vainve/股票短线分析软件/docs/README.md:1)。
+产品边界、读模型目标和文档权威顺序见 [docs/README.md](docs/README.md)。
 
-旧主线设计文档已归档到 [docs/archive](/Users/vainve/股票短线分析软件/docs/archive:1)，仅作为历史参考。
+旧主线设计文档已归档到 [docs/archive](docs/archive/)，仅作为历史参考。
 
 ## 主要源码入口
 
-- [app.py](/Users/vainve/股票短线分析软件/app.py:1)：本地 Web 主程序，提供候选池、单股分析、扫描任务和数据治理 API。
-- [stock_analyzer/scan_workspace.py](/Users/vainve/股票短线分析软件/stock_analyzer/scan_workspace.py:1)：扫描工作区编排入口，负责汇总本地快照、行业/概念候选分布和响应。
-- [stock_analyzer/scan_workspace_structure.py](/Users/vainve/股票短线分析软件/stock_analyzer/scan_workspace_structure.py:1)：生成行业/概念候选分布与覆盖统计，不计算市场共振分。
-- [stock_analyzer/stock_service.py](/Users/vainve/股票短线分析软件/stock_analyzer/stock_service.py:1)：单股分析、画像、交易计划和多周期确认服务。
-- [stock_analyzer/providers](/Users/vainve/股票短线分析软件/stock_analyzer/providers:1)：外部数据源适配层。
-- [templates/index.html](/Users/vainve/股票短线分析软件/templates/index.html:1)：Flask 单页工作台模板。
+- [app.py](app.py)：本地 Web 主程序，提供候选池、单股分析、扫描任务和数据治理 API。
+- [stock_analyzer/scan_workspace.py](stock_analyzer/scan_workspace.py)：扫描工作区编排入口，负责汇总本地快照、行业/概念候选分布和响应。
+- [stock_analyzer/scan_workspace_structure.py](stock_analyzer/scan_workspace_structure.py)：生成行业/概念候选分布与覆盖统计，不计算市场共振分。
+- [stock_analyzer/stock_service.py](stock_analyzer/stock_service.py)：单股分析、画像、交易计划和多周期确认服务。
+- [stock_analyzer/providers](stock_analyzer/providers/)：外部数据源适配层。
+- [templates/index.html](templates/index.html)：Flask 单页工作台模板。
 
 ## 环境准备
 

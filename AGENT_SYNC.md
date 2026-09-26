@@ -1241,3 +1241,11 @@
 - **未接入重写**：外部审查生成的 `stock_analyzer/core/` 试验已移至 `prototypes/rejected-core-spike/`，不属于生产架构，也不引入 Pydantic/cachetools 依赖。
 - **验证基线**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**443 tests OK**；`compileall` 与 `git diff --check` 通过。
 - **下一顺序**：快照存储盘点与安全保留策略 → revision-aware 候选结果证据台账 → 继续渐进归档旧文档；UI 视觉重设计依用户之前决定继续暂缓。
+
+## Codex 当前交接检查点：2026-09-26 存储、证据与文档治理
+
+- 快照只读盘点已完成：103,437 份、24 个快照日、约 3.36 GiB，SQLite manifest 的数量、体积、目录和 revision 全部一致。保留最近 5 日时，19 个旧日期约 1.93 GiB 仅进入 `archive_review`；脚本无 `--apply`，未删除文件。
+- 候选排名研究台账已完成：5 个 context revision run、600 条 1/3 日观察；同 revision 重跑保持 5/600。9/24 已登记但结果数为 0，未伪造未来数据，生产排名权重未变。
+- README 已从本机绝对路径改为仓库相对链接；9/23 真实扫描研究文档已补元数据。新增测试会校验 current/ADR/research 元数据和全仓 Markdown 本地链接。
+- **最新验证**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**452 tests OK**。
+- **下一边界**：若要回收快照空间，先实现冷归档读取 + checksum 往返验证；日常研究则持续更新证据台账。UI 重设计仍暂缓。
