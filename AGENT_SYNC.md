@@ -1231,3 +1231,13 @@
 - Review 修复批次 1-4 已实施：成交量单位与旧缓存契约、突破与当前名单覆盖、索引/缓存/SQLite 历史排名回归、历史比较排序与退役组件清理。具体差异及验证记录见 `docs/review/2026-09-25-code-review-findings.md`。
 - 旧条目中的 266、378、402、414、424 等测试数均为各自记录时的历史基线；当前基线以本段 422 为准。
 - 运行时在线 force refresh 仍不具有离线 append 的断档/复权拼接护栏，已在 `docs/data-operations.md` 显式标出边界；来源/新鲜度标记不能当成复权连续性证明。
+
+## Codex 当前交接检查点：2026-09-26 项目稳定化第一、二批
+
+- **当前权威状态**：以 `docs/current/implementation-status.md` 和 `docs/current/project-map.md` 为准；本文其他小节是按时点追加的历史交接记录，测试数和“当前”字样不自动更新。
+- **代码基线**：分支 `codex/project-stabilization`；基线提交 `769e3d2`；运行时边界提交 `6cfddd6`；研究工具产品语言提交 `735e811`。
+- **运行时加固**：收盘后会识别当日只到上午的分时缓存；分时写入改为唯一临时文件原子替换；TDX 重试使用重连后的当前 API 对象；工作台内存缓存与单飞锁均有上限；股票代码输入与内部文件名提取已分离。
+- **产品语义**：页面已使用事件研究、入场研判、信号后跟踪、收益保护和事件后上涨比例；历史 `composite_*`、`win_rate`、`position_lifecycle` 机器契约保留。
+- **未接入重写**：外部审查生成的 `stock_analyzer/core/` 试验已移至 `prototypes/rejected-core-spike/`，不属于生产架构，也不引入 Pydantic/cachetools 依赖。
+- **验证基线**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**443 tests OK**；`compileall` 与 `git diff --check` 通过。
+- **下一顺序**：快照存储盘点与安全保留策略 → revision-aware 候选结果证据台账 → 继续渐进归档旧文档；UI 视觉重设计依用户之前决定继续暂缓。

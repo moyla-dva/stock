@@ -90,6 +90,7 @@ flowchart TB
 
     subgraph ResearchOnly[研究与未来边界]
         HistoricalUniverse[历史时点股票池<br/>coverage partial]
+        RejectedCore[未接入的 core 重写试验<br/>prototypes/rejected-core-spike]
         Execution[ExecutionIntent → Order → Fill → Position<br/>当前未实现]
     end
     HistoricalUniverse -.-> UniverseDB
@@ -111,6 +112,7 @@ flowchart TB
 | 历史证券身份 | **研究底座，partial** | 当前扫描不依赖完整北交所历史成员；不能据此声称历史研究无幸存者偏差 |
 | UI 方向 | **候选优先已选，视觉重设计暂缓** | 用户未发现明显难找/难懂的信息，但认为整体 UI 可优化；代码输入/回车可进入单票图表。尚无并排比较和正式多任务观察；前端技术栈未决定 |
 | 自动化交易 | **未实现** | 没有账户持仓、订单、成交或券商下单链路 |
+| 并行 core 重写试验 | **已拒绝接入** | 未接入生产与测试，已移至 `prototypes/rejected-core-spike/`；后续只采用逐边界、可差分验证的渐进式迁移 |
 
 ### SQLite 与 JSON 的边界
 
@@ -146,14 +148,16 @@ scripts/                       数据导入、扫描索引重建、审计和对�
 tests/                         离线单元、API、数据契约和回归测试
 docs/current|adr|research|archive 当前契约、架构决策、研究证据和历史资料
 prototypes/ui-direction/       候选优先与单票优先静态交互原型
+prototypes/rejected-core-spike/ 已隔离的未接入架构试验，非生产代码
 ```
 
 ## Next Work In Order
 
-1. **继续积累同政策的跨日样本**：首版 next-open 基线已建立，但只有 4 个一日样本日期、2 个三日样本日期，5/10 日为空，且未显示可信单调性。保持政策不变，持续记录当日 revision 与后续结果。
-2. **观测两条稳定模型默认路径**：候选异常可用 `?candidate_source=json`，单票异常可用 `?single_stock_source=legacy` 回退；按真实使用反馈补失败边界测试。
-3. **渐进整理旧文档与兼容代码**：逐份核实引用后再归档，不用批量删除破坏研究证据或回退能力。
-4. **待用户重启 UI 设计时再评估技术栈**：当前 Flask 模块化单体和原生 JS 能支撑研究工作台；视觉与任务结构明确前，不先迁移 React/Vue。
+1. **建立快照存储治理**：先为 3.6 GB JSON 快照提供只读盘点、按日聚合和安全的 dry-run 保留策略。SQLite 继续负责在线查询，JSON 在有可验证的归档读取链之前不直接删除。
+2. **继续积累同政策的跨日样本**：首版 next-open 基线已建立，但只有 4 个一日样本日期、2 个三日样本日期，5/10 日为空，且未显示可信单调性。增加 revision-aware 证据台账，保持生产权重不变。
+3. **观测两条稳定模型默认路径**：候选异常可用 `?candidate_source=json`，单票异常可用 `?single_stock_source=legacy` 回退；按真实使用反馈补失败边界测试。
+4. **渐进整理旧文档与兼容代码**：逐份核实引用后再归档，不用批量删除破坏研究证据或回退能力。
+5. **待用户重启 UI 设计时再评估技术栈**：当前 Flask 模块化单体和原生 JS 能支撑研究工作台；视觉与任务结构明确前，不先迁移 React/Vue。
 
 当前状态：9/24 真实收盘扫描已核验名单 revision、provider attempts 和数据覆盖；103,437 份快照已全量对账，候选摘要/详情 SQLite 已切为默认。单票稳定读模型也已默认；两条旧接口保留回退。历史证券身份 coverage 仍为 partial；旧缓存来源可能 unknown；自动化交易未实现且不在当前阶段范围。
 

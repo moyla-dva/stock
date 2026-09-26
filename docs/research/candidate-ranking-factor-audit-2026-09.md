@@ -84,7 +84,10 @@ Board market boost 当前为 `clip((strength-50)*0.10 + ret_5*0.28 + ret_20*0.06
 - `facts.v2_scores.structure_score`：单只股票自己的结构事实分，0–100；目前未接入主排序。
 - `market_structure` 中的 `stat.structure_score`：行业/概念概览分，由市场指数、宽度、候选 resonance 和关系质量合成；不是单股结构分。
 
-来源：[scan_overview.py](../../stock_analyzer/scan_overview.py)、[scan_resonance_scoring.py](../../stock_analyzer/scan_resonance_scoring.py)、[scan_market_context.py](../../stock_analyzer/scan_market_context.py)、[market_structure.py](../../stock_analyzer/market_structure.py)、[market_permission.py](../../stock_analyzer/market_permission.py)
+当时来源包括 [scan_overview.py](../../stock_analyzer/scan_overview.py)、
+[market_permission.py](../../stock_analyzer/market_permission.py) 以及现已删除的
+`stock_analyzer/scan_resonance_scoring.py`、`stock_analyzer/scan_market_context.py` 和
+`stock_analyzer/market_structure.py`。后三者仅作历史实现路径记录，不再提供可点击的当前代码链接。
 
 ## 因子字典
 
