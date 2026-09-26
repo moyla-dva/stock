@@ -8,6 +8,8 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from scripts.validate_scan_index import _indexed_candidates, _source_candidates
+from scripts.archive_scan_snapshot_day import build_snapshot_day_archive
+from stock_analyzer.scan_snapshot_archive import SnapshotArchiveError
 from stock_analyzer.scan_candidate_shadow import compare_candidate_reads
 from stock_analyzer.scan_index_store import (
     RANK_CONTEXT_SCOPE_LATEST_FRESH,
@@ -17,6 +19,7 @@ from stock_analyzer.scan_index_store import (
     discover_scan_snapshot_files,
 )
 from stock_analyzer.scan_snapshot import snapshot_day_text
+from stock_analyzer.scan_snapshot_storage import discover_snapshot_storage
 from stock_analyzer.scan_planner import plan_scan_codes
 from stock_analyzer.scan_rank_context_materializer import (
     materialize_workspace_rank_context,
@@ -999,6 +1002,8 @@ class ScanIndexStoreTest(unittest.TestCase):
             self.store._migrate_v6_to_v7(connection)
             self.store._migrate_v7_to_v8(connection)
             self.store._migrate_v7_to_v8(connection)
+            self.store._migrate_v8_to_v9(connection)
+            self.store._migrate_v8_to_v9(connection)
             columns = {
                 str(row[1])
                 for row in connection.execute(
@@ -1023,7 +1028,10 @@ class ScanIndexStoreTest(unittest.TestCase):
         self.assertIn("environment_permission", columns)
         self.assertIn("market_context_json", columns)
         self.assertIn("computed_scan_types_json", manifest_columns)
+        self.assertIn("storage_tier", manifest_columns)
+        self.assertIn("archive_path", manifest_columns)
         self.assertIn("idx_snapshot_manifest_planning", manifest_indexes)
+        self.assertIn("idx_snapshot_manifest_storage", manifest_indexes)
 
     def test_candidate_summary_rejects_non_finite_and_boolean_numbers(self):
         from stock_analyzer.candidate_read_model import CandidateSummary
@@ -1128,6 +1136,94 @@ class ScanIndexStoreTest(unittest.TestCase):
         self.assertEqual(status["snapshot_count"], 0)
         self.assertEqual(status["source_sync_snapshot_count"], 0)
         self.assertTrue(status["index_complete"])
+
+    def test_reconcile_preserves_archived_snapshot_after_active_source_moves(self):
+        self._write_snapshot(_snapshot())
+        archive_dir = self.root / "archives"
+        self.store.index_snapshot_files([self.snapshot_path], reset=True)
+        self.store.record_build_scope(
+            "full",
+            source_snapshot_count=1,
+            source_directory=self.root,
+        )
+        build_snapshot_day_archive(self.root, archive_dir, "20260922")
+        self.snapshot_path.unlink()
+
+        reconciliation = self.store.reconcile_source_directory(
+            self.root,
+            archive_directory=archive_dir,
+        )
+        status = self.store.status()
+        reference = self.store.get_candidate_reference(
+            pool="opportunity",
+            code="600001",
+            snapshot_day="20260922",
+            start_key="20250429",
+        )
+
+        self.assertTrue(reconciliation["synchronized"])
+        self.assertEqual(reconciliation["deleted_manifest_count"], 0)
+        self.assertEqual(reconciliation["archive_snapshot_count"], 1)
+        self.assertEqual(status["snapshot_count"], 1)
+        self.assertEqual(status["active_snapshot_count"], 0)
+        self.assertEqual(status["archive_snapshot_count"], 1)
+        self.assertTrue(status["index_complete"])
+        self.assertEqual(reference["storage_tier"], "archive")
+        self.assertTrue(Path(reference["archive_path"]).is_file())
+
+    def test_full_index_can_be_rebuilt_from_archive_only(self):
+        self._write_snapshot(_snapshot())
+        archive_dir = self.root / "archives"
+        build_snapshot_day_archive(self.root, archive_dir, "20260922")
+        self.snapshot_path.unlink()
+        records = discover_snapshot_storage(self.root, archive_dir)
+        rebuilt = ScanIndexStore(self.root / "rebuilt.sqlite3")
+
+        stats = rebuilt.index_snapshot_records(records, reset=True)
+        rebuilt.record_build_scope(
+            "full",
+            source_snapshot_count=1,
+            source_directory=self.root,
+        )
+        reconciliation = rebuilt.reconcile_source_directory(
+            self.root,
+            archive_directory=archive_dir,
+        )
+
+        self.assertEqual(stats.failed, 0)
+        self.assertEqual(stats.indexed, 1)
+        self.assertEqual(stats.candidates, 2)
+        self.assertTrue(reconciliation["synchronized"])
+        self.assertEqual(rebuilt.status()["archive_snapshot_count"], 1)
+        self.assertEqual(len(rebuilt.query_candidates(pool="opportunity")), 1)
+
+    def test_archive_revision_mismatch_blocks_reconciliation_without_deletion(self):
+        self._write_snapshot(_snapshot())
+        archive_dir = self.root / "archives"
+        build_snapshot_day_archive(self.root, archive_dir, "20260922")
+        changed = _snapshot(priority=999.0)
+        self._write_snapshot(changed)
+        self.store.index_snapshot_files([self.snapshot_path], reset=True)
+        self.store.record_build_scope(
+            "full",
+            source_snapshot_count=1,
+            source_directory=self.root,
+        )
+        self.snapshot_path.unlink()
+
+        reconciliation = self.store.reconcile_source_directory(
+            self.root,
+            archive_directory=archive_dir,
+        )
+
+        self.assertFalse(reconciliation["synchronized"])
+        self.assertEqual(reconciliation["blocking_archive_mismatch_count"], 1)
+        self.assertEqual(reconciliation["deleted_manifest_count"], 0)
+        self.assertEqual(self.store.status()["snapshot_count"], 1)
+        self.assertEqual(
+            self.store.query_candidates(pool="opportunity")[0]["priority_score"],
+            999.0,
+        )
 
     def test_invalid_manifest_makes_full_scope_incomplete(self):
         self._write_snapshot(_snapshot())
@@ -1621,6 +1717,40 @@ class ScanIndexStoreTest(unittest.TestCase):
         self.assertEqual(result["indexed"], 1)
         self.assertEqual(result["rank_context"]["status"], "failed")
         self.assertEqual(result["rank_context"]["fallback"], "snapshot_local")
+
+    def test_storage_reconciliation_failure_does_not_skip_rank_context(self):
+        import app as web_app
+
+        self._write_snapshot(_snapshot())
+        original_store = web_app.scan_index_store
+        web_app.scan_index_store = self.store
+        try:
+            with (
+                patch("stock_analyzer.scan_snapshot.SNAPSHOT_DIR", self.root),
+                patch.object(
+                    self.store,
+                    "reconcile_source_directory",
+                    side_effect=SnapshotArchiveError("broken unrelated archive"),
+                ),
+                patch(
+                    "app.materialize_workspace_rank_context",
+                    return_value={
+                        "status": "materialized",
+                        "candidate_count": 2,
+                        "rank_context": {"available": True},
+                    },
+                ) as materialize,
+            ):
+                result = web_app.sync_scan_job_index(
+                    {"started_at": "2026-09-22T10:00:00"},
+                    ["600001"],
+                )
+        finally:
+            web_app.scan_index_store = original_store
+
+        self.assertEqual(result["status"], "indexed")
+        self.assertEqual(result["index"]["reconciliation"]["status"], "failed")
+        self.assertEqual(materialize.call_count, 2)
 
     def test_candidate_detail_api_projects_snapshot_and_detects_revision_changes(self):
         import app as web_app

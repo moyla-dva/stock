@@ -1,7 +1,7 @@
 ---
 status: accepted
 decision_date: 2026-09-26
-last_verified: 2026-09-26
+last_verified: 2026-09-27
 supersedes: []
 ---
 
@@ -26,20 +26,28 @@ historical replay.
 4. SQLite `CandidateDetail` and explicit historical-day replay use this read-through layer.
    Historical day listing is aggregated from the complete SQLite manifest rather than reopening all
    JSON files.
-5. Source deletion remains disabled. Current SQLite source reconciliation treats the active source
-   directory as the full membership set; removing originals now would invalidate source-sync.
+5. SQLite schema v9 records a stable logical path plus active/archive physical identity. Source
+   reconciliation treats active files and verified archive members as one immutable fact set and
+   keeps content revision separate from storage revision.
+6. Migration is staged and reversible: dry-run validation, archive registration while active files
+   remain authoritative, atomic movement into quarantine, and restore. No purge/delete operation is
+   provided.
 
 ## Consequences
 
 - The archive format, detail reader, historical reader and round-trip verifier can be tested without
   changing production facts.
 - A corrupt or incomplete archive fails closed instead of returning an unchecked detail.
-- Archive copies consume temporary extra disk until an archive-aware SQLite storage-tier contract
-  and reversible removal procedure are implemented.
+- Archive copies consume temporary extra disk through the registration phase. Reclaiming active
+  directory space requires every running reader to support schema v9 before a day enters quarantine.
 - The 2026-05-15 real-data pilot archived one 3,819-byte snapshot into a 2,141-byte verified ZIP;
-  the source remained in place. This proves the path, not the compression ratio of all days.
+  schema v9 now records its exact ZIP/member/checksum while the source remains active. This proves
+  the read and registration path, not the compression ratio of all days or readiness for bulk purge.
+- Permanent deletion remains outside this decision. Quarantine retention and any future purge need
+  a separate explicit policy and observation period.
 
 ## Rollback
 
-Because originals remain authoritative, rollback is removal of the archive copy and restoration of
-the previous reader. No SQLite data or source snapshot must be reconstructed for this phase.
+Before quarantine, rollback is removal of the archive registration/copy while originals remain
+authoritative. After quarantine, `--restore` atomically moves verified files back to the active
+directory and reconciles manifest storage identity. No snapshot is reconstructed from SQLite.

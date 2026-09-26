@@ -16,9 +16,10 @@ if str(ROOT) not in sys.path:
 from stock_analyzer.scan_index_store import (
     DEFAULT_SCAN_INDEX_PATH,
     ScanIndexStore,
-    discover_scan_snapshot_files,
 )
 from stock_analyzer.scan_snapshot import SNAPSHOT_DIR
+from stock_analyzer.scan_snapshot_archive import DEFAULT_SCAN_SNAPSHOT_ARCHIVE_DIR
+from stock_analyzer.scan_snapshot_storage import discover_snapshot_storage
 
 
 def _parse_args() -> argparse.Namespace:
@@ -30,6 +31,12 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=SNAPSHOT_DIR,
         help="Directory containing scan snapshot JSON files.",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        type=Path,
+        default=DEFAULT_SCAN_SNAPSHOT_ARCHIVE_DIR,
+        help="Directory containing checksum-verified per-day snapshot archives.",
     )
     parser.add_argument(
         "--db",
@@ -70,14 +77,15 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     args = _parse_args()
     snapshot_dir = args.snapshot_dir.expanduser().resolve()
+    archive_dir = args.archive_dir.expanduser().resolve()
     database_path = args.db.expanduser().resolve()
     if not snapshot_dir.exists():
         raise SystemExit(f"snapshot directory does not exist: {snapshot_dir}")
 
-    all_paths = discover_scan_snapshot_files(snapshot_dir)
-    paths = all_paths
+    all_records = discover_snapshot_storage(snapshot_dir, archive_dir)
+    records = all_records
     if args.limit > 0:
-        paths = paths[: args.limit]
+        records = records[: args.limit]
     progress_every = max(1, int(args.progress_every))
     started = time.perf_counter()
 
@@ -92,8 +100,8 @@ def main() -> int:
         )
 
     store = ScanIndexStore(database_path)
-    build_stats = store.index_snapshot_files(
-        paths,
+    build_stats = store.index_snapshot_records(
+        records,
         reset=args.reset,
         force=args.force,
         progress_callback=report,
@@ -106,17 +114,21 @@ def main() -> int:
         )
         store.record_build_scope(
             build_scope,
-            source_snapshot_count=len(all_paths) if build_scope == "full" else None,
+            source_snapshot_count=len(all_records) if build_scope == "full" else None,
             source_directory=snapshot_dir if build_scope == "full" else None,
         )
-    elif args.limit <= 0:
-        store.reconcile_source_directory(snapshot_dir)
+    if args.limit <= 0:
+        store.reconcile_source_directory(
+            snapshot_dir,
+            archive_directory=archive_dir,
+        )
     elapsed = time.perf_counter() - started
     summary = {
         "snapshot_directory": str(snapshot_dir),
+        "archive_directory": str(archive_dir),
         "database_path": str(database_path),
         "elapsed_seconds": round(elapsed, 3),
-        "source_snapshot_count": len(all_paths),
+        "source_snapshot_count": len(all_records),
         "build": build_stats.to_dict(),
         "index": store.status(),
     }

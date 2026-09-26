@@ -1,7 +1,7 @@
 ---
 status: current
 contract_version: 2
-last_verified: 2026-09-26
+last_verified: 2026-09-27
 owners: local-user
 supersedes: []
 ---
@@ -53,6 +53,8 @@ flowchart TB
         UniverseDB[(market_metadata.sqlite3<br/>当前名单 revision、交易日历<br/>历史身份数据仍不完整)]
         UniverseSource[当前名单与交易日历来源]
         Snapshots[(scan_snapshots/*.json<br/>扫描详情与现有工作区事实源)]
+        SnapshotArchives[(scan_snapshot_archives/*.zip<br/>逐快照 checksum 的冷归档)]
+        Quarantine[(scan_snapshot_quarantine/<day><br/>可恢复隔离区)]
         IndexDB[(scan_index.sqlite3<br/>CandidateSummary、筛选索引、排序上下文)]
         MarketCache[(history / history_minute 等行情缓存)]
         ResponseCache[(scan_workspace_responses<br/>可再生成的工作区缓存)]
@@ -71,6 +73,8 @@ flowchart TB
     StockAPI --> Service
     Service --> MarketCache
     ScanCore --> Snapshots
+    Snapshots -.->|逐日复制并校验| SnapshotArchives
+    Snapshots -.->|可逆迁移的临时位置| Quarantine
     Jobs -.->|任务完成后索引与物化排序上下文| IndexDB
     ScanAPI -.->|兼容工作区与故障回退| Snapshots
     ScanAPI -->|完整索引 revision 用于缓存失效| IndexDB
@@ -85,6 +89,8 @@ flowchart TB
     JS -->|单票默认；?single_stock_source=legacy 可回退| SingleRead
     ScanAPI -.->|/api/scan_index/*| CandidateRead
     CandidateRead -.-> IndexDB
+    CandidateRead -.->|manifest 指向 active 或 archive| Snapshots
+    CandidateRead -.-> SnapshotArchives
     StockAPI -.->|/api/single_stock_analysis| SingleRead
     Prototypes[两个静态入口原型] -.-> User
 
@@ -106,7 +112,7 @@ flowchart TB
 | 当前股票名单 | **生产使用** | 扫描计划和股票列表使用同一 SQLite 名单 revision；9/24 revision 审计覆盖 5,569 个成员，其中 5,551 个当日收盘 bar、18 个旧数据样本；provider attempts 已核对。无新 K 线不等于停牌 |
 | 行情与分析 | **生产使用，部分旧数据身份未知** | provider、缓存、归一化、结构分析和图表已连通；新数据携带来源与 bar 状态，旧缓存仍可能缺少来源证据 |
 | 扫描快照 | **生产事实源** | 每票扫描详情仍保存为 JSON；这些文件尚未被 SQLite 取代 |
-| SQLite 扫描索引 | **候选页默认生产查询源** | schema v8 对账源目录 revision；扫描后增量索引并物化排序上下文；列表默认读 SQLite，详情仍由 manifest 精确投影 JSON 快照 |
+| SQLite 扫描索引 | **候选页默认生产查询源** | schema v9 对账 active/archive 逻辑快照与独立 storage revision；扫描后增量索引并物化排序上下文；列表默认读 SQLite，详情由 manifest 精确投影活跃 JSON 或校验归档 |
 | 候选与单票读模型 | **两类稳定模型均已默认** | 候选页默认用 `CandidateSummary/Detail`，`?candidate_source=json` 回退；单票页默认用 `SingleStockAnalysis`，`?single_stock_source=legacy` 回退；页面已由用户确认正常 |
 | 排序 | **新政策已实现并物化** | 排序只使用个股信号/结构、确认、风险及该股宏观许可；行业/概念保留筛选与候选分布浏览，不参与排序/许可。最新日两种 scope 已重算；旧策略上下文会拒绝应用并回退个股快照排序。见 accepted ADR-0002 |
 | 历史证券身份 | **研究底座，partial** | 当前扫描不依赖完整北交所历史成员；不能据此声称历史研究无幸存者偏差 |
@@ -120,7 +126,7 @@ flowchart TB
 
 - `.cache/market_metadata.sqlite3`：当前名单、交易日历和参考数据版本。
 - `.cache/scan_index.sqlite3`：由 JSON 扫描快照派生的摘要索引和候选排序上下文。
-- `.cache/scan_snapshots/`：当前仍保存候选详情和扫描事实，是 SQLite 详情投影的来源。
+- `.cache/scan_snapshots/`：活跃扫描事实；`.cache/scan_snapshot_archives/` 保存 checksum 归档；`.cache/scan_snapshot_quarantine/` 是可恢复隔离区。manifest 指定详情的 active/archive 读取位置。
 - `.cache/history/`、`.cache/history_minute/`：行情数据缓存。
 - `.cache/scan_workspace_responses/`：可丢弃、可重建的工作区响应缓存。
 
@@ -153,7 +159,7 @@ prototypes/rejected-core-spike/ 已隔离的未接入架构试验，非生产代
 
 ## Next Work In Order
 
-1. **扩展 SQLite 存储层对账，不直接删快照**：按日 ZIP、逐文件 checksum、详情/显式历史日回读和往返验证已完成，20260515 真实试点保留了源件。下一步要让 source-sync 把 active/archive 共同视为不可变事实集，再设计可回滚的两阶段空间回收。
+1. **完成单日可逆隔离验证，不直接删快照**：schema v9 已让 source-sync 把 active/archive 共同视为不可变事实集，20260515 已完成归档与第一阶段登记。下一步先清理旧运行进程，再对一个已登记日期执行 quarantine、核验候选详情/历史回放/索引重建，随后 restore 或进入观察期；永久 purge 另行决策。
 2. **继续积累同政策的跨日样本**：revision-aware SQLite 研究台账已落地，当前有 5 个 context revision run、600 条 1/3 日观察，5/10 日为空，且未显示可信单调性。保持生产权重不变。
 3. **观测两条稳定模型默认路径**：候选异常可用 `?candidate_source=json`，单票异常可用 `?single_stock_source=legacy` 回退；按真实使用反馈补失败边界测试。
 4. **渐进整理旧文档与兼容代码**：逐份核实引用后再归档，不用批量删除破坏研究证据或回退能力。

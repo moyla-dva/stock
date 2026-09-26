@@ -1,7 +1,7 @@
 ---
 status: current
-contract_version: 3
-last_verified: 2026-09-26
+contract_version: 4
+last_verified: 2026-09-27
 implementation_status: default-summary-detail-frontend
 owners: local-user
 supersedes: []
@@ -12,7 +12,7 @@ supersedes: []
 ## Current Status
 
 SQLite 扫描索引已经接管候选页默认摘要、筛选、分页与按需详情读取。详情 API 通过
-manifest 定位原始 JSON 快照并校验 revision，再投影为 `CandidateDetail`；若单条详情读取
+manifest 定位活跃 JSON 或校验过的按日归档并校验 revision，再投影为 `CandidateDetail`；若单条详情读取
 失败，只为当前候选回退到精确 JSON 详情。列表索引不完整、上下文排序不可用或分页失败时
 整页回退 JSON，并在页面标明来源；不会将两种来源拼在同一页。`?candidate_source=json`
 可以显式使用旧 JSON 工作区读链。
@@ -24,7 +24,7 @@ JSON 快照仍是完整扫描事实和详情来源；SQLite 是可重建的默�
 
 SQLite 保存：
 
-- 快照路径、文件状态、内容哈希和策略身份。
+- 快照逻辑路径、active/archive 存储层、归档定位、文件状态、内容哈希和策略身份。
 - 按日期、策略版本和复权方式聚合的扫描运行索引。
 - 每个快照命中池的 `CandidateSummary`。
 - 候选分页、排序和常用筛选所需的列。
@@ -37,17 +37,20 @@ SQLite 不保存：
 - 完整候选详情。
 - 日线或分钟线行情。
 
-详情继续由 `snapshot_manifest.path` 定位到不可变 JSON 快照。
+详情继续由 `snapshot_manifest.path` 表示稳定逻辑身份；物理读取按 `storage_tier`、
+`archive_path` 和 `archive_member` 选择活跃文件或冷归档。SQLite 不替代快照内容本身。
 
-索引状态另外记录 `build_scope`、`snapshot_index_revision` 和源目录同步 revision。局部验证和
+索引状态另外记录 `build_scope`、`snapshot_index_revision`、事实内容同步 revision 和
+`source_sync_storage_revision`。局部验证和
 从后台单票扫描新建的索引标记为 `partial`。`index_complete` 只有在以下条件同时成立时为真：
 
 - `build_scope=full`；
 - manifest 无解析失败；
-- 严格文件规则识别出的源快照数量与 manifest 成功行数一致；
+- active 与 archive 合并后的逻辑快照数量与 manifest 成功行数一致；
 - `source_sync_revision` 与当前 `snapshot_index_revision` 一致。
 
-新增、修改或删除快照都会使 source-sync 失效；完成目录对账后才恢复完整状态。不能再用
+内容 revision 与存储 revision 分开：同一快照从 active 迁到 archive 不改变候选内容 revision，
+但会改变存储 revision。新增、修改、移除或迁移快照后都必须完成对账。不能再用
 “数据库存在”或“有候选行”推断全市场覆盖完整。
 
 ## Tables
@@ -58,9 +61,9 @@ SQLite 不保存：
 
 ### `snapshot_manifest`
 
-每个 JSON 文件一行，保存：
+每个逻辑快照一行，保存：
 
-- 路径、大小和修改时间。
+- 稳定逻辑路径、`storage_tier`、归档文件和成员路径、大小和修改时间。
 - SHA-256 内容哈希。
 - 股票、日期、策略和复权身份。
 - 快照声明的已计算扫描类型。
@@ -116,10 +119,13 @@ GET /api/scan_index/candidates/600001?scan_type=opportunity
 
 ## Rebuild
 
-增量刷新默认跳过路径、大小和修改时间均未变化的有效文件：
+增量刷新会同时发现活跃目录和 checksum 归档；活跃文件存在时优先使用活跃副本，只有源文件
+缺失时才从归档重建索引。默认跳过身份与 revision 均未变化的有效快照：
 
 ```bash
 ./venv/bin/python scripts/rebuild_scan_index.py
+./venv/bin/python scripts/rebuild_scan_index.py \
+  --archive-dir .cache/scan_snapshot_archives
 ```
 
 清空并重建的只是 SQLite 索引，不会删除源快照：
@@ -147,6 +153,29 @@ GET /api/scan_index/candidates/600001?scan_type=opportunity
 ```
 
 该命令产生的数据库会明确标记为 `partial`，不能作为全市场候选读源。
+
+## Cold Storage Migration
+
+归档和空间回收是分离步骤。先创建并验证按日归档：
+
+```bash
+./venv/bin/python scripts/archive_scan_snapshot_day.py --snapshot-day 20260515
+./venv/bin/python scripts/archive_scan_snapshot_day.py --snapshot-day 20260515 --verify-only
+```
+
+随后使用可逆迁移命令。默认只做无副作用预检；`--register` 在源文件仍为 active 时把归档定位
+和 checksum 登记进 manifest；`--apply` 只把源文件原子移动到隔离区；`--restore` 可移回：
+
+```bash
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py --snapshot-day 20260515
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py --snapshot-day 20260515 --register
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py --snapshot-day 20260515 --apply
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py --snapshot-day 20260515 --restore
+```
+
+命令没有 purge/delete 模式。执行 `--apply` 前，所有仍在运行的 Web 进程都必须升级到 schema v9
+和 archive-aware 详情读链；否则旧进程可能把已迁移快照视为缺失。当前真实试点仅完成
+`--register`，未移动源文件。
 
 逐条核对某一快照日的新旧摘要：
 
@@ -349,3 +378,9 @@ warm opportunity query: about 0.09-0.10 seconds
 schema v8 在 manifest 增加规划元数据和复合索引，并以同一 source-sync 契约约束候选 API、
 缓存指纹和扫描计划。候选页由 [ADR-0005](../adr/0005-sqlite-candidate-read-default.md)
 批准默认使用 SQLite；JSON 保留为详情事实源和故障回退。
+
+同日原位迁移到 schema v9，manifest 新增 active/archive 存储身份、归档路径、成员路径和
+两级 checksum revision。source-sync 现在以活跃文件与已验证归档的逻辑并集对账，完整索引
+也可只从归档重建。20260515 试点已完成无副作用 dry-run 和第一阶段 `--register`：全库仍为
+103,437 份有效快照，试点源文件仍为 active，同时记录精确 ZIP、成员和 SHA-256。第二阶段
+隔离迁移尚未执行，原因是本机仍有旧代码进程运行；永久删除仍未实现。

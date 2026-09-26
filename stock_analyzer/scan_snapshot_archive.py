@@ -122,6 +122,7 @@ def read_archived_snapshot_bytes(
     source_path: str | Path,
     *,
     archive_dir: str | Path | None = None,
+    archive_path: str | Path | None = None,
 ) -> bytes:
     """Read one archived snapshot and verify its size and SHA-256 checksum."""
 
@@ -129,7 +130,11 @@ def read_archived_snapshot_bytes(
     day = snapshot_day_from_filename(source_path)
     if not day:
         raise SnapshotArchiveError(f"invalid scan snapshot filename: {source_path.name}")
-    archive_path = archive_path_for_day(day, archive_dir=archive_dir)
+    archive_path = (
+        Path(archive_path)
+        if archive_path is not None
+        else archive_path_for_day(day, archive_dir=archive_dir)
+    )
     manifest = read_archive_manifest(archive_path)
     if str(manifest.get("snapshot_day") or "") != day:
         raise SnapshotArchiveError(f"snapshot archive day mismatch: {archive_path.name}")
@@ -156,6 +161,7 @@ def read_scan_snapshot_bytes(
     source_path: str | Path,
     *,
     archive_dir: str | Path | None = None,
+    archive_path: str | Path | None = None,
 ) -> bytes:
     """Read an active snapshot first, then fall back to checksum-verified cold storage."""
 
@@ -163,4 +169,8 @@ def read_scan_snapshot_bytes(
     try:
         return path.read_bytes()
     except FileNotFoundError:
-        return read_archived_snapshot_bytes(path, archive_dir=archive_dir)
+        return read_archived_snapshot_bytes(
+            path,
+            archive_dir=archive_dir,
+            archive_path=archive_path,
+        )

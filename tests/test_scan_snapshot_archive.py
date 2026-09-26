@@ -15,6 +15,7 @@ from stock_analyzer.scan_snapshot_archive import (
     SnapshotArchiveError,
     read_archived_snapshot_bytes,
 )
+from stock_analyzer.scan_snapshot_storage import discover_snapshot_storage
 from stock_analyzer.versioning import SCAN_SNAPSHOT_SCHEMA_VERSION, SCAN_STRATEGY_VERSION
 
 
@@ -88,6 +89,59 @@ class ScanSnapshotArchiveTest(unittest.TestCase):
                 read_archived_snapshot_bytes(path, archive_dir=archive_dir)
             with self.assertRaises(SnapshotArchiveError):
                 verify_snapshot_day_archive(archive_path)
+
+    def test_storage_discovery_deduplicates_active_and_archive_tiers(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "snapshots"
+            archive_dir = root / "archives"
+            source.mkdir()
+            path = self._write_snapshot(source, "600001", "20260922")
+            build_snapshot_day_archive(source, archive_dir, "20260922")
+
+            active_records = discover_snapshot_storage(source, archive_dir)
+            path.unlink()
+            archived_records = discover_snapshot_storage(source, archive_dir)
+            archived_raw = archived_records[0].read_bytes()
+
+        self.assertEqual(len(active_records), 1)
+        self.assertEqual(active_records[0].storage_tier, "active")
+        self.assertTrue(active_records[0].archive_path)
+        self.assertEqual(len(archived_records), 1)
+        self.assertEqual(archived_records[0].storage_tier, "archive")
+        self.assertEqual(archived_raw, json.dumps(
+            _snapshot("600001", "20260922")
+        ).encode("utf-8"))
+
+    def test_storage_discovery_rejects_archive_member_path_traversal(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "snapshots"
+            archive_dir = root / "archives"
+            source.mkdir()
+            archive_dir.mkdir()
+            archive_path = archive_dir / "scan_snapshots_20260922.zip"
+            archive_path.write_bytes(b"placeholder")
+            manifest = {
+                "snapshot_day": "20260922",
+                "source_directory": str(source.resolve()),
+                "archive_revision": "sha256:manifest",
+                "entries": [{
+                    "name": "../escape_20260922.json",
+                    "member": "snapshots/../escape_20260922.json",
+                    "size_bytes": 1,
+                    "sha256": "0" * 64,
+                }],
+            }
+
+            with (
+                patch(
+                    "stock_analyzer.scan_snapshot_storage.read_archive_manifest",
+                    return_value=manifest,
+                ),
+                self.assertRaises(SnapshotArchiveError),
+            ):
+                discover_snapshot_storage(source, archive_dir)
 
 
 if __name__ == "__main__":

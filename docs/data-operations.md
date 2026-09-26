@@ -137,10 +137,10 @@ SQLite 已接管候选列表、筛选和排序查询，但 `.cache/scan_snapshot
   --output .cache/reports/scan-snapshot-storage.json
 ```
 
-工具会按快照日统计文件数与体积，并核对 SQLite manifest 的目录、成员数、
-revision、文件大小和解析状态。`archive_review` 只表示该日可进入冷归档方案评估，
-不表示可删除。脚本故意不提供 `--apply`；真正迁移前必须先实现归档读取、逐文件
-checksum 和往返一致性验证，并在源目录成员变化后重新对账 SQLite manifest。
+工具会按快照日统计 active/archive 逻辑文件数与体积，并核对 SQLite manifest 的目录、
+成员数、内容 revision、storage revision、文件大小和解析状态。`archive_review` 只表示该日
+可进入冷归档评估，不表示可删除。审计脚本故意不提供 `--apply`；实际移动由下方可逆迁移
+命令单独负责。
 
 ## Scan Snapshot Cold Archive
 
@@ -156,5 +156,29 @@ SHA-256。归档命令只复制与校验，不删除源 JSON：
 `.cache/scan_snapshot_archives/scan_snapshots_YYYYMMDD.zip` 读取并校验。候选详情和
 显式历史日回放已接入该读链，历史日列表默认由 SQLite 聚合。
 
-当前仍不能删除源文件：SQLite source-sync 尚把原目录视为完整成员集。下一阶段需要
-为 manifest 增加存储层身份并实现可回滚的两阶段迁移，完成后才能讨论空间回收。
+SQLite schema v9 已把 active 文件与已验证归档视为同一个逻辑快照集合，并分别记录内容
+revision 与 storage revision。迁移分四种模式：
+
+```bash
+# 零写入预检
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py --snapshot-day 20260515
+
+# 第一阶段：源文件仍保留，只登记归档路径、成员和 checksum
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py \
+  --snapshot-day 20260515 --register
+
+# 第二阶段：仅移入可恢复隔离区，不永久删除
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py \
+  --snapshot-day 20260515 --apply
+
+# 回滚到活跃目录
+./venv/bin/python scripts/migrate_scan_snapshot_day_to_archive.py \
+  --snapshot-day 20260515 --restore
+```
+
+`--apply` 前必须确认所有运行中的 Web 进程都使用 schema v9 和 archive-aware 读链。当前
+20260515 真实试点只完成 `--register`，源文件未移动。脚本没有 purge/delete 模式；隔离区
+保留期和任何未来永久清理必须另行制定策略。
+
+若存储层对账遇到损坏或冲突归档，扫描任务仍会记录索引降级并继续尝试排序上下文；全局
+source-sync 会保持未通过，需先修复归档再执行全量对账，不能把失败视为归档已验证。

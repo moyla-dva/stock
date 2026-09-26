@@ -577,7 +577,10 @@ def scan_index_candidate_detail_response(
             }), 404
 
         snapshot_path = Path(reference["snapshot_path"])
-        raw = read_scan_snapshot_bytes(snapshot_path)
+        raw = read_scan_snapshot_bytes(
+            snapshot_path,
+            archive_path=reference.get("archive_path") or None,
+        )
         actual_revision = f"sha256:{hashlib.sha256(raw).hexdigest()}"
         expected_revision = str(reference["summary"].get("snapshot_revision") or "")
         if expected_revision and actual_revision != expected_revision:

@@ -171,7 +171,18 @@ def sync_scan_job_index(job, codes):
         }
     with _scan_index_sync_lock:
         stats = scan_index_store.index_snapshot_files(paths)
-        reconciliation = scan_index_store.reconcile_source_directory(paths[0].parent)
+        try:
+            reconciliation = scan_index_store.reconcile_source_directory(paths[0].parent)
+        except Exception as exc:
+            app.logger.warning(
+                "SQLite 快照存储层对账失败；继续尝试生成候选排序上下文: %s",
+                exc,
+            )
+            reconciliation = {
+                "synchronized": False,
+                "status": "failed",
+                "error": str(exc),
+            }
         index_result = {
             "status": "indexed",
             "snapshot_count": len(paths),

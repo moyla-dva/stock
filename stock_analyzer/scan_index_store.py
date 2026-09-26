@@ -23,10 +23,19 @@ from stock_analyzer.scan_rank_context import (
     RANK_CONTEXT_SCHEMA_VERSION,
     RANKING_POLICY_VERSION,
 )
+from stock_analyzer.scan_snapshot_archive import DEFAULT_SCAN_SNAPSHOT_ARCHIVE_DIR
 from stock_analyzer.scan_snapshot_paths import discover_scan_snapshot_files
+from stock_analyzer.scan_snapshot_storage import (
+    STORAGE_TIER_ACTIVE,
+    STORAGE_TIER_ARCHIVE,
+    SnapshotStorageRecord,
+    active_snapshot_record,
+    discover_snapshot_storage,
+    snapshot_storage_revision,
+)
 
 
-SCAN_INDEX_SCHEMA_VERSION = 8
+SCAN_INDEX_SCHEMA_VERSION = 9
 SCAN_INDEX_BUILD_SCOPES = frozenset({"unknown", "partial", "full"})
 RANK_CONTEXT_SCOPE_SNAPSHOT = "snapshot"
 RANK_CONTEXT_SCOPE_LATEST_FRESH = "latest_fresh"
@@ -56,6 +65,11 @@ CREATE TABLE IF NOT EXISTS scan_runs (
 CREATE TABLE IF NOT EXISTS snapshot_manifest (
     id INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
+    storage_tier TEXT NOT NULL DEFAULT 'active',
+    archive_path TEXT NOT NULL DEFAULT '',
+    archive_member TEXT NOT NULL DEFAULT '',
+    archive_snapshot_revision TEXT NOT NULL DEFAULT '',
+    archive_revision TEXT NOT NULL DEFAULT '',
     snapshot_version INTEGER NOT NULL DEFAULT 0,
     snapshot_revision TEXT NOT NULL DEFAULT '',
     strategy_version TEXT NOT NULL DEFAULT 'unknown',
@@ -80,6 +94,8 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_manifest_code
     ON snapshot_manifest(code, snapshot_day DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_manifest_status
     ON snapshot_manifest(parse_status);
+CREATE INDEX IF NOT EXISTS idx_snapshot_manifest_storage
+    ON snapshot_manifest(storage_tier, snapshot_day);
 CREATE TABLE IF NOT EXISTS candidate_summaries (
     id INTEGER PRIMARY KEY,
     snapshot_id INTEGER NOT NULL REFERENCES snapshot_manifest(id) ON DELETE CASCADE,
@@ -261,6 +277,10 @@ class ScanIndexStore:
                 if current_version < 8:
                     self._migrate_v7_to_v8(connection)
                     connection.execute("PRAGMA user_version = 8")
+                    current_version = 8
+                if current_version < 9:
+                    self._migrate_v8_to_v9(connection)
+                    connection.execute("PRAGMA user_version = 9")
                 self._normalize_candidate_schema_versions(connection)
 
     @staticmethod
@@ -467,6 +487,29 @@ class ScanIndexStore:
             """
         )
 
+    @staticmethod
+    def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(snapshot_manifest)").fetchall()
+        }
+        definitions = {
+            "storage_tier": "TEXT NOT NULL DEFAULT 'active'",
+            "archive_path": "TEXT NOT NULL DEFAULT ''",
+            "archive_member": "TEXT NOT NULL DEFAULT ''",
+            "archive_snapshot_revision": "TEXT NOT NULL DEFAULT ''",
+            "archive_revision": "TEXT NOT NULL DEFAULT ''",
+        }
+        for column, definition in definitions.items():
+            if column not in columns:
+                connection.execute(
+                    f"ALTER TABLE snapshot_manifest ADD COLUMN {column} {definition}"
+                )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_snapshot_manifest_storage "
+            "ON snapshot_manifest(storage_tier, snapshot_day)"
+        )
+
     def clear(self) -> None:
         self.initialize()
         with self._connect() as connection:
@@ -482,6 +525,10 @@ class ScanIndexStore:
             self._set_metadata(connection, "full_rebuild_completed_at", "")
             self._set_metadata(connection, "source_sync_snapshot_count", "0")
             self._set_metadata(connection, "source_sync_directory", "")
+            self._set_metadata(connection, "source_sync_archive_directory", "")
+            self._set_metadata(connection, "source_sync_storage_revision", "")
+            self._set_metadata(connection, "source_sync_active_snapshot_count", "0")
+            self._set_metadata(connection, "source_sync_archive_snapshot_count", "0")
             self._set_metadata(connection, "source_sync_revision", "")
             self._set_metadata(connection, "source_sync_completed_at", "")
             self._set_metadata(connection, "snapshot_index_revision", uuid.uuid4().hex)
@@ -497,9 +544,40 @@ class ScanIndexStore:
     ) -> ScanIndexBuildStats:
         """Index snapshot files, skipping unchanged files unless force is true."""
 
+        records = []
+        for value in paths:
+            path = Path(value).expanduser().resolve()
+            try:
+                records.append(active_snapshot_record(path))
+            except OSError:
+                records.append(SnapshotStorageRecord(
+                    logical_path=path,
+                    storage_tier=STORAGE_TIER_ACTIVE,
+                    size_bytes=0,
+                    mtime_ns=0,
+                ))
+        return self.index_snapshot_records(
+            records,
+            reset=reset,
+            force=force,
+            batch_size=batch_size,
+            progress_callback=progress_callback,
+        )
+
+    def index_snapshot_records(
+        self,
+        records: Iterable[SnapshotStorageRecord],
+        *,
+        reset: bool = False,
+        force: bool = False,
+        batch_size: int = 500,
+        progress_callback: Callable[[int, int, ScanIndexBuildStats], None] | None = None,
+    ) -> ScanIndexBuildStats:
+        """Index logical snapshots from either active files or verified archives."""
+
         self.initialize()
-        path_list = [Path(path) for path in paths]
-        stats = ScanIndexBuildStats(discovered=len(path_list))
+        record_list = list(records)
+        stats = ScanIndexBuildStats(discovered=len(record_list))
         batch_size = max(1, int(batch_size))
 
         with self._connect() as connection:
@@ -514,23 +592,19 @@ class ScanIndexStore:
                 self._set_metadata(connection, "source_sync_revision", "")
                 connection.commit()
 
-            for position, path in enumerate(path_list, start=1):
+            for position, record in enumerate(record_list, start=1):
                 savepoint = f"snapshot_{position}"
                 connection.execute(f"SAVEPOINT {savepoint}")
                 try:
-                    outcome, candidate_count = self._index_snapshot_file(
+                    outcome, candidate_count = self._index_snapshot_record(
                         connection,
-                        path,
+                        record,
                         force=force,
                     )
                 except Exception as exc:
                     connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
                     connection.execute(f"RELEASE SAVEPOINT {savepoint}")
-                    try:
-                        stat = path.stat()
-                    except OSError:
-                        stat = None
-                    self._upsert_error_manifest(connection, path, stat, str(exc))
+                    self._upsert_error_manifest(connection, record, str(exc))
                     outcome, candidate_count = "failed", 0
                 else:
                     connection.execute(f"RELEASE SAVEPOINT {savepoint}")
@@ -545,13 +619,13 @@ class ScanIndexStore:
                 if position % batch_size == 0:
                     connection.commit()
                 if progress_callback:
-                    progress_callback(position, len(path_list), stats)
+                    progress_callback(position, len(record_list), stats)
 
             self._refresh_scan_runs(connection)
             if reset:
                 self._set_metadata(connection, "reason_tags_complete", "1")
             elif (
-                path_list
+                record_list
                 and self._metadata(connection, "build_scope", "unknown") == "unknown"
             ):
                 self._set_metadata(connection, "build_scope", "partial")
@@ -627,25 +701,93 @@ class ScanIndexStore:
         self,
         source_directory: str | Path,
         *,
+        archive_directory: str | Path | None = None,
         delete_missing: bool = True,
+        apply_changes: bool = True,
     ) -> dict[str, Any]:
-        """Reconcile manifest membership with the strict snapshot file set."""
+        """Reconcile manifest membership across active and archive storage tiers."""
 
         self.initialize()
         resolved_directory = str(Path(source_directory).resolve())
-        source_paths = {
-            str(path.resolve())
-            for path in discover_scan_snapshot_files(resolved_directory)
-        }
+        resolved_archive_directory = str(Path(
+            archive_directory or DEFAULT_SCAN_SNAPSHOT_ARCHIVE_DIR
+        ).expanduser().resolve())
+        storage_records = discover_snapshot_storage(
+            resolved_directory,
+            resolved_archive_directory,
+        )
+        source_records = {str(record.logical_path): record for record in storage_records}
+        source_paths = set(source_records)
         with self._connect() as connection:
             manifest_rows = connection.execute(
-                "SELECT id, path FROM snapshot_manifest"
+                "SELECT id, path, snapshot_revision, file_size, storage_tier, "
+                "archive_path, archive_member, archive_snapshot_revision, archive_revision "
+                "FROM snapshot_manifest"
             ).fetchall()
-            manifest_paths = {str(row["path"]): int(row["id"]) for row in manifest_rows}
+            manifest_by_path = {str(row["path"]): row for row in manifest_rows}
+            manifest_paths = {
+                path: int(row["id"]) for path, row in manifest_by_path.items()
+            }
             missing_from_source = sorted(set(manifest_paths) - source_paths)
             missing_from_index = sorted(source_paths - set(manifest_paths))
+            archive_mismatches = []
+            blocking_archive_mismatches = []
+            storage_updates = []
+            for path in sorted(source_paths & set(manifest_paths)):
+                record = source_records[path]
+                row = manifest_by_path[path]
+                archive_matches = bool(
+                    not record.archive_snapshot_revision
+                    or (
+                        record.archive_snapshot_revision
+                        == str(row["snapshot_revision"] or "")
+                        and record.size_bytes == int(row["file_size"] or 0)
+                    )
+                )
+                if not archive_matches:
+                    archive_mismatches.append(path)
+                    if record.storage_tier == STORAGE_TIER_ARCHIVE:
+                        blocking_archive_mismatches.append(path)
+                archive_path = str(record.archive_path or "") if archive_matches else ""
+                archive_member = record.archive_member if archive_matches else ""
+                archive_snapshot_revision = (
+                    record.archive_snapshot_revision if archive_matches else ""
+                )
+                archive_revision = record.archive_revision if archive_matches else ""
+                storage_tier = (
+                    record.storage_tier
+                    if record.storage_tier == STORAGE_TIER_ACTIVE or archive_matches
+                    else str(row["storage_tier"] or STORAGE_TIER_ACTIVE)
+                )
+                desired = (
+                    storage_tier,
+                    archive_path,
+                    archive_member,
+                    archive_snapshot_revision,
+                    archive_revision,
+                )
+                current = (
+                    str(row["storage_tier"] or STORAGE_TIER_ACTIVE),
+                    str(row["archive_path"] or ""),
+                    str(row["archive_member"] or ""),
+                    str(row["archive_snapshot_revision"] or ""),
+                    str(row["archive_revision"] or ""),
+                )
+                if desired != current:
+                    storage_updates.append((*desired, int(row["id"])))
+
+            if apply_changes and storage_updates:
+                connection.executemany(
+                    """
+                    UPDATE snapshot_manifest
+                    SET storage_tier = ?, archive_path = ?, archive_member = ?,
+                        archive_snapshot_revision = ?, archive_revision = ?
+                    WHERE id = ?
+                    """,
+                    storage_updates,
+                )
             deleted_count = 0
-            if delete_missing and missing_from_source:
+            if apply_changes and delete_missing and missing_from_source:
                 connection.executemany(
                     "DELETE FROM snapshot_manifest WHERE id = ?",
                     [(manifest_paths[path],) for path in missing_from_source],
@@ -673,9 +815,15 @@ class ScanIndexStore:
                 and invalid_count == 0
                 and not missing_from_index
                 and (delete_missing or not missing_from_source)
+                and not blocking_archive_mismatches
                 and len(manifest_paths) == len(source_paths)
             )
-            if synchronized:
+            active_count = sum(
+                record.storage_tier == STORAGE_TIER_ACTIVE for record in storage_records
+            )
+            archive_count = len(storage_records) - active_count
+            storage_revision = snapshot_storage_revision(storage_records)
+            if apply_changes and synchronized:
                 completed_at = _utc_now_text()
                 self._set_metadata(
                     connection,
@@ -686,6 +834,26 @@ class ScanIndexStore:
                     connection,
                     "source_sync_directory",
                     resolved_directory,
+                )
+                self._set_metadata(
+                    connection,
+                    "source_sync_archive_directory",
+                    resolved_archive_directory,
+                )
+                self._set_metadata(
+                    connection,
+                    "source_sync_storage_revision",
+                    storage_revision,
+                )
+                self._set_metadata(
+                    connection,
+                    "source_sync_active_snapshot_count",
+                    str(active_count),
+                )
+                self._set_metadata(
+                    connection,
+                    "source_sync_archive_snapshot_count",
+                    str(archive_count),
                 )
                 self._set_metadata(connection, "source_sync_revision", revision)
                 self._set_metadata(
@@ -698,16 +866,26 @@ class ScanIndexStore:
                     "full_rebuild_source_snapshot_count",
                     str(len(source_paths)),
                 )
-            else:
+            elif apply_changes:
                 self._set_metadata(connection, "source_sync_revision", "")
-            connection.commit()
+                self._set_metadata(connection, "source_sync_storage_revision", "")
+            if apply_changes:
+                connection.commit()
         return {
             "synchronized": synchronized,
             "source_snapshot_count": len(source_paths),
+            "active_snapshot_count": active_count,
+            "archive_snapshot_count": archive_count,
             "manifest_snapshot_count": len(manifest_paths),
             "missing_from_index_count": len(missing_from_index),
             "missing_from_source_count": len(missing_from_source),
+            "archive_mismatch_count": len(archive_mismatches),
+            "blocking_archive_mismatch_count": len(blocking_archive_mismatches),
+            "archive_mismatch_paths": archive_mismatches[:20],
+            "storage_update_count": len(storage_updates),
+            "storage_revision": storage_revision,
             "deleted_manifest_count": deleted_count,
+            "changes_applied": bool(apply_changes),
         }
 
     def cache_fingerprint(self, source_directory: str | Path) -> dict[str, Any]:
@@ -720,6 +898,8 @@ class ScanIndexStore:
                 """
                 SELECT COUNT(*) AS total,
                        SUM(CASE WHEN parse_status = 'error' THEN 1 ELSE 0 END) AS invalid,
+                       SUM(CASE WHEN storage_tier = 'active' THEN 1 ELSE 0 END) AS active_count,
+                       SUM(CASE WHEN storage_tier = 'archive' THEN 1 ELSE 0 END) AS archive_count,
                        MAX(snapshot_day) AS latest_snapshot_day,
                        MAX(indexed_at) AS latest_indexed_at
                 FROM snapshot_manifest
@@ -742,6 +922,16 @@ class ScanIndexStore:
             source_sync_revision = self._metadata(
                 connection,
                 "source_sync_revision",
+                "",
+            )
+            source_sync_archive_directory = self._metadata(
+                connection,
+                "source_sync_archive_directory",
+                "",
+            )
+            source_sync_storage_revision = self._metadata(
+                connection,
+                "source_sync_storage_revision",
                 "",
             )
             incomplete_planning_count = int(connection.execute(
@@ -774,6 +964,10 @@ class ScanIndexStore:
             "build_scope": build_scope,
             "source_directory": indexed_directory,
             "source_sync_revision": source_sync_revision,
+            "source_sync_archive_directory": source_sync_archive_directory,
+            "source_sync_storage_revision": source_sync_storage_revision,
+            "active_snapshot_count": int(row["active_count"] or 0),
+            "archive_snapshot_count": int(row["archive_count"] or 0),
             "planning_metadata_complete": incomplete_planning_count == 0,
         }
 
@@ -1260,35 +1454,39 @@ class ScanIndexStore:
             )
             return max(0, int(cursor.rowcount or 0))
 
-    def _index_snapshot_file(
+    def _index_snapshot_record(
         self,
         connection: sqlite3.Connection,
-        path: Path,
+        record: SnapshotStorageRecord,
         *,
         force: bool,
     ) -> tuple[str, int]:
-        resolved_path = str(path.resolve())
-        try:
-            stat = path.stat()
-        except OSError as exc:
-            self._upsert_error_manifest(connection, path, None, str(exc))
-            return "failed", 0
+        path = record.logical_path
+        resolved_path = str(path)
 
         existing = connection.execute(
-            "SELECT file_mtime_ns, file_size, parse_status FROM snapshot_manifest WHERE path = ?",
+            "SELECT file_mtime_ns, file_size, snapshot_revision, parse_status, storage_tier "
+            "FROM snapshot_manifest WHERE path = ?",
             (resolved_path,),
         ).fetchone()
-        if (
-            not force
-            and existing is not None
-            and int(existing["file_mtime_ns"]) == int(stat.st_mtime_ns)
-            and int(existing["file_size"]) == int(stat.st_size)
-            and existing["parse_status"] == "ok"
-        ):
-            return "skipped", 0
+        if not force and existing is not None and existing["parse_status"] == "ok":
+            if record.storage_tier == STORAGE_TIER_ACTIVE:
+                unchanged = bool(
+                    int(existing["file_mtime_ns"]) == record.mtime_ns
+                    and int(existing["file_size"]) == record.size_bytes
+                    and existing["storage_tier"] == STORAGE_TIER_ACTIVE
+                )
+            else:
+                unchanged = bool(
+                    str(existing["snapshot_revision"] or "") == record.content_revision
+                    and int(existing["file_size"]) == record.size_bytes
+                    and existing["storage_tier"] == STORAGE_TIER_ARCHIVE
+                )
+            if unchanged:
+                return "skipped", 0
 
         try:
-            raw = path.read_bytes()
+            raw = record.read_bytes()
             snapshot = json.loads(raw.decode("utf-8"))
             if not isinstance(snapshot, Mapping):
                 raise ValueError("snapshot root must be an object")
@@ -1296,15 +1494,21 @@ class ScanIndexStore:
             if not isinstance(results, Mapping):
                 raise ValueError("snapshot results must be an object")
         except Exception as exc:
-            self._upsert_error_manifest(connection, path, stat, str(exc))
+            self._upsert_error_manifest(connection, record, str(exc))
             return "failed", 0
 
         snapshot_revision = f"sha256:{hashlib.sha256(raw).hexdigest()}"
+        if record.content_revision and snapshot_revision != record.content_revision:
+            self._upsert_error_manifest(
+                connection,
+                record,
+                "snapshot storage revision does not match archived content",
+            )
+            return "failed", 0
         _, start_key, _ = _snapshot_filename_identity(path)
         snapshot_id = self._upsert_snapshot_manifest(
             connection,
-            path,
-            stat,
+            record,
             snapshot,
             snapshot_revision,
         )
@@ -1330,22 +1534,29 @@ class ScanIndexStore:
     def _upsert_snapshot_manifest(
         self,
         connection: sqlite3.Connection,
-        path: Path,
-        stat: os.stat_result,
+        record: SnapshotStorageRecord,
         snapshot: Mapping[str, Any],
         snapshot_revision: str,
     ) -> int:
-        resolved_path = str(path.resolve())
+        path = record.logical_path
+        resolved_path = str(path)
         _, start_key, _ = _snapshot_filename_identity(path)
         connection.execute(
             """
             INSERT INTO snapshot_manifest (
-                path, snapshot_version, snapshot_revision, strategy_version,
+                path, storage_tier, archive_path, archive_member,
+                archive_snapshot_revision, archive_revision,
+                snapshot_version, snapshot_revision, strategy_version,
                 data_adjust, code, name, sector, snapshot_day, start_key,
                 data_date, row_count, file_mtime_ns, file_size, parse_status,
                 parse_error, computed_scan_types_json, indexed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', '', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', '', ?, ?)
             ON CONFLICT(path) DO UPDATE SET
+                storage_tier = excluded.storage_tier,
+                archive_path = excluded.archive_path,
+                archive_member = excluded.archive_member,
+                archive_snapshot_revision = excluded.archive_snapshot_revision,
+                archive_revision = excluded.archive_revision,
                 snapshot_version = excluded.snapshot_version,
                 snapshot_revision = excluded.snapshot_revision,
                 strategy_version = excluded.strategy_version,
@@ -1366,6 +1577,11 @@ class ScanIndexStore:
             """,
             (
                 resolved_path,
+                record.storage_tier,
+                str(record.archive_path or ""),
+                record.archive_member,
+                record.archive_snapshot_revision,
+                record.archive_revision,
                 _safe_int(snapshot.get("version")),
                 snapshot_revision,
                 str(snapshot.get("strategy_version") or "unknown"),
@@ -1377,8 +1593,8 @@ class ScanIndexStore:
                 start_key,
                 str(snapshot.get("data_date") or ""),
                 _safe_int(snapshot.get("rows")),
-                int(stat.st_mtime_ns),
-                int(stat.st_size),
+                record.mtime_ns,
+                record.size_bytes,
                 _json_text(_string_list(snapshot.get("computed_scan_types"))),
                 _utc_now_text(),
             ),
@@ -1392,19 +1608,26 @@ class ScanIndexStore:
     def _upsert_error_manifest(
         self,
         connection: sqlite3.Connection,
-        path: Path,
-        stat: os.stat_result | None,
+        record: SnapshotStorageRecord,
         error: str,
     ) -> None:
+        path = record.logical_path
         code, start_key, snapshot_day = _snapshot_filename_identity(path)
-        resolved_path = str(path.resolve())
+        resolved_path = str(path)
         connection.execute(
             """
             INSERT INTO snapshot_manifest (
-                path, code, snapshot_day, start_key, file_mtime_ns, file_size,
+                path, storage_tier, archive_path, archive_member,
+                archive_snapshot_revision, archive_revision,
+                code, snapshot_day, start_key, file_mtime_ns, file_size,
                 parse_status, parse_error, computed_scan_types_json, indexed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'error', ?, NULL, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'error', ?, NULL, ?)
             ON CONFLICT(path) DO UPDATE SET
+                storage_tier = excluded.storage_tier,
+                archive_path = excluded.archive_path,
+                archive_member = excluded.archive_member,
+                archive_snapshot_revision = excluded.archive_snapshot_revision,
+                archive_revision = excluded.archive_revision,
                 code = excluded.code,
                 snapshot_day = excluded.snapshot_day,
                 start_key = excluded.start_key,
@@ -1417,11 +1640,16 @@ class ScanIndexStore:
             """,
             (
                 resolved_path,
+                record.storage_tier,
+                str(record.archive_path or ""),
+                record.archive_member,
+                record.archive_snapshot_revision,
+                record.archive_revision,
                 code,
                 snapshot_day,
                 start_key,
-                int(stat.st_mtime_ns) if stat else 0,
-                int(stat.st_size) if stat else 0,
+                record.mtime_ns,
+                record.size_bytes,
                 str(error)[:1000],
                 _utc_now_text(),
             ),
@@ -2074,6 +2302,10 @@ class ScanIndexStore:
                 SELECT
                     cs.*,
                     sm.path AS snapshot_path,
+                    sm.storage_tier AS snapshot_storage_tier,
+                    sm.archive_path AS snapshot_archive_path,
+                    sm.archive_member AS snapshot_archive_member,
+                    sm.archive_revision AS snapshot_archive_revision,
                     COALESCE((
                         SELECT json_group_array(rt.tag)
                         FROM candidate_reason_tags rt
@@ -2091,6 +2323,10 @@ class ScanIndexStore:
         return {
             "summary": self._candidate_row_to_dict(row),
             "snapshot_path": str(row["snapshot_path"]),
+            "storage_tier": str(row["snapshot_storage_tier"] or STORAGE_TIER_ACTIVE),
+            "archive_path": str(row["snapshot_archive_path"] or ""),
+            "archive_member": str(row["snapshot_archive_member"] or ""),
+            "archive_revision": str(row["snapshot_archive_revision"] or ""),
         }
 
     def latest_snapshot_day(
@@ -2114,6 +2350,31 @@ class ScanIndexStore:
         with self._connect() as connection:
             row = connection.execute(sql, params).fetchone()
         return str(row["snapshot_day"] or "") if row else ""
+
+    def snapshot_storage_counts(self, snapshot_day: str) -> dict[str, int]:
+        """Return manifest storage-tier counts for one snapshot day."""
+
+        self.initialize()
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT storage_tier, COUNT(*) AS total
+                FROM snapshot_manifest
+                WHERE snapshot_day = ?
+                GROUP BY storage_tier
+                """,
+                (str(snapshot_day),),
+            ).fetchall()
+        counts = {
+            STORAGE_TIER_ACTIVE: 0,
+            STORAGE_TIER_ARCHIVE: 0,
+        }
+        for row in rows:
+            tier = str(row["storage_tier"] or "")
+            if tier in counts:
+                counts[tier] = int(row["total"] or 0)
+        counts["total"] = counts[STORAGE_TIER_ACTIVE] + counts[STORAGE_TIER_ARCHIVE]
+        return counts
 
     def planning_snapshot_rows(self, *, start_key: str) -> list[dict[str, Any]]:
         """Return manifest-only inputs needed by scan planning policy."""
@@ -2158,7 +2419,9 @@ class ScanIndexStore:
                 SELECT
                     COUNT(*) AS total,
                     SUM(CASE WHEN parse_status = 'ok' THEN 1 ELSE 0 END) AS valid,
-                    SUM(CASE WHEN parse_status = 'error' THEN 1 ELSE 0 END) AS invalid
+                    SUM(CASE WHEN parse_status = 'error' THEN 1 ELSE 0 END) AS invalid,
+                    SUM(CASE WHEN storage_tier = 'active' THEN 1 ELSE 0 END) AS active_count,
+                    SUM(CASE WHEN storage_tier = 'archive' THEN 1 ELSE 0 END) AS archive_count
                 FROM snapshot_manifest
                 """
             ).fetchone()
@@ -2223,6 +2486,16 @@ class ScanIndexStore:
                 "source_sync_directory",
                 "",
             )
+            source_sync_archive_directory = self._metadata(
+                connection,
+                "source_sync_archive_directory",
+                "",
+            )
+            source_sync_storage_revision = self._metadata(
+                connection,
+                "source_sync_storage_revision",
+                "",
+            )
             source_sync_revision = self._metadata(
                 connection,
                 "source_sync_revision",
@@ -2273,6 +2546,10 @@ class ScanIndexStore:
             "full_rebuild_completed_at": full_rebuild_completed_at,
             "source_sync_snapshot_count": source_sync_snapshot_count,
             "source_sync_directory": source_sync_directory,
+            "source_sync_archive_directory": source_sync_archive_directory,
+            "source_sync_storage_revision": source_sync_storage_revision,
+            "active_snapshot_count": int(manifest["active_count"] or 0),
+            "archive_snapshot_count": int(manifest["archive_count"] or 0),
             "source_sync_revision": source_sync_revision,
             "source_sync_completed_at": source_sync_completed_at,
             "planning_metadata_complete": incomplete_planning_count == 0,
@@ -2288,6 +2565,10 @@ class ScanIndexStore:
         payload.pop("id", None)
         payload.pop("snapshot_id", None)
         payload.pop("snapshot_path", None)
+        payload.pop("snapshot_storage_tier", None)
+        payload.pop("snapshot_archive_path", None)
+        payload.pop("snapshot_archive_member", None)
+        payload.pop("snapshot_archive_revision", None)
         payload["missing_confirmations"] = json.loads(
             payload.pop("missing_confirmations_json") or "[]"
         )

@@ -1257,3 +1257,12 @@
 - 20260515 真实试点将 3,819 字节源快照归档为 2,141 字节 ZIP，二次独立验证通过，源 JSON 保留。
 - **不得删源文件**：SQLite source-sync 尚把活跃目录视为完整成员集。下一步先增加 active/archive 存储层对账与可回滚两阶段迁移。
 - **最新验证**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**456 tests OK**；新服务 `http://127.0.0.1:5012/` 的候选详情、单票和历史 API 皆为 200。
+
+## Codex 当前交接检查点：2026-09-27 SQLite 存储层与可逆迁移
+
+- SQLite schema 已从 v8 原位升级到 v9；`snapshot_manifest` 记录 `active/archive` 存储层、归档 ZIP/member 与 archive checksum。内容 index revision 和物理 storage revision 分开管理。
+- active 文件与已验证 archive 作为同一逻辑快照集合；全量重建支持 `--archive-dir`，CandidateDetail 可按 manifest 指定归档读取。真实数据库仍有 **103,437** 条有效快照，20260515 试点已登记归档位置，source JSON 仍存在且 tier 为 active。
+- `migrate_scan_snapshot_day_to_archive.py` 支持 dry-run、register、quarantine 与 restore；dry-run 无 manifest 写入，apply 迁移到 quarantine，逐日 SQLite tier 数必须完全匹配。脚本不提供 purge。
+- 存储审计核对 active/archive 成员、SQLite manifest、内容 revision 与 storage revision。旧 Web 进程未全部切换到 schema v9 前不执行 quarantine；19 个旧日期仍未回收。
+- 本批全量测试 **466 tests OK**；`compileall`、文档合同测试和 `git diff --check` 通过。此前一次文档测试调用写错 import module 名，之后已用 `unittest discover -s tests -p 'test_documentation_contracts.py'` 正确通过。
+- 权威状态和命令见 `docs/current/implementation-status.md`、`docs/current/sqlite-scan-index.md`、`docs/data-operations.md` 与 ADR-0006。

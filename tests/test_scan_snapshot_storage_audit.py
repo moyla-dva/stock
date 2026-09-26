@@ -1,4 +1,5 @@
 import sqlite3
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -10,6 +11,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.audit_scan_snapshot_storage import build_snapshot_storage_report
+from scripts.archive_scan_snapshot_day import build_snapshot_day_archive
+from stock_analyzer.scan_snapshot_archive import DEFAULT_SCAN_SNAPSHOT_ARCHIVE_DIR
+from stock_analyzer.scan_snapshot_storage import (
+    discover_snapshot_storage,
+    snapshot_storage_revision,
+)
 
 
 class ScanSnapshotStorageAuditTest(unittest.TestCase):
@@ -18,7 +25,11 @@ class ScanSnapshotStorageAuditTest(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         return path
 
-    def _index(self, database, snapshot_dir, paths):
+    def _index(self, database, snapshot_dir, paths, archive_dir=None):
+        archive_dir = Path(archive_dir or DEFAULT_SCAN_SNAPSHOT_ARCHIVE_DIR).resolve()
+        storage_revision = snapshot_storage_revision(
+            discover_snapshot_storage(snapshot_dir, archive_dir)
+        )
         connection = sqlite3.connect(database)
         connection.executescript(
             """
@@ -38,6 +49,8 @@ class ScanSnapshotStorageAuditTest(unittest.TestCase):
             "build_scope": "full",
             "source_sync_snapshot_count": str(len(paths)),
             "source_sync_directory": str(snapshot_dir.resolve()),
+            "source_sync_archive_directory": str(archive_dir),
+            "source_sync_storage_revision": storage_revision,
             "source_sync_revision": revision,
             "snapshot_index_revision": revision,
         }
@@ -105,6 +118,61 @@ class ScanSnapshotStorageAuditTest(unittest.TestCase):
         self.assertEqual(report["source"]["ignored_json_count"], 1)
         self.assertEqual(report["retention_plan"]["blockers"], [])
         self.assertTrue(any("non-snapshot" in item for item in report["retention_plan"]["notices"]))
+
+    def test_archived_only_snapshot_remains_in_logical_source_inventory(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot_dir = root / "snapshots"
+            archive_dir = root / "archives"
+            snapshot_dir.mkdir()
+            payload = {
+                "version": 1,
+                "strategy_version": "2026.09.20.1",
+                "data_adjust": "qfq",
+                "code": "600001",
+                "snapshot_day": "20260922",
+                "data_date": "2026-09-22",
+                "computed_scan_types": [],
+                "results": {},
+            }
+            indexed = self._snapshot(
+                snapshot_dir,
+                "600001",
+                "20260922",
+                json.dumps(payload),
+            )
+            database = root / "scan.sqlite3"
+            self._index(database, snapshot_dir, [(indexed, "2026-09-22")])
+            build_snapshot_day_archive(snapshot_dir, archive_dir, "20260922")
+            indexed.unlink()
+            storage_revision = snapshot_storage_revision(
+                discover_snapshot_storage(snapshot_dir, archive_dir)
+            )
+            connection = sqlite3.connect(database)
+            connection.executemany(
+                """
+                INSERT INTO index_metadata(key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (
+                    ("source_sync_archive_directory", str(archive_dir.resolve())),
+                    ("source_sync_storage_revision", storage_revision),
+                ),
+            )
+            connection.commit()
+            connection.close()
+
+            report = build_snapshot_storage_report(
+                snapshot_dir,
+                database,
+                archive_dir=archive_dir,
+                keep_latest_days=1,
+            )
+
+        self.assertTrue(report["index"]["global_parity"])
+        self.assertEqual(report["source"]["active_file_count"], 0)
+        self.assertEqual(report["source"]["archive_file_count"], 1)
+        self.assertEqual(report["days"][0]["disposition"], "archived")
 
 
 if __name__ == "__main__":
