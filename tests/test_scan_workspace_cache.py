@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import stock_analyzer.scan_workspace_cache as memory_cache
 from stock_analyzer.scan_workspace_cache import clear_scan_workspace_cache, get_cached_scan_workspace
 from stock_analyzer.scan_workspace_persistent_cache import (
     _prune_response_cache,
@@ -76,6 +77,51 @@ class ScanWorkspaceCacheTest(unittest.TestCase):
 
         self.assertIs(first, payload)
         self.assertIs(second, payload)
+
+    def test_memory_cache_evicts_least_recently_used_entry(self):
+        with patch.object(memory_cache, "_CACHE_MAX_ENTRIES", 2), patch.object(
+            memory_cache,
+            "_CACHE_RETENTION_SECONDS",
+            3600,
+        ):
+            get_cached_scan_workspace(("one",), lambda: {"value": 1}, ttl_seconds=60)
+            get_cached_scan_workspace(("two",), lambda: {"value": 2}, ttl_seconds=60)
+            get_cached_scan_workspace(
+                ("one",),
+                lambda: self.fail("recently used entry should remain cached"),
+                ttl_seconds=60,
+            )
+            get_cached_scan_workspace(("three",), lambda: {"value": 3}, ttl_seconds=60)
+            rebuilt = get_cached_scan_workspace(("two",), lambda: {"value": 22}, ttl_seconds=60)
+
+        self.assertEqual(rebuilt["value"], 22)
+
+    def test_memory_cache_drops_entries_past_retention(self):
+        with patch.object(memory_cache, "_CACHE_RETENTION_SECONDS", 5), patch.object(
+            memory_cache,
+            "_now",
+            return_value=0,
+        ):
+            get_cached_scan_workspace(("old",), lambda: {"value": 1}, ttl_seconds=60)
+
+        with patch.object(memory_cache, "_CACHE_RETENTION_SECONDS", 5), patch.object(
+            memory_cache,
+            "_now",
+            return_value=10,
+        ):
+            rebuilt = get_cached_scan_workspace(("old",), lambda: {"value": 2}, ttl_seconds=60)
+
+        self.assertEqual(rebuilt["value"], 2)
+
+    def test_memory_cache_bounds_idle_build_locks_and_clear_resets_state(self):
+        with patch.object(memory_cache, "_BUILD_LOCK_MAX_ENTRIES", 2):
+            for index in range(4):
+                get_cached_scan_workspace(("lock", index), lambda index=index: {"value": index})
+            self.assertLessEqual(len(memory_cache._BUILD_LOCKS), 2)
+
+        clear_scan_workspace_cache()
+        self.assertEqual(len(memory_cache._CACHE), 0)
+        self.assertEqual(len(memory_cache._BUILD_LOCKS), 0)
 
     def test_persistent_compact_cache_uses_fingerprint_and_honors_force_refresh(self):
         calls = []

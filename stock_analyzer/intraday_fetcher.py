@@ -3,6 +3,7 @@
 import os
 from datetime import datetime, time
 from pathlib import Path
+from uuid import uuid4
 
 import pandas as pd
 
@@ -50,7 +51,7 @@ def _minute_price_columns(frame):
     return []
 
 
-def _latest_usable_minute_date_text(frame):
+def _latest_usable_minute_timestamp(frame):
     dates = _minute_date_series(frame)
     price_columns = _minute_price_columns(frame)
     if dates is None or not price_columns:
@@ -61,7 +62,12 @@ def _latest_usable_minute_date_text(frame):
         mask &= pd.to_numeric(frame[column], errors="coerce").notna()
     if not mask.any():
         return None
-    return dates[mask].max().strftime("%Y%m%d")
+    return dates[mask].max()
+
+
+def _latest_usable_minute_date_text(frame):
+    latest = _latest_usable_minute_timestamp(frame)
+    return latest.strftime("%Y%m%d") if latest is not None else None
 
 
 def _current_day_minute_cache_is_stale(frame, end_text):
@@ -78,8 +84,10 @@ def _current_day_minute_cache_is_stale(frame, end_text):
     if requested_end.weekday() >= 5 or now.time() < time(15, 10):
         return False
 
-    latest_text = _latest_usable_minute_date_text(frame)
-    return bool(not latest_text or latest_text < str(end_text))
+    latest = _latest_usable_minute_timestamp(frame)
+    if latest is None or latest.strftime("%Y%m%d") < str(end_text):
+        return True
+    return latest.strftime("%Y%m%d") == str(end_text) and latest.time() < time(15, 0)
 
 
 def read_cached_minute_history(code, period, start_text, end_text, adjust="qfq", logger=None):
@@ -111,14 +119,23 @@ def write_cached_minute_history(code, period, start_text, end_text, df, adjust="
             logger.info(f"分时数据缺少今日有效K线，暂不写入缓存: {code}_{period}, latest={latest}, end={end_text}")
         return
     path = cache_path_for_minute_history(code, period, start_text, end_text, adjust=adjust)
+    temp_path = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(path, index=False)
+        temp_path = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        df.to_csv(temp_path, index=False)
+        os.replace(temp_path, path)
         if logger:
             logger.info(f"写入分时缓存: {path.name}, shape={df.shape}")
     except Exception as exc:
         if logger:
             logger.warning(f"写入分时缓存失败: {path.name}, error={exc}")
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def fetch_stock_minute_history(

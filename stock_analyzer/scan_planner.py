@@ -1,7 +1,7 @@
 """Scan planning from indexed or local snapshot state."""
 
 from stock_analyzer import scan_snapshot as scan_snapshot_module
-from stock_analyzer.code_utils import normalize_code
+from stock_analyzer.code_utils import code_from_cache_filename, normalize_code
 from stock_analyzer.scanner import normalize_scan_type
 from stock_analyzer.scan_snapshot_policy import (
     SCAN_REFRESH_POLICIES,
@@ -57,7 +57,7 @@ def legacy_strategy_snapshot_codes(
         ((snapshot, normalize_code(snapshot.get("code"))) for snapshot in indexed_snapshots)
         if indexed_snapshots is not None
         else (
-            (snapshot, normalize_code((snapshot or {}).get("code")) or normalize_code(path.name))
+            (snapshot, normalize_code((snapshot or {}).get("code")) or code_from_cache_filename(path.name))
             for path in scan_snapshot_files(start_date=start_date)
             for snapshot in (read_scan_snapshot_file(path, logger=logger),)
         )
@@ -99,7 +99,7 @@ def build_scan_snapshot_status_index(
         ((snapshot, normalize_code(snapshot.get("code"))) for snapshot in indexed_snapshots)
         if indexed_snapshots is not None
         else (
-            (snapshot, normalize_code((snapshot or {}).get("code")) or normalize_code(path.name))
+            (snapshot, normalize_code((snapshot or {}).get("code")) or code_from_cache_filename(path.name))
             for path in scan_snapshot_files(start_date=start_date)
             for snapshot in (read_scan_snapshot_file(path, logger=logger),)
         )

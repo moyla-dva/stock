@@ -56,18 +56,20 @@ def _reset():
         _api = None
 
 
-def _call(fn, *args, retries=2, **kwargs):
+def _call(method_name, *args, retries=2, **kwargs):
+    """Call a method on the current connection, reconnecting between attempts."""
     last_error = None
-    for _ in range(retries + 1):
+    for attempt in range(retries + 1):
         try:
             with _API_LOCK:
-                result = fn(*args, **kwargs)
+                api = _connect()
+                result = getattr(api, method_name)(*args, **kwargs)
             if result is not None:
                 return result
         except Exception as e:
             last_error = e
-        _reset()
-        _connect()
+        if attempt < retries:
+            _reset()
     if last_error:
         raise last_error
     return None
@@ -157,12 +159,11 @@ def fetch_tdx_daily_bars(code, start_text, end_text, logger=None, verbose=False)
     market = tdx_market_for(code)
     if market is None:
         return None
-    api = _connect()
     rows = []
     start_ts = pd.to_datetime(str(start_text), errors="coerce")
     offset = 0
     for _ in range(40):
-        page = _call(api.get_security_bars, 9, market, code, offset, 700)
+        page = _call("get_security_bars", 9, market, code, offset, 700)
         if not page:
             break
         rows = page + rows
@@ -213,12 +214,11 @@ def fetch_tdx_minute_bars(code, start_text, end_text, period="60", logger=None, 
     category = MINUTE_CATEGORY.get(str(period))
     if market is None or category is None:
         return None
-    api = _connect()
     rows = []
     start_ts = pd.to_datetime(str(start_text), errors="coerce")
     offset = 0
     for _ in range(12):
-        page = _call(api.get_security_bars, category, market, code, offset, 700)
+        page = _call("get_security_bars", category, market, code, offset, 700)
         if not page:
             break
         rows = page + rows

@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from stock_analyzer.analysis import prepare_analysis_frame
-from stock_analyzer.code_utils import normalize_code
+from stock_analyzer.code_utils import code_from_cache_filename, normalize_code
 from stock_analyzer.data_fetcher import (
     CACHE_DIR as HISTORY_CACHE_DIR,
     _cached_history_candidates,
@@ -119,7 +119,7 @@ def _rebuild_one(args: tuple[str, str, str, str | None, bool]) -> dict:
     ):
         return {"status": "skipped_current", "code": snapshot.get("code") or path.name[:6]}
 
-    code = normalize_code(snapshot.get("code")) or normalize_code(path.name)
+    code = normalize_code(snapshot.get("code")) or code_from_cache_filename(path.name)
     if not code:
         return {"status": "invalid_code", "path": path.name}
 

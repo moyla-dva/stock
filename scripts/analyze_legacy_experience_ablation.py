@@ -28,7 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from stock_analyzer.analysis import prepare_analysis_frame
 from stock_analyzer.c_signal_v2 import build_c_signal_v2_state, build_c_signal_v2_state_components
-from stock_analyzer.code_utils import normalize_code
+from stock_analyzer.code_utils import code_from_cache_filename, normalize_code
 from stock_analyzer.data_fetcher import CACHE_DIR as HISTORY_CACHE_DIR, read_history_cache_file
 from stock_analyzer.scan_snapshot import normalize_snapshot_day
 from stock_analyzer.versioning import DATA_ADJUST, DATA_START_DATE
@@ -189,7 +189,7 @@ def _summary_from_summaries(items: list[dict]) -> dict:
 def evaluate_one_path(args: tuple[str, str, str]) -> dict:
     path_text, signal_date, outcome_date = args
     path = Path(path_text)
-    code = normalize_code(path.name)
+    code = code_from_cache_filename(path.name)
     if not code:
         return {"status": "invalid_code", "path": path.name}
     try:
