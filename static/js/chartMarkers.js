@@ -121,7 +121,7 @@ function chartMarkerRoleLabel(role, point, meta) {
     return {
         buy: '入场决策',
         sell: '离场决策',
-        scale_out: '减仓建议',
+        scale_out: '收益保护',
         observe: '观察事实'
     }[role] || '观察事实';
 }
@@ -150,7 +150,7 @@ function chartFlatDisplayMeta(point, meta, role, signal) {
     }
     if (signal === 'C研') {
         if ((meta.category || point.signalCategory) === 'top') {
-            return { label: '阻', name: '顶部观察', detail: '局部阻力或动能停顿，空仓视角不追高' };
+            return { label: '阻', name: '顶部观察', detail: '局部阻力或动能停顿，入场研判不追高' };
         }
         return { label: '看', name: meta.name || '研究观察', detail: meta.detail || '' };
     }
@@ -158,16 +158,16 @@ function chartFlatDisplayMeta(point, meta, role, signal) {
         if (sameDateBottom && (reason.indexOf('破位') >= 0 || signal === 'C风')) {
             return { label: '候?', name: '破位修复观察', detail: '破位区同时出现底部结构，先观察修复质量' };
         }
-        return { label: '阻', name: '强阻观察', detail: '触及阻力或过热区，空仓视角只提示不追高' };
+        return { label: '阻', name: '强阻观察', detail: '触及阻力或过热区，入场研判只提示不追高' };
     }
     if (signal === 'C风' || role === 'sell') {
         if (sameDateBottom) {
             return { label: '候?', name: '破位修复观察', detail: '破位区同时出现底部结构，先观察修复质量' };
         }
         if (role === 'sell' || state.indexOf('exit') >= 0 || reason.indexOf('trailing_stop') >= 0 || reason.indexOf('破位') >= 0) {
-            return { label: '破', name: '结构破位', detail: '结构或防守线失效，空仓视角只提示风险' };
+            return { label: '破', name: '结构破位', detail: '结构或防守线失效，入场研判只提示风险' };
         }
-        return { label: '警', name: '风险预警', detail: '风险升高，空仓视角避免追价' };
+        return { label: '警', name: '风险预警', detail: '风险升高，入场研判避免追价' };
     }
     if (role === 'buy') {
         return { label: '触', name: meta.name || '触发确认', detail: meta.detail || '' };
@@ -191,10 +191,10 @@ function chartPositionDisplayMeta(point, meta) {
         : chartFlatDisplayMeta(point, meta, role, signal);
 
     if (getChartPositionView() === 'position') {
-        if (role === 'sell') display = { label: '卖', name: '防守离场', detail: meta.detail || '' };
-        else if (role === 'scale_out') display = { label: '减', name: '强阻/过热', detail: meta.detail || '' };
+        if (role === 'sell') display = { label: '离', name: '离场条件', detail: meta.detail || '' };
+        else if (role === 'scale_out') display = { label: '护', name: '收益保护', detail: meta.detail || '' };
         else if ((meta.category || point.signalCategory) === 'top') display = { label: '撤', name: '顶部观察', detail: meta.detail || '' };
-        else if (role === 'buy') display = { label: '持', name: meta.name || '趋势确认', detail: meta.detail || '' };
+        else if (role === 'buy') display = { label: '跟', name: meta.name || '趋势跟踪', detail: meta.detail || '' };
         else display = {
             label: meta.chartLabel || meta.label || signal || '看',
             name: meta.name || '',

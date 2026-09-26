@@ -32,8 +32,8 @@ var SCAN_REASON_FILTERS = [
     {key: 'c_pullback', label: 'C回', tone: 'positive', pools: ['opportunity']},
     {key: 'c_breakout', label: 'C突', tone: 'positive', pools: ['opportunity']},
     {key: 'c_attack', label: 'C爆', tone: 'positive', pools: ['opportunity']},
-    {key: 'exit_scale_out', label: '减仓', tone: 'warning', pools: ['risk']},
-    {key: 'exit_sell', label: '卖出', tone: 'danger', pools: ['risk']}
+    {key: 'exit_scale_out', label: '收益保护', tone: 'warning', pools: ['risk']},
+    {key: 'exit_sell', label: '离场条件', tone: 'danger', pools: ['risk']}
 ];
 var SCAN_REASON_SIGNAL_ALIASES = {
     c_pullback: {labels: ['C回'], keys: ['v2_pullback']},

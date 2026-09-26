@@ -749,7 +749,7 @@ class FrontendAnalysisStoreTest(unittest.TestCase):
             const scalePoint = {{
                 signalKey: 'v2_strong_resistance_scale_out',
                 signalLabel: 'C盈',
-                name: 'V2强阻减仓',
+                name: 'V2强阻保护',
                 signalCategory: 'risk',
                 markerRole: 'scale_out',
                 date: '2026-09-01',
@@ -770,8 +770,8 @@ class FrontendAnalysisStoreTest(unittest.TestCase):
             assert.strictEqual(context.getPointMeta(soloSell).label, '破');
 
             context.analysisStore.setChartPositionView('position');
-            assert.strictEqual(context.getPointMeta(annotated[0]).label, '卖');
-            assert.strictEqual(context.getPointMeta(annotated[2]).label, '减');
+            assert.strictEqual(context.getPointMeta(annotated[0]).label, '离');
+            assert.strictEqual(context.getPointMeta(annotated[2]).label, '护');
             assert.strictEqual(context.getPointMeta({{
                 signalKey: 'v2_top_fractal_observe',
                 signalLabel: 'C研',
@@ -787,7 +787,7 @@ class FrontendAnalysisStoreTest(unittest.TestCase):
                 signalCategory: 'entry',
                 markerRole: 'buy',
                 date: '2026-09-03'
-            }}).label, '持');
+            }}).label, '跟');
             """
         )
 

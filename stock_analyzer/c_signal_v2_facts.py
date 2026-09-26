@@ -1221,7 +1221,7 @@ def build_exit_gate_facts(df_display, *, fractals=None, target_structure=None):
     marker_role = "observe"
     marker_level = "weak"
     marker_reason = ""
-    summary = "当前没有可追踪的 V2 持仓生命周期，Exit Gate 不生成 S 点。"
+    summary = "当前没有可追踪的 V2 信号后周期，Exit Gate 不生成 S 点。"
     scale_out = None
 
     if entry_pos is not None:
@@ -1314,13 +1314,13 @@ def build_exit_gate_facts(df_display, *, fractals=None, target_structure=None):
                 "price": strong_zone.get("price"),
                 "strength_score": strong_zone.get("strength_score"),
                 "distance_pct": strong_zone.get("distance_pct"),
-                "reason": "触及核心强阻，只生成减仓建议，不直接替代 S 点。",
+                "reason": "触及核心强阻，只生成收益保护条件，不直接替代 S 点。",
             }
-            summary = f"触及核心强阻 {strong_zone.get('label')}，建议减仓或保护利润，未生成 S 点。"
+            summary = f"触及核心强阻 {strong_zone.get('label')}，收益保护条件已触发，未生成 S 点。"
         elif has_active_position:
-            summary = "持仓生命周期有效，继续沿动态防守线管理。"
+            summary = "信号后跟踪周期有效，继续沿动态防守线观察。"
         elif lifecycle["position_state"] == "exited":
-            summary = "上一笔持仓生命周期已退出，等待下一轮入场后重新激活防守线。"
+            summary = "上一轮信号后跟踪已结束，等待下一轮入场信号后重新激活防守线。"
 
     return {
         "available": bool(entry_pos is not None),

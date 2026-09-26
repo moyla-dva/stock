@@ -99,8 +99,8 @@ function scanV2PlanGateTone(status) {
 function scanV2MarkerRoleLabel(role) {
     return {
         buy: '买入',
-        sell: '卖出',
-        scale_out: '减仓',
+        sell: '离场条件',
+        scale_out: '收益保护',
         observe: '观察'
     }[role] || '';
 }
@@ -430,7 +430,7 @@ function scanStrategyDeltaItems(item) {
                 label: 'Exit',
                 value: markerRole
                     ? ((scanV2MarkerRoleLabel(markerRole) || markerRole) + ' · ' + (exitGate.summary || '按 Exit Gate 管理'))
-                    : '未触发减仓/卖出'
+                    : '未触发收益保护/离场条件'
             },
             { label: '指标口径', value: 'V2 负责许可与动作语义，旧 C 保留为单股分析证据' }
         ];
@@ -528,9 +528,9 @@ function scanV2FactsText(model) {
     if (exitGate.action === 'sell') {
         fragments.push('Exit Gate离场');
     } else if (exitGate.action === 'scale_out') {
-        fragments.push('强阻减仓');
+        fragments.push('强阻收益保护');
     } else if ((exitGate.position_lifecycle || {}).position_state === 'active') {
-        fragments.push('持仓防守线');
+        fragments.push('信号后防守线');
     }
     if (legacyExperience.available && Array.isArray(legacyExperience.items)) {
         legacyExperience.items.slice(0, 3).forEach(function(item) {

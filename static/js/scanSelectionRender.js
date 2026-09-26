@@ -138,7 +138,7 @@ function renderScanSelection() {
         {label: '排名', value: item._visible_rank ? '#' + item._visible_rank : '-'},
         {label: '综合', value: item.final_score == null ? '-' : item.final_score},
         {label: '强度', value: item.rank_score == null ? '-' : item.rank_score},
-        {label: '胜率', value: formatPercent(item.win_rate)},
+        {label: '后续上涨', value: formatPercent(item.win_rate)},
         {label: '风险', value: item.risk_score == null ? '-' : item.risk_score}
     ].forEach(function(part) {
         var cell = document.createElement('div');

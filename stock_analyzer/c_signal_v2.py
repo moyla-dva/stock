@@ -177,7 +177,7 @@ def _candidate_trigger_plan(
     if not has_invalidation:
         failure_rule = "失效价尚未形成，不能执行入场，只能保留观察。"
     else:
-        failure_rule = f"跌破失效价 {invalid_text} 后，本轮候选失效；若是持仓视角，再交给 Exit Gate 管理。"
+        failure_rule = f"跌破失效价 {invalid_text} 后，本轮候选失效；若进入信号后跟踪，再交给 Exit Gate 管理。"
 
     checklist = []
     if has_confirmation:
@@ -612,9 +612,9 @@ def build_c_signal_v2_permission(facts, latest, *, event_key=None, context=None)
             permission_label="只处理风险",
             signal_key="v2_strong_resistance_scale_out",
             state="scale_out_suggested",
-            state_label="减仓建议",
+            state_label="收益保护",
             reason=exit_gate.get("summary") or "触及核心强阻",
-            next_action="考虑减仓或保护利润；未跌破防守线时不生成 S 点",
+            next_action="检查收益保护条件；未跌破防守线时不生成 S 点",
             can_open=False,
             block_reasons=["触及核心强阻，优先管理已有仓位"],
         )

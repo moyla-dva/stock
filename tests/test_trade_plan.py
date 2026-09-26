@@ -125,7 +125,7 @@ class TradePlanTest(unittest.TestCase):
         self.assertEqual(plan["permission"]["mode"], "risk_control")
         self.assertTrue(plan["permission"]["can_hold"])
         self.assertFalse(plan["permission"]["can_open"])
-        self.assertIn("减仓", plan["detail"])
+        self.assertIn("收益保护", plan["detail"])
 
     @patch(
         "stock_analyzer.c_signal_v2.evaluate_macro_entry_blocks",

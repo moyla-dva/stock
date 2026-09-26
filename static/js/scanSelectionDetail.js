@@ -313,7 +313,7 @@ function renderScanV2GateSection(item) {
         createScanChecklistItem(
             'Exit',
             markerLabel || '观察',
-            exitGate.summary || '未触发减仓或卖出，继续按结构观察',
+            exitGate.summary || '未触发收益保护或离场条件，继续按结构观察',
             exitTone
         )
     ].forEach(function(node) {
@@ -408,8 +408,8 @@ function renderScanDecisionChecklist(item, explanation, conceptText) {
             sampleLabel,
             scanType === 'bottom_div' ? ('确认分 ' + (item.confirm_score == null ? '-' : item.confirm_score)) : (item.score_confidence_label || '-'),
             scanType === 'bottom_div'
-                ? ('胜率 ' + formatPercent(item.win_rate) + ' · 均值 ' + formatSignedPercent(item.avg_ret))
-                : ((item.score_confidence && item.score_confidence.basis) || ('胜率 ' + formatPercent(item.win_rate) + ' · 均值 ' + formatSignedPercent(item.avg_ret))),
+                ? ('事件后上涨 ' + formatPercent(item.win_rate) + ' · 平均涨跌 ' + formatSignedPercent(item.avg_ret))
+                : ((item.score_confidence && item.score_confidence.basis) || ('事件后上涨 ' + formatPercent(item.win_rate) + ' · 平均涨跌 ' + formatSignedPercent(item.avg_ret))),
             confidenceTone
         ),
         createScanChecklistItem(
@@ -477,7 +477,7 @@ function renderScanBasisSection(item, explanation, conceptText) {
         createScanChecklistItem(
             '样本',
             item.score_confidence_label || '-',
-            (item.score_confidence && item.score_confidence.basis) || ('胜率 ' + formatPercent(item.win_rate) + ' · 均值 ' + formatSignedPercent(item.avg_ret)),
+            (item.score_confidence && item.score_confidence.basis) || ('事件后上涨 ' + formatPercent(item.win_rate) + ' · 平均涨跌 ' + formatSignedPercent(item.avg_ret)),
             confidenceTone
         )
     );

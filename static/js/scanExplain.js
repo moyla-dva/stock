@@ -40,7 +40,7 @@ function inferScanPoolStage(item) {
             return {label: '收益保护', tone: 'warning', detail: '已有收益后的回撤或转弱，偏向保护利润。'};
         }
         if (signalKey === 'composite_top_divergence') {
-            return {label: '顶部观察', tone: 'warning', detail: '顶背离出现，但尚未形成持仓离场确认。'};
+            return {label: '顶部观察', tone: 'warning', detail: '顶背离出现，但尚未形成信号后离场确认。'};
         }
         return risk >= 4
             ? {label: '强预警', tone: 'danger', detail: '风险分较高，需优先确认趋势是否破坏。'}
@@ -114,7 +114,7 @@ function buildLegacyScanExplanation(item) {
     var badges = [
         {label: '强度', value: scanValueText(item.rank_score, '-'), tone: 'muted', hint: '旧结果原始强度'},
         {label: '风险', value: scanValueText(item.risk_score, '-'), tone: 'muted', hint: '旧结果原始风险'},
-        {label: '胜率', value: typeof formatPercent === 'function' ? formatPercent(item.win_rate) : '-', tone: 'muted', hint: '旧结果历史胜率'}
+        {label: '后续上涨', value: typeof formatPercent === 'function' ? formatPercent(item.win_rate) : '-', tone: 'muted', hint: '旧结果的事件后上涨比例'}
     ];
     if (stage) {
         drivers.unshift({label: '池子定位', value: stage.label + ' · ' + stage.detail, tone: stage.tone, hint: ''});

@@ -73,9 +73,9 @@ def classify_history_stats(win_rate, avg_ret):
     if win is None and avg is None:
         return {"label": "样本待积累", "tone": "muted", "hint": "缺少该信号的历史统计"}
     if (win is None or win >= 60) and (avg is None or avg > 0):
-        return {"label": "历史占优", "tone": "positive", "hint": "胜率或均值支持该信号"}
+        return {"label": "历史占优", "tone": "positive", "hint": "事件后上涨比例或平均涨跌支持该信号"}
     if (win is not None and win < 45) or (avg is not None and avg < 0):
-        return {"label": "历史偏弱", "tone": "danger", "hint": "胜率或均值偏弱"}
+        return {"label": "历史偏弱", "tone": "danger", "hint": "事件后上涨比例或平均涨跌偏弱"}
     return {"label": "历史中性", "tone": "warning", "hint": "历史统计不强不弱"}
 
 
@@ -250,9 +250,9 @@ def _v2_fact_diagnostic(result):
     if exit_gate.get("action") == "sell":
         fragments.append("Exit Gate离场")
     elif exit_gate.get("action") == "scale_out":
-        fragments.append("强阻减仓")
+        fragments.append("强阻收益保护")
     elif (exit_gate.get("position_lifecycle") or {}).get("position_state") == "active":
-        fragments.append("持仓防守线")
+        fragments.append("信号后防守线")
     if not fragments:
         fragments.append(structure.get("summary") or trigger.get("summary") or "事实仍在观察")
 
@@ -457,7 +457,7 @@ def build_score_badges(result):
             "hint": "大周期潮汐只负责许可或拦截可执行入场，不制造买点",
         })
     badges.extend([
-        {"label": "胜率", "value": _format_percent(result.get("win_rate")), "tone": history["tone"], "hint": history["hint"]},
+        {"label": "后续上涨", "value": _format_percent(result.get("win_rate")), "tone": history["tone"], "hint": history["hint"]},
         {"label": "均值", "value": _format_signed_percent(result.get("avg_ret")), "tone": history["tone"], "hint": history["hint"]},
         {"label": "可信", "value": _text((result.get("score_confidence") or {}).get("label"), confidence["label"]), "tone": confidence["tone"], "hint": confidence["hint"]},
     ])
@@ -488,7 +488,7 @@ def build_scan_explanation(result):
         {"label": "所属行业/概念", "value": sector_context, "tone": "muted"},
         {
             "label": "历史表现",
-            "value": f"胜率 {_format_percent(result.get('win_rate'))} · 均值 {_format_signed_percent(result.get('avg_ret'))}",
+            "value": f"事件后上涨 {_format_percent(result.get('win_rate'))} · 平均涨跌 {_format_signed_percent(result.get('avg_ret'))}",
             "tone": history["tone"],
         },
         {

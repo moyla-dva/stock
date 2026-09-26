@@ -407,8 +407,8 @@ function updateChartStats(data) {
         setText(
             'stat-detail',
             'V2 ' + sampleCount + ' 样本 / ' + horizon + horizonUnit
-            + ' · 胜率 ' + (winRateSum / sampleCount).toFixed(1) + '%'
-            + ' / 均值 ' + (avgRetSum / sampleCount).toFixed(2) + '%'
+            + ' · 事件后上涨 ' + (winRateSum / sampleCount).toFixed(1) + '%'
+            + ' / 平均涨跌 ' + (avgRetSum / sampleCount).toFixed(2) + '%'
         );
     } else {
         setText('stat-detail', '-');
@@ -434,7 +434,7 @@ function buildVisibleMarkPoints(data, dates, scanFocus) {
 
     if (dates.length > 0) {
         var viewText = chartSignalView === 'focus' ? '核心' : '全部';
-        var positionText = getChartPositionView() === 'position' ? '持仓' : '空仓';
+        var positionText = getChartPositionView() === 'position' ? '信号后跟踪' : '入场研判';
         var focusText = scanFocus ? ' · ' + scanFocusStateText(scanFocus) : '';
         var unitText = data.chart_period === 'daily' ? '日' : '根';
         setChartState('已载入 ' + dates.length + ' ' + unitText + ' · ' + (data.chart_period_label || '日线') + ' · ' + positionText + ' · ' + viewText + ' ' + chartSourcePoints.length + '/' + activeMarkPoints.length + focusText);

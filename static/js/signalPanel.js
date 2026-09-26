@@ -93,7 +93,7 @@ function signalHealthByCategory(category, role) {
     }
     if (role === 'buy') return '入场决策';
     if (role === 'sell') return '离场决策';
-    if (role === 'scale_out') return '减仓建议';
+    if (role === 'scale_out') return '收益保护';
     if (role === 'observe') return '观察事实';
     if (category === 'entry') return '买入候选';
     if (category === 'risk') return '风险预警';

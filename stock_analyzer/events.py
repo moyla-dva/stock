@@ -160,8 +160,8 @@ SIGNAL_DEFINITIONS = {
     },
     "v2_strong_resistance_scale_out": {
         "label": "C盈",
-        "name": "V2强阻减仓",
-        "detail": "强阻减仓建议",
+        "name": "V2强阻保护",
+        "detail": "强阻收益保护条件",
         "color": "#d97706",
         "category": "risk",
         "marker_role": "scale_out",

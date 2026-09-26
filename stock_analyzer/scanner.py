@@ -40,7 +40,7 @@ def _pool_stage_fields(scan_type, event, scores, df_display):
                 "pool_stage": "profit_protection",
                 "pool_stage_label": "收益保护",
                 "pool_stage_tone": "warning",
-                "pool_stage_detail": "触及核心强阻，偏向保护利润或减仓。",
+                "pool_stage_detail": "触及核心强阻，进入收益保护观察。",
             }
         if event.key in {"v2_top_fractal_observe", "v2_top_fractal_risk", "v2_risk_heat"}:
             return {
