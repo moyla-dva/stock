@@ -1,7 +1,7 @@
 ---
 status: exploratory
 strategy_version: "2026.09.20.1"
-data_window: "候选快照 2026-09-18 至 2026-09-23；后续行情截至 2026-09-24"
+data_window: "候选快照 2026-09-18 至 2026-09-24；后续行情截至 2026-09-24"
 universe: "opportunity 池每日 contextual 排名前 100"
 entry_model: "next session open；第 N 个持有交易日收盘退出"
 data_revision: "stock-structure-macro-only-v1；各日 context revision 见正文"
@@ -35,8 +35,14 @@ supersedes: []
   --pool opportunity \
   --max-rank 100 \
   --horizons 1 3 5 10 \
+  --ledger-db .cache/research/candidate_outcome_ledger.sqlite3 \
   --output .cache/research/candidate-outcomes-20260918-20260923.json
 ```
+
+`--ledger-db` 只写独立研究数据库，不修改快照、候选索引或生产排序。台账以
+快照日、策略版本、排名政策、context revision 和事件研究口径构造稳定 run key：
+同 revision 重跑会 upsert，新 context revision 会保留为独立研究运行，避免事后重算
+静默覆盖当时证据。
 
 ## Coverage
 
@@ -46,13 +52,16 @@ supersedes: []
 | 2026-09-21 | 2,456 | 100 | 100 | `sha256:d469f47b...` |
 | 2026-09-22 | 2,396 | 100 | 100 | `sha256:4b23802e...` |
 | 2026-09-23 | 3,384 | 100 | 100 | `sha256:4a7065d2...` |
+| 2026-09-24 | 3,641 | 100 | 0 | `sha256:c4eaf289...` |
 
 截至 9 月 24 日，1 日结果覆盖 4 个快照日、400 条观察；3 日结果只覆盖 2 个快照日、
-200 条观察；5 日和 10 日尚无完整结果。
+200 条观察；5 日和 10 日尚无完整结果。9 月 24 日的 100 个候选已记入台账，
+但之后没有可用交易日，因此结果为 0，不伪造未来收益。当前台账共 5 个 run、600 条
+horizon 观察；同 revision 重跑后数量保持不变。
 
 ## Baseline Results
 
-| Horizon | Rank bucket | N | Mean return | Median return | Win rate | Mean MFE | Mean MAE |
+| Horizon | Rank bucket | N | Mean return | Median return | Positive-return ratio | Mean MFE | Mean MAE |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 1-10 | 40 | -0.3703% | -0.7125% | 37.50% | 1.6832% | -1.7373% |
 | 1 | 11-30 | 80 | 0.1651% | 0.0869% | 52.50% | 1.6106% | -1.4802% |

@@ -1,8 +1,9 @@
 """Evaluate persisted candidate ranks against later cached daily bars.
 
-This is a read-only event study. It does not model orders, fees, slippage, limit
-locks, or portfolio construction and therefore must not be described as a
-tradable backtest.
+This event study never modifies market data or production ranking state. It can
+optionally upsert observations into a separate research ledger. It does not
+model orders, fees, slippage, limit locks, or portfolio construction and
+therefore must not be described as a tradable backtest.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from stock_analyzer.data_fetcher import CACHE_DIR, read_history_cache_file
+from stock_analyzer.candidate_outcome_ledger import CandidateOutcomeLedger
 from stock_analyzer.scan_index_store import DEFAULT_SCAN_INDEX_PATH, ScanIndexStore
 from stock_analyzer.scan_rank_context import RANKING_POLICY_VERSION
 from stock_analyzer.versioning import DATA_START_DATE, SCAN_STRATEGY_VERSION
@@ -46,6 +48,11 @@ def _args() -> argparse.Namespace:
     parser.add_argument("--max-rank", type=int, default=100)
     parser.add_argument("--horizons", type=int, nargs="+", default=DEFAULT_HORIZONS)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--ledger-db",
+        type=Path,
+        help="Optionally upsert revision-aware observations into a separate research SQLite ledger.",
+    )
     return parser.parse_args()
 
 
@@ -322,6 +329,7 @@ def run_audit(args: argparse.Namespace) -> dict[str, Any]:
         "evidence_level": "historical event study; not a tradable backtest",
         "strategy_version": args.strategy_version,
         "ranking_policy_version": RANKING_POLICY_VERSION,
+        "start_key": start_key,
         "pool": args.pool,
         "entry_model": "next_session_open",
         "exit_model": "close_on_horizon_session_including_entry_session",
@@ -341,6 +349,8 @@ def run_audit(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     args = _args()
     report = run_audit(args)
+    if args.ledger_db:
+        report["ledger"] = CandidateOutcomeLedger(args.ledger_db).upsert_report(report)
     encoded = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     if args.output:
         output = args.output.expanduser().resolve()
