@@ -22,13 +22,12 @@
 
 ## Current Local Sources
 
-- 日线历史缓存：单股分析、扫描、回放、真实宽度计算的基础。
+- 日线历史缓存：单股分析、扫描和事件研究的基础。
 - 分钟历史缓存：单股确认时的短周期补充。
 - 扫描快照：候选池读取的本地结果。
 - 股票画像：名称、行业、概念和关系证据的载体。
 - 概念库：股票到概念的本地映射。
 - 画像证据：人工或公告确认的股票关系证据。
-- 板块行情：行业/概念指数趋势缓存。
 - 扫描任务记录：后台扫描进度、历史和中断恢复。
 - 概念图谱：实验性关系边，不是当前核心产品入口。
 
@@ -57,7 +56,6 @@
 | 查看任务历史 | 数据后台 |
 | 清理旧策略/无效快照 | 数据后台 |
 | 刷新概念库 | 数据后台 |
-| 刷新板块行情 | 数据后台 |
 | 查看数据源健康 | 数据后台 |
 | 候选筛选 | 候选池 |
 | 单股执行确认 | 单股确认 |
@@ -127,3 +125,19 @@ POST /api/profile_relations/evidence
 `audit_market_universe.py` 将缺口分为成员资格阻断、展示信息和治理三类，并分别输出
 `current_scan_eligible` 与 `historical_research_eligible`。自动历史任务应增加
 `--require-historical-ready`，当前北交所退市历史未补齐时会以状态码 2 主动拒绝。
+
+## Scan Snapshot Storage Audit
+
+SQLite 已接管候选列表、筛选和排序查询，但 `.cache/scan_snapshots/` 中的 JSON
+仍是候选详情与复现的事实源，不能因为 SQLite 可查询就直接删除。使用只读工具盘点：
+
+```bash
+./venv/bin/python scripts/audit_scan_snapshot_storage.py \
+  --keep-latest-days 5 \
+  --output .cache/reports/scan-snapshot-storage.json
+```
+
+工具会按快照日统计文件数与体积，并核对 SQLite manifest 的目录、成员数、
+revision、文件大小和解析状态。`archive_review` 只表示该日可进入冷归档方案评估，
+不表示可删除。脚本故意不提供 `--apply`；真正迁移前必须先实现归档读取、逐文件
+checksum 和往返一致性验证，并在源目录成员变化后重新对账 SQLite manifest。
