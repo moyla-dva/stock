@@ -141,3 +141,20 @@ SQLite 已接管候选列表、筛选和排序查询，但 `.cache/scan_snapshot
 revision、文件大小和解析状态。`archive_review` 只表示该日可进入冷归档方案评估，
 不表示可删除。脚本故意不提供 `--apply`；真正迁移前必须先实现归档读取、逐文件
 checksum 和往返一致性验证，并在源目录成员变化后重新对账 SQLite manifest。
+
+## Scan Snapshot Cold Archive
+
+冷归档采用按快照日分割的 ZIP，每个成员都在 `_manifest.json` 中记录字节数和
+SHA-256。归档命令只复制与校验，不删除源 JSON：
+
+```bash
+./venv/bin/python scripts/archive_scan_snapshot_day.py --snapshot-day 20260515
+./venv/bin/python scripts/archive_scan_snapshot_day.py --snapshot-day 20260515 --verify-only
+```
+
+读链会优先读取 `.cache/scan_snapshots/` 中的活跃文件；只在精确路径缺失时，才从
+`.cache/scan_snapshot_archives/scan_snapshots_YYYYMMDD.zip` 读取并校验。候选详情和
+显式历史日回放已接入该读链，历史日列表默认由 SQLite 聚合。
+
+当前仍不能删除源文件：SQLite source-sync 尚把原目录视为完整成员集。下一阶段需要
+为 manifest 增加存储层身份并实现可回滚的两阶段迁移，完成后才能讨论空间回收。

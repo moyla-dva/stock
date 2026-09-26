@@ -229,11 +229,17 @@ def build_snapshot_storage_report(
             "apply_enabled": False,
             "blockers": blockers,
             "notices": notices,
-            "required_before_apply": [
-                "define a cold archive format with per-file checksums",
-                "implement CandidateDetail and historical readers over that archive",
-                "verify a source-to-archive round trip before removing originals",
-                "reconcile the SQLite manifest after any source membership change",
+            "completed_safeguards": [
+                "per-day ZIP archive format with a per-file SHA-256 manifest",
+                "active-first CandidateDetail and explicit historical-day archive readers",
+                "SQLite-backed history-day listing",
+                "source-to-archive round-trip verification without source deletion",
+            ],
+            "required_before_source_removal": [
+                "teach SQLite source reconciliation that archived members remain valid facts",
+                "archive and verify every selected day before changing source membership",
+                "define a reversible two-phase source removal procedure",
+                "reconcile index and archive revisions after each storage-tier transition",
             ],
         },
         "days": day_reports,
@@ -279,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(plan['archive_review_days'])} days / {plan['archive_review_file_count']} files / "
             f"{plan['archive_review_size_bytes'] / 1024 / 1024:.1f} MiB"
         )
-        print("apply: disabled (archive reader and round-trip verification are required first)")
+        print("apply: disabled (archive-aware SQLite reconciliation and reversible removal are required)")
         for blocker in plan["blockers"]:
             print(f"blocker: {blocker}")
         for notice in plan["notices"]:

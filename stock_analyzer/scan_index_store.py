@@ -777,6 +777,81 @@ class ScanIndexStore:
             "planning_metadata_complete": incomplete_planning_count == 0,
         }
 
+    def scan_history_rows(
+        self,
+        *,
+        start_key: str,
+        scan_types: Iterable[str],
+        current_strategy_version: str,
+        current_data_adjust: str,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Aggregate historical snapshot days without reopening source JSON."""
+
+        self.initialize()
+        pools = tuple(dict.fromkeys(str(item) for item in scan_types if str(item)))
+        # Day-level aggregation is small and the caller applies the display
+        # limit. Returning every day preserves total-day and total-file counts.
+        del limit
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT snapshot_day,
+                       COUNT(*) AS snapshot_count,
+                       SUM(CASE WHEN strategy_version = ? AND data_adjust = ? THEN 1 ELSE 0 END)
+                           AS current_strategy_count,
+                       SUM(CASE WHEN strategy_version = ? AND data_adjust = ? THEN 0 ELSE 1 END)
+                           AS legacy_strategy_count,
+                       MAX(data_date) AS latest_data_date
+                FROM snapshot_manifest
+                WHERE parse_status = 'ok' AND start_key = ? AND snapshot_day != ''
+                GROUP BY snapshot_day
+                ORDER BY snapshot_day DESC
+                """,
+                (
+                    current_strategy_version,
+                    current_data_adjust,
+                    current_strategy_version,
+                    current_data_adjust,
+                    str(start_key),
+                ),
+            ).fetchall()
+            days = [str(row["snapshot_day"] or "") for row in rows]
+            pool_counts: dict[tuple[str, str], int] = {}
+            if days and pools:
+                day_placeholders = ",".join("?" for _ in days)
+                pool_placeholders = ",".join("?" for _ in pools)
+                count_rows = connection.execute(
+                    f"""
+                    SELECT sm.snapshot_day, cs.pool, COUNT(*) AS candidate_count
+                    FROM candidate_summaries cs
+                    JOIN snapshot_manifest sm ON sm.id = cs.snapshot_id
+                    WHERE sm.parse_status = 'ok' AND sm.start_key = ?
+                      AND sm.snapshot_day IN ({day_placeholders})
+                      AND cs.pool IN ({pool_placeholders})
+                    GROUP BY sm.snapshot_day, cs.pool
+                    """,
+                    (str(start_key), *days, *pools),
+                ).fetchall()
+                pool_counts = {
+                    (str(row["snapshot_day"]), str(row["pool"])): int(row["candidate_count"] or 0)
+                    for row in count_rows
+                }
+        return [
+            {
+                "snapshot_day": str(row["snapshot_day"] or ""),
+                "snapshot_count": int(row["snapshot_count"] or 0),
+                "current_strategy_count": int(row["current_strategy_count"] or 0),
+                "legacy_strategy_count": int(row["legacy_strategy_count"] or 0),
+                "latest_data_date": str(row["latest_data_date"] or "-"),
+                "pool_counts": {
+                    pool: pool_counts.get((str(row["snapshot_day"] or ""), pool), 0)
+                    for pool in pools
+                },
+            }
+            for row in rows
+        ]
+
     @staticmethod
     def _rank_context_candidate_rows_for_connection(
         connection: sqlite3.Connection,

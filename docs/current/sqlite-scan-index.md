@@ -105,7 +105,7 @@ GET /api/scan_index/candidates/600001?scan_type=opportunity
 旧板块行情查询和刷新端点 `/api/board_market`、`/api/board_market/refresh` 返回 `410 Gone`，
 不会触发外部板块行情请求。
 
-单候选详情接口通过 manifest 定位原始快照，读取前校验 SHA-256 revision，然后返回 schema v2 的 `CandidateDetail`。它保留决策状态、解释、评分上下文、规则结果、结构事实、许可、条件计划、画像关系、风险和环境上下文，但剔除 `normalized_bars` 和结构候选全集。快照与索引 revision 不同时返回 409，不拼凑半成品详情。前端 adapter 将该稳定模型映射到现有详情展示；接口错误或读模型版本不兼容时，只回退所选候选的 JSON 详情，不改变其余 SQLite 摘要列表。
+单候选详情接口通过 manifest 定位原始快照，优先读活跃 JSON，精确路径缺失时可回读按日冷归档；归档成员先校验字节数与 SHA-256，再校验 SQLite 记录的 snapshot revision。随后返回 schema v2 的 `CandidateDetail`。它保留决策状态、解释、评分上下文、规则结果、结构事实、许可、条件计划、画像关系、风险和环境上下文，但剔除 `normalized_bars` 和结构候选全集。快照与索引 revision 不同时返回 409，不拼凑半成品详情。前端 adapter 将该稳定模型映射到现有详情展示；接口错误或读模型版本不兼容时，只回退所选候选的 JSON 详情，不改变其余 SQLite 摘要列表。
 
 `/api/scan_workspace/candidates` 继续作为 JSON 兼容与故障回退接口。详情请求传入摘要的精确
 `snapshot_day`、`event_date` 和代码，并校验返回身份，避免错接同代码的其他池或日期。

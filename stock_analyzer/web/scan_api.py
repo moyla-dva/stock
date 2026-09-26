@@ -20,6 +20,7 @@ from stock_analyzer.profile_relations import (
     read_profile_relation_evidence,
 )
 from stock_analyzer.scan_common import result_concepts
+from stock_analyzer.scan_snapshot_archive import read_scan_snapshot_bytes
 from stock_analyzer.scan_workspace_candidates import filter_workspace_candidates
 from stock_analyzer.scan_workspace_cache import clear_scan_workspace_cache, get_cached_scan_workspace
 from stock_analyzer.scan_workspace_persistent_cache import (
@@ -576,7 +577,7 @@ def scan_index_candidate_detail_response(
             }), 404
 
         snapshot_path = Path(reference["snapshot_path"])
-        raw = snapshot_path.read_bytes()
+        raw = read_scan_snapshot_bytes(snapshot_path)
         actual_revision = f"sha256:{hashlib.sha256(raw).hexdigest()}"
         expected_revision = str(reference["summary"].get("snapshot_revision") or "")
         if expected_revision and actual_revision != expected_revision:

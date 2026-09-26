@@ -166,6 +166,25 @@ class ScanIndexStoreTest(unittest.TestCase):
         self.assertEqual(set(indexed), {("600001", "opportunity"), ("600001", "risk")})
         self.assertNotIn("snapshot_path", indexed[("600001", "opportunity")])
 
+    def test_scan_history_rows_are_aggregated_from_manifest_and_candidates(self):
+        self._write_snapshot(_snapshot())
+        self.store.index_snapshot_files([self.snapshot_path], reset=True)
+
+        rows = self.store.scan_history_rows(
+            start_key="20250429",
+            scan_types=("opportunity", "risk", "bottom_div"),
+            current_strategy_version=SCAN_STRATEGY_VERSION,
+            current_data_adjust="qfq",
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["snapshot_day"], "20260922")
+        self.assertEqual(rows[0]["snapshot_count"], 1)
+        self.assertEqual(rows[0]["current_strategy_count"], 1)
+        self.assertEqual(rows[0]["pool_counts"]["opportunity"], 1)
+        self.assertEqual(rows[0]["pool_counts"]["risk"], 1)
+        self.assertEqual(rows[0]["pool_counts"]["bottom_div"], 0)
+
     def test_v4_initialization_repairs_legacy_candidate_schema_versions(self):
         self._write_snapshot(_snapshot())
         self.store.index_snapshot_files([self.snapshot_path], reset=True)

@@ -1249,3 +1249,11 @@
 - README 已从本机绝对路径改为仓库相对链接；9/23 真实扫描研究文档已补元数据。新增测试会校验 current/ADR/research 元数据和全仓 Markdown 本地链接。
 - **最新验证**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**452 tests OK**。
 - **下一边界**：若要回收快照空间，先实现冷归档读取 + checksum 往返验证；日常研究则持续更新证据台账。UI 重设计仍暂缓。
+
+## Codex 当前交接检查点：2026-09-26 冷归档读链
+
+- 新增按快照日分割的 ZIP 冷归档，manifest 记录逐文件字节数和 SHA-256；写入使用唯一临时文件并原子替换，成功前逐成员验证。
+- CandidateDetail 与显式历史日回放已支持 active-first、archive-fallback 读取；历史日列表默认由 SQLite 聚合，实测返回 24 天、103,437 份快照。
+- 20260515 真实试点将 3,819 字节源快照归档为 2,141 字节 ZIP，二次独立验证通过，源 JSON 保留。
+- **不得删源文件**：SQLite source-sync 尚把活跃目录视为完整成员集。下一步先增加 active/archive 存储层对账与可回滚两阶段迁移。
+- **最新验证**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**456 tests OK**；新服务 `http://127.0.0.1:5012/` 的候选详情、单票和历史 API 皆为 200。

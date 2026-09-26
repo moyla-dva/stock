@@ -45,6 +45,51 @@ class ScanHistoryTest(unittest.TestCase):
         self.assertEqual(history["items"][0]["pool_counts"]["opportunity"]["count"], 1)
         self.assertEqual(history["items"][1]["snapshot_count"], 1)
 
+    def test_list_scan_history_prefers_complete_sqlite_projection(self):
+        class FakeIndexStore:
+            def cache_fingerprint(self, source_directory):
+                return {"available": True, "revision": "revision-1"}
+
+            def scan_history_rows(self, **kwargs):
+                self.kwargs = kwargs
+                return [
+                    {
+                        "snapshot_day": "20260924",
+                        "snapshot_count": 12,
+                        "current_strategy_count": 10,
+                        "legacy_strategy_count": 2,
+                        "latest_data_date": "2026-09-24",
+                        "pool_counts": {"opportunity": 5, "risk": 3, "bottom_div": 1},
+                    },
+                    {
+                        "snapshot_day": "20260923",
+                        "snapshot_count": 8,
+                        "current_strategy_count": 8,
+                        "legacy_strategy_count": 0,
+                        "latest_data_date": "2026-09-23",
+                        "pool_counts": {"opportunity": 4, "risk": 2, "bottom_div": 0},
+                    },
+                ]
+
+        store = FakeIndexStore()
+        with patch(
+            "stock_analyzer.scan_history.scan_snapshot_files",
+            side_effect=AssertionError("JSON history should not be opened"),
+        ):
+            history = list_scan_history(
+                start_date="2025-04-29",
+                index_store=store,
+                limit=1,
+            )
+
+        self.assertEqual(history["cache_meta"]["source"], "sqlite")
+        self.assertEqual(history["cache_meta"]["index_revision"], "revision-1")
+        self.assertEqual(history["count"], 2)
+        self.assertEqual(history["snapshot_count"], 20)
+        self.assertEqual(len(history["items"]), 1)
+        self.assertEqual(history["items"][0]["pool_counts"]["opportunity"]["count"], 5)
+        self.assertEqual(store.kwargs["start_key"], "20250429")
+
     def test_collect_scan_workspace_can_replay_expired_history_day(self):
         frame = self._minimal_signal_frame(start="2026-04-20", rows=12)
 

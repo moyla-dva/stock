@@ -14,6 +14,7 @@ from stock_analyzer.scan_snapshot import (
     scan_result_from_snapshot,
     scan_snapshot_files,
 )
+from stock_analyzer.versioning import DATA_ADJUST, SCAN_STRATEGY_VERSION
 
 
 DEFAULT_HISTORY_SCAN_TYPES = ("opportunity", "risk", "bottom_div")
@@ -118,6 +119,51 @@ def _slice_history(payload, limit):
     return sliced
 
 
+def _indexed_scan_history(index_store, start_date, normalized_scan_types, limit):
+    fingerprint = index_store.cache_fingerprint(scan_snapshot.SNAPSHOT_DIR)
+    if not fingerprint.get("available"):
+        return None
+    rows = index_store.scan_history_rows(
+        start_key=_start_key(start_date),
+        scan_types=normalized_scan_types,
+        current_strategy_version=SCAN_STRATEGY_VERSION,
+        current_data_adjust=DATA_ADJUST,
+        limit=limit,
+    )
+    try:
+        max_items = max(1, min(int(limit), 120))
+    except (TypeError, ValueError):
+        max_items = 30
+    items = []
+    for row in rows[:max_items]:
+        raw_counts = row.get("pool_counts") or {}
+        pool_counts = _empty_pool_counts(normalized_scan_types)
+        for scan_type in normalized_scan_types:
+            pool_counts[scan_type]["count"] = int(raw_counts.get(scan_type) or 0)
+        items.append({
+            "snapshot_day": row["snapshot_day"],
+            "display_day": display_snapshot_day(row["snapshot_day"]),
+            "snapshot_count": int(row.get("snapshot_count") or 0),
+            "current_strategy_count": int(row.get("current_strategy_count") or 0),
+            "legacy_strategy_count": int(row.get("legacy_strategy_count") or 0),
+            "latest_data_date": str(row.get("latest_data_date") or "-"),
+            "pool_counts": pool_counts,
+        })
+    return {
+        "start_date": start_date or "-",
+        "count": len(rows),
+        "snapshot_count": sum(int(row.get("snapshot_count") or 0) for row in rows),
+        "invalid_snapshot_count": 0,
+        "items": items,
+        "cache_meta": {
+            "schema_version": SCAN_HISTORY_INDEX_SCHEMA_VERSION,
+            "hit": True,
+            "source": "sqlite",
+            "index_revision": fingerprint.get("revision") or "",
+        },
+    }
+
+
 def _build_scan_history(start_date, normalized_scan_types, paths, logger=None):
     days = {}
     total_snapshots = 0
@@ -174,9 +220,23 @@ def list_scan_history(
     limit=30,
     logger=None,
     force_refresh=False,
+    index_store=None,
 ):
     """Return a compact day index for local scan snapshots."""
     normalized_scan_types = tuple(normalize_scan_type(scan_type) for scan_type in scan_types)
+    if index_store is not None:
+        try:
+            indexed = _indexed_scan_history(
+                index_store,
+                start_date,
+                normalized_scan_types,
+                limit,
+            )
+            if indexed is not None:
+                return indexed
+        except Exception:
+            if logger:
+                logger.warning("SQLite 扫描历史不可用，回退 JSON 快照", exc_info=True)
     paths = list(scan_snapshot_files(start_date=start_date))
     fingerprint = _snapshot_fingerprint(paths)
     index_path = _history_index_path(start_date=start_date)

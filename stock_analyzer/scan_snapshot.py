@@ -12,6 +12,7 @@ from stock_analyzer.data_fetcher import beijing_now, market_calendar_context
 from stock_analyzer.legacy_c_signal_adapter import c_signal_v2_fields
 from stock_analyzer.market_data_identity import frame_market_data_identity
 from stock_analyzer.scanner import SCAN_CONFIG, format_scan_date, normalize_scan_type, scan_stock_frame
+from stock_analyzer.scan_snapshot_archive import archived_snapshot_paths, read_scan_snapshot_bytes
 from stock_analyzer.scan_snapshot_paths import is_scan_snapshot_file
 from stock_analyzer.v2_analysis_context import build_v2_analysis_context
 from stock_analyzer.versioning import (
@@ -177,24 +178,32 @@ def scan_snapshot_files(start_date=None):
     )
 
 
-def scan_snapshot_day_files(start_date=None, snapshot_day=None):
+def scan_snapshot_day_files(start_date=None, snapshot_day=None, archive_dir=None):
     target_day = normalize_snapshot_day(snapshot_day)
     if not target_day:
         return []
     pattern = f"*_{_start_key(start_date)}_{target_day}.json"
-    return sorted(
+    active_paths = sorted(
         (path for path in SNAPSHOT_DIR.glob(pattern) if is_scan_snapshot_file(path)),
         reverse=True,
     )
+    archived_paths = archived_snapshot_paths(
+        SNAPSHOT_DIR,
+        snapshot_day=target_day,
+        start_key=_start_key(start_date),
+        archive_dir=archive_dir,
+    )
+    active_names = {path.name for path in active_paths}
+    return active_paths + [path for path in archived_paths if path.name not in active_names]
 
 
-def read_scan_snapshot_file(path, logger=None):
+def read_scan_snapshot_file(path, logger=None, archive_dir=None):
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            snapshot = json.load(handle)
+        raw = read_scan_snapshot_bytes(path, archive_dir=archive_dir)
+        snapshot = json.loads(raw.decode("utf-8"))
     except Exception as e:
         if logger:
-            logger.warning(f"读取扫描快照失败: {path.name}, error={e}")
+            logger.warning(f"读取扫描快照失败: {Path(path).name}, error={e}")
         return None
 
     if snapshot.get("version") != SNAPSHOT_VERSION:
@@ -204,7 +213,7 @@ def read_scan_snapshot_file(path, logger=None):
 
 def read_scan_snapshot(code, start_date=None, snapshot_day=None, logger=None):
     path = scan_snapshot_path(code, start_date=start_date, snapshot_day=snapshot_day)
-    if path is None or not path.exists():
+    if path is None:
         return None
     return read_scan_snapshot_file(path, logger=logger)
 

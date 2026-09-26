@@ -362,7 +362,12 @@ def api_scan_index_candidate_detail(code):
 @app.route('/api/scan_history')
 def api_scan_history():
     """List local scan snapshot days for history browsing."""
-    return scan_api.scan_history_response(jsonify, list_scan_history, DATA_START_DATE, app.logger)
+    return scan_api.scan_history_response(
+        jsonify,
+        lambda **kwargs: list_scan_history(index_store=scan_index_store, **kwargs),
+        DATA_START_DATE,
+        app.logger,
+    )
 
 
 @app.route('/api/scan_cache')

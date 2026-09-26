@@ -153,7 +153,7 @@ prototypes/rejected-core-spike/ 已隔离的未接入架构试验，非生产代
 
 ## Next Work In Order
 
-1. **设计冷归档读链，不直接删快照**：只读盘点已完成，103,437 份 JSON 与 SQLite manifest 完全对账；19 个旧快照日约 1.93 GiB 可进入归档评估。下一步先实现归档格式、详情读取、checksum 和往返校验，再讨论迁移。
+1. **扩展 SQLite 存储层对账，不直接删快照**：按日 ZIP、逐文件 checksum、详情/显式历史日回读和往返验证已完成，20260515 真实试点保留了源件。下一步要让 source-sync 把 active/archive 共同视为不可变事实集，再设计可回滚的两阶段空间回收。
 2. **继续积累同政策的跨日样本**：revision-aware SQLite 研究台账已落地，当前有 5 个 context revision run、600 条 1/3 日观察，5/10 日为空，且未显示可信单调性。保持生产权重不变。
 3. **观测两条稳定模型默认路径**：候选异常可用 `?candidate_source=json`，单票异常可用 `?single_stock_source=legacy` 回退；按真实使用反馈补失败边界测试。
 4. **渐进整理旧文档与兼容代码**：逐份核实引用后再归档，不用批量删除破坏研究证据或回退能力。
