@@ -176,9 +176,11 @@ revision 与 storage revision。迁移分四种模式：
   --snapshot-day 20260515 --restore
 ```
 
-`--apply` 前必须确认所有运行中的 Web 进程都使用 schema v9 和 archive-aware 读链。当前
-20260515 真实试点只完成 `--register`，源文件未移动。脚本没有 purge/delete 模式；隔离区
-保留期和任何未来永久清理必须另行制定策略。
+`--apply` 前必须确认所有运行中的 Web 进程都使用 schema v9 和 archive-aware 读链。2026-09-27
+的 20260515 试点已完成 `--apply`：唯一源 JSON 被移入 `.cache/scan_snapshot_quarantine/20260515/`，
+没有永久删除。全库审计确认 active 103,436 + archive 1 = manifest 103,437、revision 完全匹配；
+该日归档详情和 SQLite 历史日读取通过。其余日期不随本次批量迁移，需观察试点后再逐日决定。
+脚本没有 purge/delete 模式；隔离区保留期和任何未来永久清理必须另行制定策略。
 
 若存储层对账遇到损坏或冲突归档，扫描任务仍会记录索引降级并继续尝试排序上下文；全局
 source-sync 会保持未通过，需先修复归档再执行全量对账，不能把失败视为归档已验证。

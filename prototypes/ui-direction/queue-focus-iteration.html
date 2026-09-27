@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>队列 + 聚焦核对 · UI 迭代原型 v1（样例数据）</title>
+<style>
+/* ============ 设计 token：结构色 / 语义色 / 状态色 ============ */
+:root {
+    --bg: #f4f6f3;
+    --surface: #ffffff;
+    --sunken: #eef1ec;
+    --line: #e2e7e0;
+    --line-strong: #c9d1c7;
+    --ink: #1f2420;
+    --ink-2: #565e56;
+    --ink-3: #8b948b;
+    --accent: #2f5f4f;
+    --accent-soft: #e7efeb;
+    --up: #c2372a;
+    --down: #1e7a4e;
+    --id-ink: #55606d;
+    --id-bg: #eef1f4;
+
+    --st-new: #2f5f4f;
+    --st-todo: #a86a00;
+    --st-exec: #2e7d32;
+    --st-drop: #8b948b;
+    --st-watch: #00796b;
+
+    --perm-pass: #2e7d32;
+    --perm-wait: #a86a00;
+    --perm-veto: #b3362a;
+
+    --sig-chtu: #00897b;  /* C突 */
+    --sig-bao:  #d84315;  /* C爆 */
+    --sig-hui:  #795548;  /* C回 */
+    --sig-hou:  #2e7d32;  /* C候 */
+    --sig-yan:  #546e7a;  /* C研 */
+    --sig-xiu:  #00acc1;  /* C修 */
+    --sig-feng: #b3362a;  /* C风 */
+
+    --radius: 10px;
+    --radius-s: 7px;
+    --shadow: 0 1px 2px rgba(31, 36, 32, .05), 0 2px 8px rgba(31, 36, 32, .04);
+    --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 15px; }
+body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+}
+button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+.num { font-variant-numeric: tabular-nums; font-family: var(--mono); letter-spacing: -.01em; }
+
+/* ============ 顶栏：空间导航与对象导航解耦 ============ */
+.topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 22px;
+    display: flex; align-items: center; gap: 18px;
+}
+.brand { font-weight: 800; font-size: 15px; letter-spacing: .02em; }
+.brand small { display: block; font-weight: 600; color: var(--ink-3); font-size: 11px; letter-spacing: .05em; }
+.view-tabs { display: flex; gap: 4px; background: var(--sunken); border-radius: 9px; padding: 3px; }
+.view-tabs button {
+    padding: 6px 14px; border-radius: 7px; font-weight: 700; font-size: 13.5px; color: var(--ink-2);
+}
+.view-tabs button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.view-tabs .count { color: var(--ink-3); font-weight: 600; margin-left: 4px; font-size: 12px; }
+.topbar .spacer { flex: 1; }
+.quickjump {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 6px 10px; color: var(--ink-3); font-size: 13px; background: var(--surface);
+}
+.quickjump kbd {
+    font-family: var(--mono); font-size: 11px; border: 1px solid var(--line-strong);
+    border-radius: 4px; padding: 1px 5px; background: var(--sunken); color: var(--ink-2);
+}
+
+/* ============ 数据身份条（信任层，低调常驻） ============ */
+.identity-strip {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 22px; border-bottom: 1px solid var(--line);
+    background: var(--sunken); font-size: 12.5px; color: var(--ink-2);
+}
+.badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 9px; border-radius: 999px;
+    background: var(--id-bg); color: var(--id-ink);
+    font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: #7c8a97; }
+.badge.ok .dot { background: var(--perm-pass); }
+.badge .mono { font-family: var(--mono); font-weight: 600; }
+
+/* ============ 通用布局 ============ */
+.shell { max-width: 1280px; margin: 0 auto; padding: 18px 22px 60px; }
+.view { display: none; }
+.view.active { display: block; }
+.note-banner {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--accent-soft); border: 1px solid #d3e0d9;
+    border-radius: var(--radius); padding: 10px 14px; margin-bottom: 16px;
+    font-size: 13px; color: var(--ink-2);
+}
+.note-banner b { color: var(--accent); }
+.note-banner button { margin-left: auto; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+
+/* ============ 队列：池 tabs + 过滤 ============ */
+.queue-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.pool-tabs { display: flex; gap: 4px; background: var(--sunken); padding: 3px; border-radius: 10px; }
+.pool-tabs button {
+    padding: 7px 16px; border-radius: 8px; font-weight: 800; font-size: 14px; color: var(--ink-2);
+}
+.pool-tabs button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.pool-tabs button .pcount {
+    display: inline-block; min-width: 20px; text-align: center; margin-left: 6px;
+    background: var(--line); border-radius: 999px; font-size: 11.5px; padding: 1px 6px; color: var(--ink-2);
+    font-family: var(--mono);
+}
+.pool-tabs button.active .pcount { background: var(--accent); color: #fff; }
+.filters { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+.chip-toggle {
+    padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line-strong);
+    font-size: 12.5px; font-weight: 700; color: var(--ink-2); background: var(--surface);
+}
+.chip-toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.queue-day {
+    font-size: 12.5px; color: var(--ink-3); margin: 2px 2px 10px;
+    display: flex; gap: 14px; align-items: center;
+}
+
+/* ============ 两行式候选卡 ============ */
+.card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); margin-bottom: 10px; overflow: hidden;
+    border-left: 3px solid transparent;
+    transition: border-color .15s;
+}
+.card:hover { border-color: var(--line-strong); border-left-color: var(--accent); }
+.card.is-new { border-left-color: var(--st-new); }
+.card.dec-exec { background: #f4faf4; }
+.card.dec-drop { opacity: .62; }
+.row1 {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px 8px;
+}
+.dec-chip {
+    min-width: 52px; text-align: center; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 800; letter-spacing: .04em;
+    background: var(--sunken); color: var(--ink-2); border: 1px dashed var(--line-strong);
+}
+.dec-chip.new { color: var(--st-new); border-color: var(--st-new); background: #fff; }
+.dec-chip.todo { color: #fff; background: var(--st-todo); border-style: solid; border-color: var(--st-todo); }
+.dec-chip.exec { color: #fff; background: var(--st-exec); border-style: solid; border-color: var(--st-exec); }
+.dec-chip.drop { color: #fff; background: var(--st-drop); border-style: solid; border-color: var(--st-drop); }
+.dec-chip.watch { color: #fff; background: var(--st-watch); border-style: solid; border-color: var(--st-watch); }
+.stock-id { display: flex; align-items: baseline; gap: 8px; min-width: 218px; }
+.stock-id .code { font-family: var(--mono); font-weight: 700; font-size: 14.5px; }
+.stock-id .name { font-weight: 800; font-size: 14.5px; }
+.stock-id .ind { color: var(--ink-3); font-size: 12px; }
+.sig-tag {
+    padding: 2px 8px; border-radius: 5px; color: #fff; font-weight: 800; font-size: 12px;
+    letter-spacing: .03em;
+}
+.row1 .quote { margin-left: auto; text-align: right; }
+.row1 .quote .px { font-size: 15px; font-weight: 800; }
+.row1 .quote .chg { font-size: 12.5px; font-weight: 700; }
+.chg.up { color: var(--up); } .chg.down { color: var(--down); }
+
+/* 第二行：证据层 */
+.row2 {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 0 16px 11px 16px; font-size: 12.5px;
+}
+.ev {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 6px; background: var(--sunken); color: var(--ink-2);
+    font-weight: 600;
+}
+.ev b { font-weight: 800; }
+.ev.pass b { color: var(--perm-pass); } .ev.wait b { color: var(--perm-wait); } .ev.veto b { color: var(--perm-veto); }
+.ev.plan-ready b { color: var(--perm-pass); } .ev.plan-blocked b { color: var(--perm-wait); }
+.ev .num { font-size: 12px; }
+.ev.decided { background: var(--accent-soft); color: var(--accent); }
+.ev.identity { background: var(--id-bg); color: var(--id-ink); font-weight: 600; }
+.row2 .open-focus {
+    margin-left: auto; color: var(--accent); font-weight: 800; font-size: 12.5px;
+    padding: 4px 10px; border-radius: 6px;
+}
+.row2 .open-focus:hover { background: var(--accent-soft); }
+
+/* ============ 聚焦模式（单票核对） ============ */
+.focus-context {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 12px;
+    font-size: 13px; color: var(--ink-2);
+}
+.focus-context button { color: var(--accent); font-weight: 800; }
+.focus-context .pos { font-family: var(--mono); font-weight: 700; }
+.focus-context .nav { margin-left: auto; display: flex; gap: 8px; }
+.focus-context .nav button {
+    border: 1px solid var(--line-strong); border-radius: 7px; padding: 4px 12px;
+    background: var(--surface); font-weight: 700; color: var(--ink-2);
+}
+.focus-head {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 14px 18px; margin-bottom: 14px;
+}
+.focus-head .code { font-family: var(--mono); font-weight: 800; font-size: 17px; }
+.focus-head .name { font-weight: 800; font-size: 17px; }
+.focus-head .px { font-size: 20px; font-weight: 800; margin-left: 8px; }
+.focus-head .ind { color: var(--ink-3); font-size: 13px; }
+.focus-head .identity { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+
+.focus-grid { display: grid; grid-template-columns: minmax(0, 1.62fr) 400px; gap: 14px; align-items: start; }
+.chart-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 12px 14px 8px;
+}
+.chart-card .tf { display: flex; gap: 6px; margin-bottom: 8px; }
+.chart-card .tf button {
+    padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--ink-2);
+    border: 1px solid var(--line);
+}
+.chart-card .tf button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chart-card svg { width: 100%; height: auto; display: block; }
+.chart-legend { display: flex; gap: 14px; padding: 6px 4px 6px; font-size: 11.5px; color: var(--ink-3); flex-wrap: wrap; }
+.chart-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+/* 核对卡：决策要素结构化 */
+.checklist { display: flex; flex-direction: column; gap: 10px; }
+.check-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 12px 16px;
+}
+.check-card .sec-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    font-size: 13px; font-weight: 800; color: var(--ink-2); letter-spacing: .04em;
+}
+.check-card .sec-head .state {
+    margin-left: auto; font-size: 12px; font-weight: 800; padding: 2px 10px; border-radius: 999px;
+}
+.state.pass { color: #fff; background: var(--perm-pass); }
+.state.wait { color: #fff; background: var(--perm-wait); }
+.state.veto { color: #fff; background: var(--perm-veto); }
+.state.info { color: var(--id-ink); background: var(--id-bg); }
+.check-card ul { list-style: none; font-size: 13px; }
+.check-card li {
+    display: flex; justify-content: space-between; gap: 12px; padding: 4.5px 0;
+    border-bottom: 1px dashed var(--line);
+}
+.check-card li:last-child { border-bottom: none; }
+.check-card li span { color: var(--ink-2); }
+.check-card li b { font-weight: 800; text-align: right; }
+.check-card li b.ok { color: var(--perm-pass); } .check-card li b.warn { color: var(--perm-wait); }
+.check-card li b.veto { color: var(--perm-veto); }
+.check-card .desc { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+
+/* 决策区 */
+.decision-card textarea {
+    width: 100%; min-height: 52px; margin-top: 8px; resize: vertical;
+    border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px;
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--surface);
+}
+.decision-card .states { display: flex; gap: 6px; flex-wrap: wrap; }
+.decision-card .states button {
+    padding: 5px 14px; border-radius: 999px; border: 1px dashed var(--line-strong);
+    font-size: 12.5px; font-weight: 800; color: var(--ink-2); background: var(--surface);
+}
+.decision-card .states button.on-todo { background: var(--st-todo); border-color: var(--st-todo); color: #fff; border-style: solid; }
+.decision-card .states button.on-exec { background: var(--st-exec); border-color: var(--st-exec); color: #fff; border-style: solid; }
+.decision-card .states button.on-drop { background: var(--st-drop); border-color: var(--st-drop); color: #fff; border-style: solid; }
+.decision-card .states button.on-watch { background: var(--st-watch); border-color: var(--st-watch); color: #fff; border-style: solid; }
+.decision-card .save-hint { font-size: 11.5px; color: var(--ink-3); margin-top: 6px; }
+
+/* ============ 数据后台（低频工具间，刻意低调） ============ */
+.data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.data-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 14px 16px; font-size: 13px;
+}
+.data-card h4 { font-size: 13.5px; margin-bottom: 8px; color: var(--ink-2); }
+.data-card .kv { display: flex; justify-content: space-between; padding: 3px 0; color: var(--ink-2); }
+.data-card .kv b { font-weight: 700; color: var(--ink); }
+.data-card .ops { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.data-card .ops button {
+    border: 1px solid var(--line-strong); border-radius: 7px; padding: 4px 12px; font-size: 12.5px;
+    font-weight: 700; color: var(--ink-2); background: var(--surface);
+}
+.data-card .ops button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.footer-note { margin-top: 26px; font-size: 12px; color: var(--ink-3); line-height: 1.7; }
+.empty { text-align: center; color: var(--ink-3); padding: 40px 0; font-size: 13.5px; }
+
+@media (max-width: 1080px) {
+    .focus-grid { grid-template-columns: 1fr; }
+    .stock-id { min-width: 0; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">A股短线结构工作台<small>QUEUE · FOCUS ITERATION v1</small></div>
+    <nav class="view-tabs" id="viewTabs">
+        <button data-view="queue" class="active">队列 <span class="count" id="tabQueueCount"></span></button>
+        <button data-view="focus" id="tabFocus">单票核对</button>
+        <button data-view="data">数据后台</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="quickjump">快速定位代码 <kbd>/</kbd></div>
+</header>
+
+<div class="identity-strip">
+    <span>数据日</span><span class="badge ok"><span class="dot"></span>2026-09-26 · 收盘</span>
+    <span>来源</span><span class="badge"><span class="mono">tencent_direct</span></span>
+    <span>revision</span><span class="badge"><span class="mono">sha256:9f2c…a41d</span></span>
+    <span>策略</span><span class="badge"><span class="mono">2026.09.20.1</span></span>
+    <span style="color:var(--ink-3)">— 以下全部为样例数据，仅演示交互与信息层级</span>
+</div>
+
+<main class="shell">
+
+    <!-- ================= 队列（默认首页） ================= -->
+    <section class="view active" id="view-queue">
+        <div class="note-banner" id="protoNote">
+            <div>
+                <b>本原型演示 5 个迭代点：</b>
+                ① 三个池是同一队列的三个视图；② 两行式卡片（第一行处理状态，第二行证据层）；
+                ③ 人工决策层——标注本地持久化，重启仍在；④ 单票为聚焦模式，队列上下文可继续；
+                ⑤ 数据身份徽章常驻但不喧宾。点击任意卡片「打开核对」体验聚焦模式。
+            </div>
+            <button onclick="document.getElementById('protoNote').remove()">知道了</button>
+        </div>
+
+        <div class="queue-head">
+            <div class="pool-tabs" id="poolTabs"></div>
+            <div class="filters">
+                <button class="chip-toggle" id="toggleUnprocessed">只看未处理</button>
+                <button class="chip-toggle" id="toggleDecided">只看已标注</button>
+            </div>
+        </div>
+        <div class="queue-day">
+            <span>排序：个股结构 + 许可（ADR-0002 口径）</span>
+            <span>·</span><span>行业/概念仅作筛选与分布，不参与排序</span>
+        </div>
+        <div id="queueList"></div>
+        <div class="footer-note">
+            样例数据说明：代码与名称取自日常扫描记录，价格与信号为演示用样例，不代表真实策略输出。<br>
+            迭代对照：① 池 = 队列视图；② 两行卡片；③ 决策层（localStorage 持久化）；④ 聚焦模式保留队列上下文；⑤ 数据身份徽章体系。
+        </div>
+    </section>
+
+    <!-- ================= 单票聚焦核对 ================= -->
+    <section class="view" id="view-focus">
+        <div class="focus-context">
+            <button onclick="backToQueue()">← 返回队列</button>
+            <span>队列位置</span><span class="pos" id="focusPos">- / -</span>
+            <span id="focusPoolLabel"></span>
+            <div class="nav">
+                <button onclick="focusStep(-1)">← 上一只</button>
+                <button onclick="focusStep(1)">下一只 →</button>
+            </div>
+        </div>
+        <div class="focus-head" id="focusHead"></div>
+        <div class="focus-grid">
+            <div class="chart-card">
+                <div class="tf">
+                    <button class="active">日线</button>
+                    <button>60m</button>
+                    <button>4h</button>
+                    <span style="margin-left:auto;font-size:11.5px;color:var(--ink-3);align-self:center">
+                        正式信号基于已收盘 K 线；盘中预览为叠加态
+                    </span>
+                </div>
+                <div id="chartBox"></div>
+                <div class="chart-legend">
+                    <span><i style="background:#546e7a"></i>MA20</span>
+                    <span><i style="background:#d84315"></i>MA60</span>
+                    <span><i style="background:#00897b;height:8px;width:8px;border-radius:2px"></i>箱体上沿（突破参照）</span>
+                    <span><i style="background:#b3362a;height:8px;width:8px;border-radius:2px"></i>止损参照</span>
+                    <span>◆ 信号事件</span>
+                </div>
+            </div>
+            <div class="checklist" id="checklist"></div>
+        </div>
+    </section>
+
+    <!-- ================= 数据后台（低频工具间） ================= -->
+    <section class="view" id="view-data">
+        <div class="note-banner"><div><b>定位：</b>低频工具间，与队列不共享视觉权重。治理动作全部可回退、有审计。</div></div>
+        <div class="data-grid">
+            <div class="data-card">
+                <h4>扫描任务</h4>
+                <div class="kv"><span>最近任务</span><b>2026-09-26 全市场 · completed</b></div>
+                <div class="kv"><span>覆盖</span><b class="num">5,569 名单 / 5,551 收盘 bar</b></div>
+                <div class="kv"><span>无效快照</span><b class="num">0</b></div>
+                <div class="ops"><button class="primary">新建扫描</button><button>任务历史</button></div>
+            </div>
+            <div class="data-card">
+                <h4>快照存储（schema v9）</h4>
+                <div class="kv"><span>active / archive</span><b class="num">103,436 / 1</b></div>
+                <div class="kv"><span>观察期试点</span><b>20260515 单日隔离中</b></div>
+                <div class="kv"><span>storage revision</span><b class="num">st:be41…c902</b></div>
+                <div class="ops"><button>存储审计</button><button>单日迁移（可逆）</button></div>
+            </div>
+            <div class="data-card">
+                <h4>缓存与数据源</h4>
+                <div class="kv"><span>活跃数据源</span><b>腾讯直连 · TDX 兜底就绪</b></div>
+                <div class="kv"><span>日线缓存</span><b class="num">204 MB · schema v2 (股)</b></div>
+                <div class="ops"><button>数据源状态</button><button>清理过期</button></div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script>
+/* ================= 样例数据 ================= */
+const SIG = { 'C突': 'var(--sig-chtu)', 'C爆': 'var(--sig-bao)', 'C回': 'var(--sig-hui)', 'C候': 'var(--sig-hou)', 'C研': 'var(--sig-yan)', 'C修': 'var(--sig-xiu)', 'C风': 'var(--sig-feng)' };
+const POOLS = {
+    opportunity: { label: '参与候选' },
+    risk: { label: '风险验证' },
+    bottom_div: { label: '修复观察' },
+};
+const DATA = [
+    // ---- opportunity ----
+    { code:'301606', name:'绿联科技', ind:'消费电子', pool:'opportunity', reason:'C突', close:56.37, chg:3.42, event:'09-24',
+      perm:{s:'pass', t:'宏观通过 · MA60 上行 / 周线 MACD 金柱'}, plan:{s:'ready', trigger:'56.90', stop:'53.10', size:'8%', rr:'1 : 2.1'},
+      invalid:'跌破前箱体上沿 52.40 或单日振幅 > 8%', rect:{lo:48.9, hi:52.4}, base:50.2 },
+    { code:'600426', name:'华鲁恒升', ind:'化工', pool:'opportunity', reason:'C候', close:20.53, chg:1.18, event:'09-25',
+      perm:{s:'pass', t:'宏观通过 · 站稳 MA60'}, plan:{s:'ready', trigger:'20.86', stop:'19.72', size:'6%', rr:'1 : 2.4'},
+      invalid:'收盘跌破 19.72（结构止损）', rect:{lo:19.0, hi:19.72}, base:18.8 },
+    { code:'002158', name:'汉钟精机', ind:'机械设备', pool:'opportunity', reason:'C回', close:28.55, chg:-0.86, event:'09-25',
+      perm:{s:'wait', t:'宏观等待 · 样本待核标注'}, plan:{s:'blocked', trigger:'回踩 27.60 不破', stop:'26.30', size:'—', rr:'1 : 2.0'},
+      invalid:'回踩跌破 26.30 或放量滞涨', rect:{lo:24.6, hi:26.3}, base:27.4 },
+    { code:'002757', name:'南兴股份', ind:'轻工制造', pool:'opportunity', reason:'C突', close:18.05, chg:4.31, event:'09-24',
+      perm:{s:'pass', t:'宏观通过'}, plan:{s:'ready', trigger:'18.32', stop:'16.95', size:'6%', rr:'1 : 2.3'},
+      invalid:'跌回箱体 16.95 内', rect:{lo:15.6, hi:16.95}, base:16.1 },
+    { code:'000612', name:'焦作万方', ind:'有色金属', pool:'opportunity', reason:'C爆', close:11.32, chg:6.01, event:'09-26',
+      perm:{s:'pass', t:'宏观通过'}, plan:{s:'ready', trigger:'11.58 攻击日确认', stop:'10.62', size:'5%', rr:'1 : 1.9'},
+      invalid:'攻击日次日收回 10.62 下', rect:{lo:9.8, hi:10.62}, base:10.1 },
+    { code:'002645', name:'华宏科技', ind:'环保设备', pool:'opportunity', reason:'C候', close:18.66, chg:0.54, event:'09-25',
+      perm:{s:'wait', t:'宏观等待 · MA60 走平'}, plan:{s:'blocked', trigger:'待 19.10 突破确认', stop:'17.44', size:'—', rr:'1 : 2.2'},
+      invalid:'跌回 17.44 下', rect:{lo:16.2, hi:17.44}, base:17.0 },
+    { code:'600063', name:'维科技术', ind:'电池', pool:'opportunity', reason:'C回', close:9.87, chg:-1.20, event:'09-23',
+      perm:{s:'pass', t:'宏观通过'}, plan:{s:'ready', trigger:'回踩 9.62 承接', stop:'9.05', size:'5%', rr:'1 : 2.6'},
+      invalid:'跌破 9.05（前低）', rect:{lo:8.6, hi:9.05}, base:9.4 },
+    { code:'301238', name:'瑞泰新材', ind:'化工材料', pool:'opportunity', reason:'C突', close:16.21, chg:2.87, event:'09-25',
+      perm:{s:'veto', t:'宏观否决 · 周线未确认'}, plan:{s:'blocked', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'—（许可未通过，不入计划）', rect:{lo:14.1, hi:15.3}, base:14.8 },
+    // ---- risk ----
+    { code:'000858', name:'五粮液', ind:'白酒', pool:'risk', reason:'C风', close:118.6, chg:-2.13, event:'09-26',
+      perm:{s:'info', t:'风险验证不授予入场许可'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'风险条件：跌破 MA60 122.4 后反抽不过', rect:{lo:118, hi:126}, base:128 },
+    { code:'002410', name:'广联达', ind:'建筑软件', pool:'risk', reason:'C风', close:14.02, chg:-1.54, event:'09-25',
+      perm:{s:'info', t:'风险验证'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'风险条件：连续 3 日收盘低于 14.30', rect:{lo:13.2, hi:14.3}, base:15.2 },
+    { code:'601633', name:'长城汽车', ind:'汽车整车', pool:'risk', reason:'C风', close:23.18, chg:-0.98, event:'09-26',
+      perm:{s:'info', t:'风险验证'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'风险条件：周线阴包阳未修复', rect:{lo:22, hi:24.6}, base:25 },
+    { code:'601899', name:'紫金矿业', ind:'有色金属', pool:'risk', reason:'C风', close:17.9, chg:-2.41, event:'09-26',
+      perm:{s:'info', t:'风险验证 · 放量破位'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'风险条件：跌破 17.4 前平台', rect:{lo:16.8, hi:17.4}, base:18.6 },
+    // ---- bottom_div ----
+    { code:'300829', name:'舒华体育', ind:'体育器材', pool:'bottom_div', reason:'C研', close:8.42, chg:-0.71, event:'09-25',
+      perm:{s:'info', t:'修复观察 · 不授予入场许可'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'观察失效：创新低 7.9 则研究作废', rect:{lo:7.9, hi:8.9}, base:8.6 },
+    { code:'600298', name:'安琪酵母', ind:'食品添加', pool:'bottom_div', reason:'C修', close:29.84, chg:0.61, event:'09-26',
+      perm:{s:'info', t:'修复观察 · 修复未确认'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'观察失效：跌回 28.2 下方', rect:{lo:27.4, hi:29.2}, base:28.6 },
+    { code:'601933', name:'永辉超市', ind:'零售', pool:'bottom_div', reason:'C研', close:2.94, chg:-1.34, event:'09-24',
+      perm:{s:'info', t:'修复观察'}, plan:{s:'watch', trigger:'—', stop:'—', size:'—', rr:'—'},
+      invalid:'观察失效：跌破 2.85', rect:{lo:2.8, hi:3.05}, base:3.0 },
+];
+// 预置几条已标注样例，演示决策层
+const PRESET_DECISIONS = {
+    '600426': { state: 'exec',  note: '突破确认入场，按计划 20.86 触发，止损 19.72。' },
+    '002410': { state: 'drop',  note: '风险票：连续阴跌，观察不参与。' },
+    '600063': { state: 'todo',  note: '回踩承接需分时确认，明日盘前复核。' },
+    '300829': { state: 'watch', note: '底背离研究中，只观察。' },
+};
+
+/* ================= 决策层（localStorage 持久化） ================= */
+const DEC_KEY = 'ui-proto-decisions-v1';
+let decisions = {};
+try { decisions = JSON.parse(localStorage.getItem(DEC_KEY) || '{}'); } catch (e) { decisions = {}; }
+for (const [k, v] of Object.entries(PRESET_DECISIONS)) if (!decisions[k]) decisions[k] = v;
+function saveDecisions() { localStorage.setItem(DEC_KEY, JSON.stringify(decisions)); }
+function decOf(code) { return decisions[code] || { state: 'new', note: '' }; }
+const DEC_LABEL = { new: '新出现', todo: '待核', exec: '执行', drop: '放弃', watch: '观察' };
+
+/* ================= 队列渲染 ================= */
+let curPool = 'opportunity';
+let filterUnprocessed = false, filterDecided = false;
+let queueScrollTop = 0;
+
+function poolItems(pool) {
+    return DATA.filter(d => d.pool === pool)
+        .map(d => ({ ...d, dec: decOf(d.code) }))
+        .sort((a, b) => {
+            const order = { exec: 0, todo: 1, new: 2, watch: 3, drop: 4 };
+            if (order[a.dec.state] !== order[b.dec.state]) return order[a.dec.state] - order[b.dec.state];
+            return b.chg - a.chg;
+        });
+}
+function renderPoolTabs() {
+    const el = document.getElementById('poolTabs');
+    el.innerHTML = Object.entries(POOLS).map(([k, p]) => {
+        const n = DATA.filter(d => d.pool === k).length;
+        return `<button data-pool="${k}" class="${k === curPool ? 'active' : ''}">${p.label}<span class="pcount">${n}</span></button>`;
+    }).join('');
+    el.querySelectorAll('button').forEach(b => b.onclick = () => { curPool = b.dataset.pool; renderQueue(); });
+}
+function evidenceRow(d) {
+    const permCls = { pass: 'pass', wait: 'wait', veto: 'veto', info: '' }[d.perm.s] || '';
+    const permLabel = { pass: '许可通过', wait: '许可等待', veto: '许可否决', info: '观察语义' }[d.perm.s];
+    const planCls = d.plan.s === 'ready' ? 'plan-ready' : 'plan-blocked';
+    const planLabel = { ready: 'Plan ready', blocked: 'Plan 待核', watch: '条件化计划 · 观察' }[d.plan.s] || d.plan.s;
+    const st = d.dec.state;
+    const decided = st !== 'new'
+        ? `<span class="ev decided">我的标注 <b>${DEC_LABEL[st]}</b>${d.dec.note ? ' · ' + esc(d.dec.note.slice(0, 18)) + (d.dec.note.length > 18 ? '…' : '') : ''}</span>` : '';
+    return `
+    <span class="ev ${permCls}">${permLabel}</span>
+    <span class="ev ${planCls}">${planLabel}${d.plan.s === 'ready' ? ` · 触发 <b class="num">${d.plan.trigger}</b> / 止损 <b class="num">${d.plan.stop}</b>` : ''}</span>
+    <span class="ev">失效 <b class="num">${esc(d.invalid.length > 16 ? d.invalid.slice(0, 16) + '…' : d.invalid)}</b></span>
+    <span class="ev">信号日 <b class="num">${d.event}</b></span>
+    <span class="ev identity"><span class="mono">closed · ${d.code.startsWith('6') || d.code.startsWith('3') ? 'tencent_direct' : 'akshare'} · rev 4b1e</span></span>
+    ${decided}`;
+}
+function renderQueue() {
+    renderPoolTabs();
+    const list = poolItems(curPool).filter(d => {
+        if (filterUnprocessed && !(d.dec.state === 'new' || d.dec.state === 'todo')) return false;
+        if (filterDecided && d.dec.state === 'new') return false;
+        return true;
+    });
+    document.getElementById('queueList').innerHTML = list.length ? list.map((d, i) => `
+    <article class="card ${d.dec.state === 'new' ? 'is-new' : ''} dec-${d.dec.state}">
+        <div class="row1">
+            <span class="dec-chip ${d.dec.state === 'new' ? 'new' : d.dec.state}">${DEC_LABEL[d.dec.state]}</span>
+            <div class="stock-id"><span class="code">${d.code}</span><span class="name">${d.name}</span><span class="ind">${d.ind}</span></div>
+            <span class="sig-tag" style="background:${SIG[d.reason]}">${d.reason}</span>
+            <div class="quote"><div class="px num">${d.close.toFixed(2)}</div><div class="chg num ${d.chg >= 0 ? 'up' : 'down'}">${d.chg >= 0 ? '+' : ''}${d.chg.toFixed(2)}%</div></div>
+        </div>
+        <div class="row2">
+            ${evidenceRow(d)}
+            <button class="open-focus" data-code="${d.code}">打开核对 →</button>
+        </div>
+    </article>`).join('') : '<div class="empty">当前过滤条件下没有候选。</div>';
+    document.getElementById('queueList').querySelectorAll('.open-focus').forEach(b =>
+        b.onclick = () => openFocus(b.dataset.code));
+    const unp = DATA.filter(d => decOf(d.code).state === 'new').length;
+    document.getElementById('tabQueueCount').textContent = `${DATA.length} · 未处理 ${unp}`;
+}
+document.getElementById('toggleUnprocessed').onclick = function () {
+    filterUnprocessed = !filterUnprocessed; if (filterUnprocessed) filterDecided = false;
+    this.classList.toggle('on', filterUnprocessed);
+    document.getElementById('toggleDecided').classList.remove('on'); renderQueue();
+};
+document.getElementById('toggleDecided').onclick = function () {
+    filterDecided = !filterDecided; if (filterDecided) filterUnprocessed = false;
+    this.classList.toggle('on', filterDecided);
+    document.getElementById('toggleUnprocessed').classList.remove('on'); renderQueue();
+};
+
+/* ================= 聚焦模式 ================= */
+let focusCode = null;
+function currentQueue() {
+    return poolItems(curPool).filter(d => {
+        if (filterUnprocessed && !(d.dec.state === 'new' || d.dec.state === 'todo')) return false;
+        if (filterDecided && d.dec.state === 'new') return false;
+        return true;
+    });
+}
+function openFocus(code) {
+    queueScrollTop = window.scrollY;
+    focusCode = code;
+    renderFocus();
+    switchView('focus');
+    window.scrollTo(0, 0);
+}
+function backToQueue() {
+    switchView('queue'); renderQueue(); window.scrollTo(0, queueScrollTop);
+}
+function focusStep(dir) {
+    const q = currentQueue(); const i = q.findIndex(d => d.code === focusCode);
+    const n = q[i + dir]; if (n) { focusCode = n.code; renderFocus(); window.scrollTo(0, 0); }
+}
+function renderFocus() {
+    const q = currentQueue();
+    const i = q.findIndex(d => d.code === focusCode);
+    const d = q[i] || DATA.find(x => x.code === focusCode);
+    if (!d) return;
+    document.getElementById('focusPos').textContent = `${i + 1} / ${q.length}`;
+    document.getElementById('focusPoolLabel').textContent = POOLS[d.pool].label + ' · ' + d.reason;
+    document.getElementById('focusHead').innerHTML = `
+        <span class="code">${d.code}</span><span class="name">${d.name}</span><span class="ind">${d.ind}</span>
+        <span class="px num">${d.close.toFixed(2)}</span>
+        <span class="chg num ${d.chg >= 0 ? 'up' : 'down'}" style="font-size:14px;font-weight:800">${d.chg >= 0 ? '+' : ''}${d.chg.toFixed(2)}%</span>
+        <div class="identity">
+            <span class="badge ok"><span class="dot"></span>09-26 · closed</span>
+            <span class="badge"><span class="mono">tencent_direct</span></span>
+            <span class="badge"><span class="mono">rev 9f2c…a41d</span></span>
+            <span class="sig-tag" style="background:${SIG[d.reason]}">${d.reason}</span>
+        </div>`;
+    renderChart(d);
+    renderChecklist(d);
+}
+function renderChecklist(d) {
+    const permState = { pass: ['pass', '通过'], wait: ['wait', '等待'], veto: ['veto', '否决'], info: ['info', '观察语义'] }[d.perm.s];
+    const planState = d.plan.s === 'ready' ? ['pass', '就绪'] : d.plan.s === 'blocked' ? ['wait', '待核'] : ['info', '观察'];
+    const dec = decOf(d.code);
+    document.getElementById('checklist').innerHTML = `
+    <div class="check-card">
+        <div class="sec-head">① 入场许可（个股宏观）<span class="state ${permState[0]}">${permState[1]}</span></div>
+        <ul>
+            <li><span>MA60</span><b class="ok">上行 ${d.perm.s === 'wait' ? '· 走平段' : ''}</b></li>
+            <li><span>周线 MACD</span><b class="${d.perm.s === 'veto' ? 'veto' : 'ok'}">${d.perm.s === 'veto' ? '未确认' : '金柱'}</b></li>
+            <li><span>宏观样本</span><b class="warn">待核（2026.09.20.1 标注）</b></li>
+        </ul>
+        <div class="desc">${esc(d.perm.t)}</div>
+    </div>
+    <div class="check-card">
+        <div class="sec-head">② 条件化计划<span class="state ${planState[0]}">${planState[1]}</span></div>
+        <ul>
+            <li><span>触发条件</span><b class="num">${esc(d.plan.trigger)}</b></li>
+            <li><span>结构止损</span><b class="num veto">${esc(d.plan.stop)}</b></li>
+            <li><span>模型仓位</span><b class="num">${esc(d.plan.size)}</b></li>
+            <li><span>收益风险比</span><b class="num">${esc(d.plan.rr)}</b></li>
+        </ul>
+        <div class="desc">计划为条件化参考，不构成执行建议；触发前不动作。</div>
+    </div>
+    <div class="check-card">
+        <div class="sec-head">③ 失效条件<span class="state info">1 条</span></div>
+        <ul><li><span>结构失效</span><b>${esc(d.invalid)}</b></li></ul>
+    </div>
+    <div class="check-card">
+        <div class="sec-head">④ 事件研究（同信号历史）<span class="state info">样本待核</span></div>
+        <ul>
+            <li><span>${d.reason} 后 5 日上涨比例</span><b class="num">48.9% <span style="color:var(--ink-3);font-weight:600">(n=2369，弱于全市场 56.1%)</span></b></li>
+            <li><span>数据口径</span><b>event_close · 不含费用</b></li>
+        </ul>
+        <div class="desc">历史事件统计，不构成可交易胜率（产品语言契约）。</div>
+    </div>
+    <div class="check-card decision-card">
+        <div class="sec-head">⑤ 我的裁决（本地）</div>
+        <div class="states" id="decStates">
+            ${['todo', 'exec', 'drop', 'watch'].map(s =>
+                `<button data-s="${s}" class="${dec.state === s ? 'on-' + s : ''}">${DEC_LABEL[s]}</button>`).join('')}
+            <button data-s="new" style="${dec.state === 'new' ? 'border-color:var(--st-new);color:var(--st-new)' : ''}">清除</button>
+        </div>
+        <textarea id="decNote" placeholder="一句备注：为什么这么判（本地保存）">${esc(dec.note || '')}</textarea>
+        <div class="save-hint">自动保存到本机浏览器 · 队列卡片同步显示</div>
+    </div>`;
+    document.getElementById('decStates').querySelectorAll('button').forEach(b => b.onclick = () => {
+        decisions[d.code] = { state: b.dataset.s, note: (document.getElementById('decNote').value || '').trim(), ts: Date.now() };
+        saveDecisions(); renderFocus();
+    });
+    document.getElementById('decNote').onchange = e => {
+        decisions[d.code] = { state: decOf(d.code).state, note: e.target.value.trim(), ts: Date.now() };
+        saveDecisions();
+    };
+}
+
+/* ================= SVG K线（样例生成） ================= */
+function mulberry32(seed) { return function () { let t = seed += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hashCode(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) | 0; } return Math.abs(h); }
+function genCandles(d) {
+    const rnd = mulberry32(hashCode(d.code));
+    const bars = []; let px = d.base * (0.92 + rnd() * 0.05);
+    for (let i = 0; i < 58; i++) {
+        const drift = (d.rect.hi - px) * 0.035 + (rnd() - 0.48) * px * 0.016;
+        const o = px; const c = Math.max(0.5, px + drift);
+        const h = Math.max(o, c) * (1 + rnd() * 0.011); const l = Math.min(o, c) * (1 - rnd() * 0.011);
+        bars.push({ o, c, h, l }); px = c;
+    }
+    const last = bars[bars.length - 1];
+    const k = d.close / last.c;
+    bars.forEach(b => { b.o *= k; b.c *= k; b.h *= k; b.l *= k; });
+    return bars;
+}
+function ma(bars, n, i) {
+    if (i < n - 1) return null; let s = 0;
+    for (let j = i - n + 1; j <= i; j++) s += bars[j].c;
+    return s / n;
+}
+function renderChart(d) {
+    const bars = genCandles(d);
+    const W = 860, H = 400, padL = 8, padR = 64, padT = 14, padB = 26;
+    const lo = Math.min(...bars.map(b => b.l), d.plan.stop ? parseFloat(d.plan.stop) || Infinity : Infinity, d.rect.lo) * 0.995;
+    const hi = Math.max(...bars.map(b => b.h), d.rect.hi) * 1.005;
+    const y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB);
+    const bw = (W - padL - padR) / bars.length;
+    const x = i => padL + i * bw + bw / 2;
+    let grid = '';
+    for (let g = 0; g <= 4; g++) {
+        const v = lo + (hi - lo) * g / 4; const yy = y(v);
+        grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="#eef1ec"/>
+                 <text x="${W - padR + 6}" y="${yy + 4}" font-size="10.5" fill="#8b948b" font-family="var(--mono)">${v.toFixed(2)}</text>`;
+    }
+    let rectBand = '';
+    const ry1 = y(d.rect.hi), ry2 = y(d.rect.lo);
+    rectBand = `<rect x="${padL}" y="${ry1}" width="${W - padL - padR}" height="${Math.max(2, ry2 - ry1)}" fill="rgba(0,137,123,.10)" stroke="#00897b" stroke-width="1" stroke-dasharray="4 3"/>
+        <text x="${padL + 6}" y="${ry1 - 4}" font-size="10.5" fill="#00897b" font-weight="700">箱体上沿 ${d.rect.hi.toFixed(2)}（突破/破位参照）</text>`;
+    const maLine = (n, color) => {
+        let p = '';
+        bars.forEach((b, i) => { const v = ma(bars, n, i); if (v != null) p += `${p ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
+        return p ? `<path d="${p}" fill="none" stroke="${color}" stroke-width="1.4"/>` : '';
+    };
+    let candles = '';
+    bars.forEach((b, i) => {
+        const up = b.c >= b.o; const col = up ? '#c2372a' : '#1e7a4e';
+        const yo = y(b.o), yc = y(b.c), yh = y(b.h), yl = y(b.l);
+        candles += `<line x1="${x(i)}" y1="${yh}" x2="${x(i)}" y2="${yl}" stroke="${col}" stroke-width="1"/>
+            <rect x="${(x(i) - bw * 0.32).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${Math.max(1, Math.abs(yc - yo)).toFixed(1)}" fill="${up ? '#fff' : col}" stroke="${col}" stroke-width="1"/>`;
+    });
+    const evIdx = bars.length - 3;
+    const marker = `<circle cx="${x(evIdx)}" cy="${y(bars[evIdx].l) + 12}" r="9" fill="${SIG[d.reason]}" opacity=".92"/>
+        <text x="${x(evIdx)}" y="${y(bars[evIdx].l) + 15.5}" font-size="9.5" fill="#fff" text-anchor="middle" font-weight="800">${d.reason}</text>`;
+    const dates = '';
+    document.getElementById('chartBox').innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="样例K线">
+        ${grid}${rectBand}${candles}${maLine(20, '#546e7a')}${maLine(60, '#d84315')}
+        ${d.plan.stop && parseFloat(d.plan.stop) ? `<line x1="${padL}" y1="${y(parseFloat(d.plan.stop))}" x2="${W - padR}" y2="${y(parseFloat(d.plan.stop))}" stroke="#b3362a" stroke-width="1" stroke-dasharray="2 3"/><text x="${W - padR - 8}" y="${y(parseFloat(d.plan.stop)) - 5}" font-size="10.5" fill="#b3362a" font-weight="700" text-anchor="end" font-family="var(--mono)">结构止损 ${parseFloat(d.plan.stop).toFixed(2)}</text>` : ''}
+        ${marker}${dates}
+        <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#c9d1c7"/>
+        <text x="${padL}" y="${H - 8}" font-size="10.5" fill="#8b948b">…07-14</text>
+        <text x="${W / 2 - 20}" y="${H - 8}" font-size="10.5" fill="#8b948b">…08-20</text>
+        <text x="${W - padR - 40}" y="${H - 8}" font-size="10.5" fill="#8b948b">09-26</text>
+    </svg>`;
+}
+
+/* ================= 视图切换 ================= */
+function switchView(v) {
+    document.querySelectorAll('.view').forEach(s => s.classList.remove('active'));
+    document.getElementById('view-' + v).classList.add('active');
+    document.querySelectorAll('#viewTabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+}
+document.querySelectorAll('#viewTabs button').forEach(b => b.onclick = () => {
+    if (b.dataset.view === 'focus' && !focusCode) { focusCode = poolItems(curPool)[0].code; renderFocus(); }
+    switchView(b.dataset.view);
+});
+document.addEventListener('keydown', e => {
+    const inFocus = document.getElementById('view-focus').classList.contains('active');
+    if (inFocus && e.key === 'ArrowLeft') focusStep(-1);
+    if (inFocus && e.key === 'ArrowRight') focusStep(1);
+    if (e.key === 'Escape' && inFocus) backToQueue();
+});
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+renderQueue();
+</script>
+</body>
+</html>

@@ -1034,6 +1034,57 @@ class FrontendAnalysisStoreTest(unittest.TestCase):
 
         self._run_node_script(script)
 
+    def test_scan_job_poll_does_not_retry_permanent_status_failure(self):
+        script = textwrap.dedent(
+            f"""
+            const fs = require('fs');
+            const vm = require('vm');
+            const assert = require('assert');
+            const timers = [];
+            const statuses = [];
+            const errors = [];
+            let cleanupCalls = 0;
+            const context = {{
+                window: {{}},
+                document: {{ getElementById() {{ return {{ innerHTML: '' }}; }} }},
+                console,
+                setTimeout(fn, delay) {{ timers.push({{ fn, delay }}); return timers.length; }},
+                clearTimeout() {{}},
+                fetchScanJob() {{
+                    const error = new Error('invalid job request');
+                    error.status = 400;
+                    error.retryable = false;
+                    return Promise.reject(error);
+                }},
+                disableScanButtons() {{ cleanupCalls += 1; }},
+                refreshScanActionState() {{}},
+                updateScanButtonLabel() {{}},
+                setScanStatus(message) {{ statuses.push(message); }},
+                showScanError(list, message) {{ errors.push(message); }},
+                openScanTaskWorkspace() {{}},
+                loadScanJobHistory() {{ return Promise.resolve(true); }}
+            }};
+            context.window.window = context.window;
+            vm.createContext(context);
+            vm.runInContext(fs.readFileSync({str(ROOT / 'static/js/scanJobs.js')!r}, 'utf8'), context);
+            vm.runInContext("activeScanJobId = 'job1'; activeScanJobType = 'opportunity';", context);
+
+            (async () => {{
+                await context.pollActiveScanJob();
+                assert.strictEqual(timers.length, 0);
+                assert.strictEqual(cleanupCalls, 1);
+                assert.strictEqual(statuses[0], '任务状态失败');
+                assert.strictEqual(errors[0], 'invalid job request');
+                assert.strictEqual(vm.runInContext('activeScanJobId', context), null);
+            }})().catch(error => {{
+                console.error(error);
+                process.exit(1);
+            }});
+            """
+        )
+
+        self._run_node_script(script)
+
     def test_scan_search_filter_debounces_render_and_clears_on_explicit_filter(self):
         scripts = [
             "static/js/scanState.js",
@@ -1458,6 +1509,65 @@ class FrontendAnalysisStoreTest(unittest.TestCase):
                 assert.ok(urls[1].includes('snapshot_day=20260924'));
                 assert.ok(urls[1].includes('event_date=2026-09-24'));
                 assert.ok(urls[1].includes('compact=0'));
+            }})().catch(error => {{
+                console.error(error);
+                process.exit(1);
+            }});
+            """
+        )
+
+        self._run_node_script(script)
+
+    def test_sqlite_candidate_detail_fallback_respects_error_retryability(self):
+        scripts = [
+            "static/js/api.js",
+            "static/js/scanReadModelAdapter.js",
+        ]
+        script = textwrap.dedent(
+            f"""
+            const fs = require('fs');
+            const vm = require('vm');
+            const assert = require('assert');
+            const urls = [];
+            let indexError = null;
+            const context = {{
+                window: {{ location: {{ search: '?candidate_source=sqlite' }} }},
+                URLSearchParams,
+                Promise,
+                scanWorkspaceState: {{ readSourceOverride: '' }},
+                console
+            }};
+            context.window.window = context.window;
+            vm.createContext(context);
+            for (const file of {scripts!r}) {{
+                vm.runInContext(fs.readFileSync(file, 'utf8'), context, {{ filename: file }});
+            }}
+            context.requestJson = function(url) {{
+                urls.push(url);
+                if (url.includes('/api/scan_index/')) return Promise.reject(indexError);
+                return Promise.resolve({{ results: [{{ code: '600001' }}] }});
+            }};
+            const options = {{
+                code: '600001', scanType: 'opportunity', snapshotDay: '20260924',
+                indexedSummary: true
+            }};
+
+            (async () => {{
+                indexError = Object.assign(new Error('stale index row'), {{
+                    status: 404, code: 'candidate_not_found', retryable: false
+                }});
+                const missing = await context.fetchScanCandidateDetail(options);
+                assert.strictEqual(missing._detail_read_source, 'json_fallback');
+                assert.strictEqual(urls.length, 2);
+
+                urls.length = 0;
+                indexError = Object.assign(new Error('invalid request'), {{
+                    status: 400, code: 'invalid_scan_index_query', retryable: false
+                }});
+                let failure = null;
+                try {{ await context.fetchScanCandidateDetail(options); }} catch (error) {{ failure = error; }}
+                assert.ok(failure && failure.code === 'invalid_scan_index_query');
+                assert.strictEqual(urls.length, 1);
             }})().catch(error => {{
                 console.error(error);
                 process.exit(1);

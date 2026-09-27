@@ -204,6 +204,16 @@ function fetchScanCandidates(options) {
     });
 }
 
+function shouldFallbackToJsonCandidateDetail(error) {
+    if (isRequestCancelled(error)) return false;
+    if (error && error.code === 'candidate_not_found') return true;
+    if (error && error.retryable === false) return false;
+    if (error && error.retryable === true) return true;
+    var status = Number(error && error.status);
+    if (status >= 400 && status < 500 && status !== 429) return false;
+    return true;
+}
+
 function fetchScanCandidateDetail(options) {
     options = options || {};
     var detailOptions = Object.assign({}, options, {
@@ -221,7 +231,7 @@ function fetchScanCandidateDetail(options) {
         return fetchScanIndexCandidateDetail(detailOptions).then(function (detail) {
             return {candidate_detail: detail, _detail_read_source: 'sqlite_candidate_detail'};
         }).catch(function (error) {
-            if (isRequestCancelled(error)) throw error;
+            if (!shouldFallbackToJsonCandidateDetail(error)) throw error;
             return fetchScanCandidates(detailOptions).then(function (payload) {
                 payload._detail_read_source = 'json_fallback';
                 payload._detail_read_error = error.message || 'SQLite 候选详情读取失败';

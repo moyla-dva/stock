@@ -174,8 +174,9 @@ GET /api/scan_index/candidates/600001?scan_type=opportunity
 ```
 
 命令没有 purge/delete 模式。执行 `--apply` 前，所有仍在运行的 Web 进程都必须升级到 schema v9
-和 archive-aware 详情读链；否则旧进程可能把已迁移快照视为缺失。当前真实试点仅完成
-`--register`，未移动源文件。
+和 archive-aware 详情读链；否则旧进程可能把已迁移快照视为缺失。2026-09-27 已停止旧进程
+5009/5011，保留 5012，并完成 20260515 单文件隔离试点。源 JSON 位于可恢复 quarantine，
+SQLite 将该快照标记为 archive；全库 active/archive 对账和归档详情读取均已通过。
 
 逐条核对某一快照日的新旧摘要：
 
@@ -381,6 +382,7 @@ schema v8 在 manifest 增加规划元数据和复合索引，并以同一 sourc
 
 同日原位迁移到 schema v9，manifest 新增 active/archive 存储身份、归档路径、成员路径和
 两级 checksum revision。source-sync 现在以活跃文件与已验证归档的逻辑并集对账，完整索引
-也可只从归档重建。20260515 试点已完成无副作用 dry-run 和第一阶段 `--register`：全库仍为
-103,437 份有效快照，试点源文件仍为 active，同时记录精确 ZIP、成员和 SHA-256。第二阶段
-隔离迁移尚未执行，原因是本机仍有旧代码进程运行；永久删除仍未实现。
+也可只从归档重建。2026-09-27 完成 20260515 单文件试点：旧进程 5009/5011 已停止，5012 保留；
+该日唯一 JSON 已移入可恢复 quarantine，manifest 记为 archive。全库仍为 103,437 份有效快照，
+审计 `global_parity=true`、storage revision 匹配，CandidateDetail 与历史日 API 实测成功。
+其余 18 个待审日期保持 active，进入观察期；永久删除仍未实现。

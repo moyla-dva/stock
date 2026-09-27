@@ -433,3 +433,75 @@ not_a_contract: 本文件是临时工作文档，不是 docs/current/ 契约；�
 - P3-11 历史裁剪：`max_history` 现在限制终态历史数量，所有非终态活动任务始终留在内存与落盘索引中，避免长任务被较新的已完成任务挤出。
 - 完成钩子在任务终态前同步执行是既有生命周期契约：其失败只设置 `postprocess.status=failed`，不改写扫描主任务成功状态；维持现状。
 - 新增受控 future 取消测试与活动任务超出历史窗口测试。验证：`./venv/bin/python -m unittest discover -s tests` → **425 tests OK**；`compileall` 与 `git diff --check` 通过。
+
+### 主审独立核验（2026-09-26，随快照存储治理批次复审）
+
+对上述实施记录做抽查核验（`git show` 对照 + 代码读验 + 全量测试 **463 tests OK**）：
+
+**确认已修复**：P0-1（`_canonical_history_frame` 三重守卫：合并前校验、`_should_write_history_cache` 校验、`write_cached_history` 拒写，meta 带 `volume_unit=shares` schema v2）；P1-1（is_breakout 补 `v2_breakout`、保留 `composite_breakout`，与对账结论一致）；P1-3+存量（`tencent_volume_to_shares` 按类别换算，直连帧直接产出 volume 列）；P1-4（BSE `required=True`）；P1-5（三处统一走 `_coverage_gaps`）；P1-6（v5→v6 补幂等检查，迁移链已演进到 v9 且每步带 `table_info` 检查）；P2-1（指纹升级为 sha256(schema+全行哈希)）；P2-2（缓存键并入 `bool(snapshot_day and include_history_comparison)`）；P2-7（`_merge_history_frames` 并集合并）；P2-14（catch 顶部 stale 守卫）；P2-15（forceRefresh 重置 `readSourceOverride`）；P2-18（subprocess timeout=30）；P2-19（`test_market_breadth.py` 删除，retire 契约测试保留）。
+
+**仍开放**：P1-2 版本治理决策（`SCAN_STRATEGY_VERSION` 仍 2026.09.20.1，按对账结论属待决策而非缺陷）；P1-7（降级后 P2）**未修**——`scan_api.py:447,552` 历史查询仍不回填 `SCAN_STRATEGY_VERSION`，且 ADR-0005 已让 SQLite 成为默认读源，历史快照日触发整页 JSON 回退的概率比 opt-in 时期更高，建议提级处理。
+
+**本批（快照存储治理）新发现**：
+
+1. **[P2-21] 运行时 reconcile 的全局失败域**：`app.py:174` 在 completion hook 内调用 `reconcile_source_directory` 且**无 try 包裹**；新的 `discover_snapshot_storage` 遍历全部归档 zip 并在 manifest 损坏 / member day mismatch / conflicting archives 时抛 `SnapshotArchiveError`。一个损坏 zip 会使之后**每个**扫描任务的 postprocess 反复失败，且异常发生在 rank-context 物化之前（物化被跳过）。这与项目「单条失败只影响当前候选」的降级哲学相悖。建议：reconcile 内对 `SnapshotArchiveError` 降级（跳过归档对账、`storage_revision` 置空并告警），或在 hook 层把 reconcile 失败与 rank-context 物化解耦。文档已写「--apply 前须停止旧进程」，但未覆盖此新失败模式，建议 data-operations 补一句。
+2. **[P3-15] `_archive_records` 成员名未过白名单**：`scan_snapshot_storage.py:77-82` 对 manifest `entries[].name` 只做 `endswith(f"_{day}.json")` 检查，未像读路径 `_entry_map` 那样过 `SCAN_SNAPSHOT_FILENAME_RE`——构造性 manifest 理论上可注入 `../` 相对路径。本地单用户威胁模型下风险低，建议与读路径同样过滤以保持口径一致。
+3. **[P3-16] 迁移脚本回滚路径会掩盖原始异常**：`migrate_scan_snapshot_day_to_archive.py:236-245` 的 except 块先回滚文件再 `reconcile_source_directory` 再 `raise`——若清理阶段的 reconcile 自身抛错，原始异常丢失。建议清理 reconcile 包 try/except。
+4. **[D-6] 测试计数漂移再现**：`implementation-status.md:30` 写「456 项测试」，实测 463。
+
+本批总体评价：存储层设计成熟（逻辑路径/物理位置分离、内容 revision 与 storage revision 分离、fail-closed 校验、隔离区迁移无 purge、dry-run 默认、异常回滚），ADR-0005/0006、sqlite-scan-index v4、data-operations 四模式命令与实现一致。上述 4 项收尾后可提交。
+
+### 主审终验（2026-09-27，提交 6c9152f「active/archive snapshot storage tiers」）
+
+上批 4 项新 findings 的修复已随 `6c9152f` 提交，逐项核验通过：
+
+- **P2-21 已修复**：`app.py` completion hook 对 `reconcile_source_directory` 包 try/except，失败降级为 warning + `synchronized=False` 的 reconciliation 记录，rank-context 物化继续执行。回归测试 `test_storage_reconciliation_failure_does_not_skip_rank_context` 锁定行为。
+- **P3-15 已修复**：`_archive_records` 对 manifest 成员名实施三重校验（`SCAN_SNAPSHOT_FILENAME_RE.fullmatch` + 当日后缀 + member 路径必须为 `snapshots/{name}`），违规抛 `SnapshotArchiveError` fail-closed。回归测试 `test_storage_discovery_rejects_archive_member_path_traversal`。
+- **P3-16 已修复**：迁移回滚使用 `original_error.add_note(...)` 保留原始异常（文件回滚失败与 reconcile 失败分别记 note 后 re-raise）。回归测试 `test_rollback_cleanup_failure_preserves_original_migration_error`。
+- **D-6 基本修复**：`implementation-status.md` 两处更新为「2026-09-27 全量 466 tests OK」（实测一致）；`data-operations.md:183` 补充「存储层对账遇损坏归档→任务记录索引降级并继续排序上下文」边界说明。**残留一处**：`AGENT_SYNC.md:1259` 仍写「456 tests OK」。
+
+终验时全量测试 **466 tests OK**（16.6s）。本批（含快照存储治理与四项收尾修复）**通过验收，无阻塞项**。
+
+仍未开放项维持前述清单：P1-2 版本治理决策、P1-7（提级待修）、P2-3/P2-5/P2-6/P2-16（确认未修，见任务清单 B 组）、P3-14 口径选择。
+
+### 第八轮：复核者状态修正与主审逐项确认（2026-09-27）
+
+复核者指出主审终验后的状态摘要不准确（B 组清单含过期结论）。主审逐项到代码核实，**七项修正全部成立**，采纳并更新状态：
+
+| 项 | 修正后状态 | 主审核实证据 |
+|---|---|---|
+| P1-7 | **已修复，关闭** | `scan_index_store.py:2075` 新增 `rank_context_strategy_version` 参数，`:2137` 上下文查询用它回填当前版本；历史查询（strategy_filter=None）不再空串匹配，ranking 元数据新增 `context_coverage: "current_strategy_only"`（`:2228-2232`）。历史候选有意保留旧策略行、排序上下文明确用当前版本——语义正确 |
+| P2-6 | **已修复，关闭** | 前端 `scanResultMatchesReasonFilter` 末尾 `return false`（未知 reason 不匹配），与后端 `candidate_reasons.py:86` 的 `return False` 口径一致——原始的「后端拒绝/前端放行」不一致已按更严格侧统一 |
+| P3-14 | **已修复，关闭** | `_reference_pool` 先 `apply_c_signal_v2_priority` 再按 `(strategy_status, v2_priority_value, rank_value, event_date, code)` 排序——与工作台 `sort_scan_results` 完全同键，跨口径问题消除 |
+| P1-2 | **已裁决，关闭** | ADR-0002 决策 7 明确四个版本职责：`SCAN_STRATEGY_VERSION`（扫描事实）、`RANKING_POLICY_VERSION`（排序政策，变更走新版本+定向重建 RankContext，不要求重扫行情）、`RANK_CONTEXT_SCHEMA_VERSION`、`SCAN_SNAPSHOT_SCHEMA_VERSION`；兼容回填修正不单独 bump。决策项不再是开放问题 |
+| P2-3 | **收窄并已裁决：接受 fail-closed** | `CandidateSummary` 裸 `int()` 仍在（candidate_read_model.py:175），但索引器 per-file savepoint 捕获异常、标记坏文件并继续；不崩溃整批任务。单个坏快照使 `index_complete` 门禁失败，SQLite 候选 API 返回 503，前端再回退 JSON。接受此策略：候选池不完整时不静默展示部分排名；坏文件需修复后重建索引。当前 `invalid_snapshot_count=0`，没有正在发生的影响 |
+| P2-5 | **降为防御性加固** | 唯一物化调用链先将缺失版本补成 legacy，当前路径无故障；裸守卫仅为未来调用者防御，不与已确认缺陷并列 |
+| P2-16 | **降为低优先级改进** | SQLite 详情失败的 JSON 回退带 code/快照日/事件日且 limit=1，后端走 `_direct_candidate_detail_payload` 单快照路径，非全池重查（原表述夸大）；轮询重试有次数上限+退避。剩余价值：按 `err.retryable`/错误类型分类处理 |
+
+**AGENT_SYNC 456 计数**：复核者的处理（标注「当时阶段验证（2026-09-26）」并指向次日 466 全量验证）比改写历史数值更正确，采纳。主审此前「唯一残留」的摘要表述有歧义——应读作「D-6 文档计数问题已按历史标注方式处置」，待办清单以下方修正为准。
+
+**修正后的待办状态**：
+
+- 复核结论层面：**全部关闭**（无未决 review 争议）；P2-3 采用 fail-closed 完整性策略，不静默提供不完整候选排名。
+- 低优先级改进：P2-16 按错误类型分类回退、P2-5 防御性加固；均不阻塞当前默认读链或存储试点。
+- 运维批次：5009/5011 已停止，5012 保持运行。20260515 dry-run 与隔离已完成；全库对账、归档 CandidateDetail 和历史日 API 均通过。当前进入单日观察期，不扩展到其余 18 个日期，不做 purge。
+- 长期 E 组照旧（排名证据积累、旧文档归位、UI 待启动）。
+
+### 第九轮：低优先级读链加固（2026-09-27）
+
+第八轮列出的两项低优先级改进已实施并通过回归验证：
+
+- **P2-5 已关闭**：`rank_context_candidates` 现在要求 `snapshot_strategy_version` 与目标策略版本完全相等。缺失版本不会被当作兼容当前版本；唯一生产物化调用链仍会先补成 `legacy`，因此现有行为不变，未来调用点也受到保护。
+- **P2-16 已关闭**：CandidateDetail 对 `candidate_not_found` 保留精确 JSON 快照详情兜底；其他明确 `retryable=false` 错误不再触发回退，明确可重试错误和未知网络错误维持可恢复路径。扫描任务轮询对 `retryable=false` 与非 429 的 4xx 直接结束，不再做无效退避；其他网络、429 与未知错误继续使用既有次数上限和退避，明确 `retryable` 标记优先。
+- 新增 RankContext 缺失/旧策略版本过滤、详情错误分类与轮询永久错误三项回归覆盖。验证：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'` → **469 tests OK**；`git diff --check` 通过。
+
+**当前状态**：P2-5、P2-16 不再是待办。P2-3 继续采用已裁决的 fail-closed 策略。运维只观察 20260515 单日可逆隔离试点，不扩大到其余 18 个日期；排名证据继续按交易日积累，不据不足样本调整生产排序权重。
+
+### 主审第九轮验收（2026-09-27）
+
+- **P2-5/P2-16 代码修复核验通过**：`scan_rank_context.py:27` 严格白名单（唯一物化调用链由 loader 先补 `legacy`，行为不变）；`api.js` `shouldFallbackToJsonCandidateDetail` 与 `scanJobs.js` `shouldRetryScanJobPoll` 错误分类正确——`candidate_not_found` 优先于 `retryable=false` 触发兜底（JSON 是事实源，索引未命中≠快照缺失，设计正确）、429 视为可重试、未知错误默认可恢复、非 429 的 4xx 不再无效退避；P2-14 的 stale 守卫保持在重试判断之前。
+- **回归覆盖核验**：三个新 node 测试断言真实行为（轮询永久错误 0 定时器+清理+状态置空；详情兜底按 retryable 分流 2/1 次 URL），加 `test_rank_context_projection_excludes_missing_or_different_strategy_versions`。
+- **运维落地磁盘核验**：20260515 active 文件已不在快照目录、存在于隔离区与归档 zip；manifest 计数 `{active:0, archive:1}`；全库 `index_complete=True`（103,436+1=103,437，invalid=0）——与 implementation-status/data-operations/AGENT_SYNC 三处文档声明逐字一致。
+- **全量测试 469 tests OK**（16.1s，实测）。
+- P3 风格备注（不阻塞）：4xx 分类逻辑在 api.js 与 scanJobs.js 各有一份，可日后抽公共 helper。
+- **本批通过验收。至此全部 review findings 关闭**：修复类已实施，P2-3 以 fail-closed 完整性策略裁决归档。剩余为运维观察期（20260515 单日）→ 其余 18 日逐日决策 → purge 另立策略，及 E 组长期项。

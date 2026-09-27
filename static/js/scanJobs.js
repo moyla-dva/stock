@@ -290,6 +290,13 @@ function scanJobPollBackoffDelay() {
     return Math.min(delay, SCAN_JOB_POLL_MAX_BACKOFF_MS);
 }
 
+function shouldRetryScanJobPoll(error) {
+    if (error && typeof error.retryable === 'boolean') return error.retryable;
+    var status = Number(error && error.status);
+    if (status >= 400 && status < 500 && status !== 429) return false;
+    return true;
+}
+
 function refreshScanActionState() {
     if (typeof renderScanSnapshotMeta === 'function') {
         renderScanSnapshotMeta();
@@ -322,7 +329,9 @@ async function pollActiveScanJob() {
         scheduleScanJobPoll(SCAN_JOB_POLL_INTERVAL_MS);
     } catch (err) {
         if (!activeScanJobId || activeScanJobId !== polledJobId) return;
-        if (activeScanJobId && activeScanJobId === polledJobId && scanJobPollFailureCount < SCAN_JOB_POLL_MAX_FAILURES) {
+        if (shouldRetryScanJobPoll(err)
+            && activeScanJobId === polledJobId
+            && scanJobPollFailureCount < SCAN_JOB_POLL_MAX_FAILURES) {
             scanJobPollFailureCount += 1;
             setScanStatus('任务状态暂时不可用，重试中 ' + scanJobPollFailureCount + '/' + SCAN_JOB_POLL_MAX_FAILURES);
             scheduleScanJobPoll(scanJobPollBackoffDelay());

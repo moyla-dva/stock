@@ -24,7 +24,7 @@ def rank_context_candidates(
             if not isinstance(result, Mapping):
                 continue
             result_strategy = str(result.get("snapshot_strategy_version") or "")
-            if result_strategy and result_strategy != strategy_version:
+            if result_strategy != strategy_version:
                 continue
             output.append({
                 "pool": str(pool),

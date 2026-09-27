@@ -1256,13 +1256,21 @@
 - CandidateDetail 与显式历史日回放已支持 active-first、archive-fallback 读取；历史日列表默认由 SQLite 聚合，实测返回 24 天、103,437 份快照。
 - 20260515 真实试点将 3,819 字节源快照归档为 2,141 字节 ZIP，二次独立验证通过，源 JSON 保留。
 - **不得删源文件**：SQLite source-sync 尚把活跃目录视为完整成员集。下一步先增加 active/archive 存储层对账与可回滚两阶段迁移。
-- **最新验证**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**456 tests OK**；新服务 `http://127.0.0.1:5012/` 的候选详情、单票和历史 API 皆为 200。
+- **当时阶段验证（2026-09-26）**：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**456 tests OK**；新服务 `http://127.0.0.1:5012/` 的候选详情、单票和历史 API 皆为 200。后续全量验证见下方 2026-09-27 检查点。
 
 ## Codex 当前交接检查点：2026-09-27 SQLite 存储层与可逆迁移
 
 - SQLite schema 已从 v8 原位升级到 v9；`snapshot_manifest` 记录 `active/archive` 存储层、归档 ZIP/member 与 archive checksum。内容 index revision 和物理 storage revision 分开管理。
-- active 文件与已验证 archive 作为同一逻辑快照集合；全量重建支持 `--archive-dir`，CandidateDetail 可按 manifest 指定归档读取。真实数据库仍有 **103,437** 条有效快照，20260515 试点已登记归档位置，source JSON 仍存在且 tier 为 active。
+- active 文件与已验证 archive 作为同一逻辑快照集合；全量重建支持 `--archive-dir`，CandidateDetail 可按 manifest 指定归档读取。20260515 唯一快照已从 active 移入可恢复 quarantine；数据库仍有 **103,437** 条有效逻辑快照，active 103,436 / archive 1。
 - `migrate_scan_snapshot_day_to_archive.py` 支持 dry-run、register、quarantine 与 restore；dry-run 无 manifest 写入，apply 迁移到 quarantine，逐日 SQLite tier 数必须完全匹配。脚本不提供 purge。
-- 存储审计核对 active/archive 成员、SQLite manifest、内容 revision 与 storage revision。旧 Web 进程未全部切换到 schema v9 前不执行 quarantine；19 个旧日期仍未回收。
-- 本批全量测试 **466 tests OK**；`compileall`、文档合同测试和 `git diff --check` 通过。此前一次文档测试调用写错 import module 名，之后已用 `unittest discover -s tests -p 'test_documentation_contracts.py'` 正确通过。
+- 存储审计核对 active/archive 成员、SQLite manifest、内容 revision 与 storage revision。旧进程 5009/5011 已正常停止，5012 保持运行；20260515 隔离后全库审计 `global_parity=true`、无缺失或冲突，CandidateDetail 与历史日 API 读取通过。另有 18 个旧日期保持 active，当前只观察试点，不继续批量迁移。
+- 最近一次全量测试基线 **466 tests OK**；本次运维操作未改生产代码。文档合同测试与 `git diff --check` 将在本次文档同步后复验。
 - 权威状态和命令见 `docs/current/implementation-status.md`、`docs/current/sqlite-scan-index.md`、`docs/data-operations.md` 与 ADR-0006。
+
+## Codex 当前交接检查点：2026-09-27 读链加固与隔离观察
+
+- RankContext 只接受 `snapshot_strategy_version` 与目标 `strategy_version` 精确相同的候选；缺失或旧策略版本不进入当前排序上下文。
+- CandidateDetail 索引读失败按契约分类：`candidate_not_found` 可走带代码/快照日/事件日的精确 JSON 详情路径；明确 `retryable=false` 的其他错误不回退，网络与明确可重试错误仍保留回退。
+- 扫描任务轮询对 `retryable=false` 和非 429 的 4xx 立即展示失败，不做无效退避；网络、429 和未知错误继续使用次数上限与退避。
+- 回归覆盖策略版本缺失/不匹配、永久详情错误不回退、过期索引行精确 JSON 兜底、永久轮询错误不重试。全量验证：`venv/bin/python -m unittest discover -s tests -p 'test_*.py'`，**469 tests OK**；`git diff --check` 通过。
+- 运维仍处于 20260515 单日隔离观察，不扩展迁移；5012 为保留服务，18 个其他旧日期仍在 active。详情见 `docs/current/implementation-status.md` 与 review 文档末尾的后续状态。

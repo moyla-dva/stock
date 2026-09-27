@@ -503,6 +503,30 @@ class ScanIndexStoreTest(unittest.TestCase):
         self.assertIsNone(candidates[0]["market_boost"])
         self.assertEqual(candidates[0]["market_context"], {})
 
+    def test_rank_context_projection_excludes_missing_or_different_strategy_versions(self):
+        candidates = rank_context_candidates(
+            {
+                "pools": {
+                    "opportunity": {
+                        "results": [
+                            {
+                                "code": "600001",
+                                "snapshot_strategy_version": SCAN_STRATEGY_VERSION,
+                            },
+                            {"code": "600002"},
+                            {
+                                "code": "600003",
+                                "snapshot_strategy_version": "legacy",
+                            },
+                        ],
+                    },
+                },
+            },
+            strategy_version=SCAN_STRATEGY_VERSION,
+        )
+
+        self.assertEqual([candidate["code"] for candidate in candidates], ["600001"])
+
     def test_rank_context_falls_back_after_candidate_reindex(self):
         self._write_snapshot(_snapshot())
         self.store.index_snapshot_files([self.snapshot_path], reset=True)
